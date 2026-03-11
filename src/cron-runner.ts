@@ -182,9 +182,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (!output) {
-    log(taskName, "WARN: empty output from Claude");
-    output = "(empty response)";
+  if (!output || output === "NO_REPLY" || output.trim() === "NO_REPLY") {
+    log(taskName, output ? "NO_REPLY — skipping delivery" : "WARN: empty output");
+    log(taskName, "DONE");
+    return;
   }
 
   // Deliver output to target chat
