@@ -1,0 +1,11 @@
+# Cron job definitions — loaded by cron-runner.ts
+# Full migration from OpenClaw gateway crons (Task 6 will populate all 33)
+
+crons:
+  - name: test-cron
+    schedule: "0 9 * * *"
+    prompt: "Say hello and report the current date."
+    agentId: main
+    deliveryChatId: 306600687
+    timeout: 60000
+    maxBudget: 0.50
