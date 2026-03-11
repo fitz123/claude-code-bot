@@ -14,7 +14,6 @@
   "type": "module",
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
-    "@grammyjs/stream": "^1.0.1",
     "grammy": "^1.41.1",
     "p-queue": "^9.1.0",
     "yaml": "^2.8.2"
