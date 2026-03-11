@@ -1,0 +1,57 @@
+# OpenClaw Telegram Bot Configuration
+
+telegramTokenService: telegram-bot-token
+
+agents:
+  main:
+    id: main
+    workspaceCwd: /Users/ninja/.openclaw/workspace
+    model: claude-opus-4-6
+    fallbackModel: claude-sonnet-4-6
+    maxTurns: 50
+
+  yulia:
+    id: yulia
+    workspaceCwd: /Users/ninja/.openclaw/workspace-yulia
+    model: claude-opus-4-6
+    fallbackModel: claude-sonnet-4-6
+    maxTurns: 50
+
+  anna:
+    id: anna
+    workspaceCwd: /Users/ninja/.openclaw/workspace-anna
+    model: claude-opus-4-6
+    fallbackModel: claude-sonnet-4-6
+    maxTurns: 50
+
+  cyber-architect:
+    id: cyber-architect
+    workspaceCwd: /Users/ninja/.openclaw/workspace-cyber-architect
+    model: claude-opus-4-6
+    fallbackModel: claude-sonnet-4-6
+    maxTurns: 50
+
+bindings:
+  - chatId: 306600687
+    agentId: main
+    kind: dm
+    label: Ninja DM
+
+  - chatId: 1320328600
+    agentId: yulia
+    kind: dm
+    label: Yulia DM
+
+  - chatId: 7418988410
+    agentId: anna
+    kind: dm
+    label: Anna DM
+
+  - chatId: -1003783997959
+    agentId: cyber-architect
+    kind: group
+    label: Cyber Architect Group
+
+sessionDefaults:
+  idleTimeoutMs: 900000
+  maxConcurrentSessions: 3
