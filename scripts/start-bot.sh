@@ -1,0 +1,28 @@
+#!/bin/bash
+# start-bot.sh — Launch the Telegram bot daemon
+# Called by launchd plist; must work from non-interactive shell context
+
+set -euo pipefail
+
+# Absolute paths — no $HOME, ~, or $USER (launchd context may not have them)
+export HOME="/Users/ninja"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# Claude Code CLI subprocess must NOT inherit CLAUDECODE
+unset CLAUDECODE
+
+# No API key — Max subscription via CLI OAuth
+unset ANTHROPIC_API_KEY
+
+# Claude Code subprocess environment
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
+export CLAUDE_CODE_DISABLE_CRON=1
+export CLAUDE_CODE_EXIT_AFTER_STOP_DELAY=900000
+export CLAUDE_CODE_SUBAGENT_MODEL=sonnet
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+
+BOT_DIR="/Users/ninja/.openclaw/bot"
+
+cd "$BOT_DIR"
+exec /opt/homebrew/bin/npx tsx src/main.ts
