@@ -255,7 +255,7 @@ export function createTelegramBot(
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
     } finally {
       if (tempPath) {
-        cleanupTempFile(tempPath);
+        await cleanupTempFile(tempPath);
       }
     }
   });

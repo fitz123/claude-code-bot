@@ -42,7 +42,7 @@ In `src/voice.ts`, add a `convertToWav()` function that runs ffmpeg to convert t
 
 Beads tickets: bot-0de, bot-xzt
 
-- [ ] Add convertToWav function using ffmpeg
-- [ ] Update transcribeAudio to convert before transcribing
-- [ ] Clean up intermediate WAV file
-- [ ] Update tests
+- [x] Add convertToWav function using ffmpeg
+- [x] Update transcribeAudio to convert before transcribing
+- [x] Clean up intermediate WAV file
+- [x] Update tests
