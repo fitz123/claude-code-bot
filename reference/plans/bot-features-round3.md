@@ -89,6 +89,6 @@ Allow binding a specific Telegram forum topic (thread) to an agent. The `topicId
 
 `resolveBinding()` in `telegram-bot.ts` currently matches only on `chatId` — it should also match `topicId` when set in the binding config. Session key is currently just `chatId` string — it should include topicId so each topic gets its own Claude session. grammY exposes topic as `ctx.msg.message_thread_id`.
 
-- [ ] Update binding resolution to match chatId + topicId
-- [ ] Update session key to include topicId
-- [ ] Update tests
+- [x] Update binding resolution to match chatId + topicId
+- [x] Update session key to include topicId
+- [x] Update tests

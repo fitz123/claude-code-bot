@@ -6,14 +6,34 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 
 /**
- * Resolve a Telegram chatId to its binding config.
- * For group chats, matches on chatId. For DMs, matches on chatId.
+ * Build a session key from chatId and optional topicId.
+ * Returns "chatId" or "chatId:topicId" when topicId is present.
+ */
+export function sessionKey(chatId: number | string, topicId?: number): string {
+  const base = String(chatId);
+  return topicId !== undefined ? `${base}:${topicId}` : base;
+}
+
+/**
+ * Resolve a Telegram chatId (and optional topicId) to its binding config.
+ * Bindings with topicId set only match when both chatId and topicId match.
+ * A chatId-only binding serves as a fallback when no topic-specific binding matches.
  */
 export function resolveBinding(
   chatId: number,
   bindings: TelegramBinding[],
+  topicId?: number,
 ): TelegramBinding | undefined {
-  return bindings.find((b) => b.chatId === chatId);
+  let fallback: TelegramBinding | undefined;
+  for (const b of bindings) {
+    if (b.chatId !== chatId) continue;
+    if (b.topicId !== undefined) {
+      if (b.topicId === topicId) return b; // exact topic match wins
+    } else {
+      fallback ??= b; // chatId-only binding as fallback
+    }
+  }
+  return fallback;
 }
 
 /**
@@ -59,7 +79,8 @@ export function createTelegramBot(
   // /start command
   bot.command("start", async (ctx) => {
     const chatId = ctx.chat.id;
-    const binding = resolveBinding(chatId, config.bindings);
+    const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
     const agent = config.agents[binding.agentId];
     await ctx.reply(
@@ -69,9 +90,10 @@ export function createTelegramBot(
 
   // /reset command — close current session, next message creates fresh
   bot.command("reset", async (ctx) => {
-    const chatId = String(ctx.chat.id);
-    messageQueue.clear(chatId);
-    await sessionManager.closeSession(chatId);
+    const topicId = ctx.message?.message_thread_id;
+    const key = sessionKey(ctx.chat.id, topicId);
+    messageQueue.clear(key);
+    await sessionManager.closeSession(key);
     await ctx.reply("Session reset. Next message starts a fresh conversation.");
   });
 
@@ -89,7 +111,8 @@ export function createTelegramBot(
       `Uptime: ${hours}h ${minutes}m`,
     ];
 
-    const health = sessionManager.getSessionHealth(String(ctx.chat.id));
+    const topicId = ctx.message?.message_thread_id;
+    const health = sessionManager.getSessionHealth(sessionKey(ctx.chat.id, topicId));
     if (health) {
       const status = health.alive ? "alive" : "dead";
       const pidStr = health.pid !== null ? String(health.pid) : "n/a";
@@ -121,7 +144,8 @@ export function createTelegramBot(
   // Handle text messages
   bot.on("message:text", async (ctx) => {
     const chatId = ctx.chat.id;
-    const binding = resolveBinding(chatId, config.bindings);
+    const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
     // Group chat: only respond if bot is mentioned or message is a reply to bot
@@ -143,12 +167,12 @@ export function createTelegramBot(
       }
     }
 
-    const chatIdStr = String(chatId);
+    const key = sessionKey(chatId, topicId);
     const messageText = ctx.message.text;
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
-    messageQueue.enqueue(chatIdStr, binding.agentId, messageText, ctx);
+    messageQueue.enqueue(key, binding.agentId, messageText, ctx);
   });
 
   // Global error handler
