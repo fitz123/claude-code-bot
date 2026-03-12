@@ -35,14 +35,19 @@ export async function downloadFile(url: string, destPath: string): Promise<void>
  */
 export async function convertToWav(inputPath: string): Promise<string> {
   const wavPath = tempFilePath("voice-wav", ".wav");
-  await execFileAsync(FFMPEG_BIN, [
-    "-i", inputPath,
-    "-ar", "16000",
-    "-ac", "1",
-    "-f", "wav",
-    wavPath,
-    "-y",
-  ], { timeout: 30_000 });
+  try {
+    await execFileAsync(FFMPEG_BIN, [
+      "-i", inputPath,
+      "-ar", "16000",
+      "-ac", "1",
+      "-f", "wav",
+      wavPath,
+      "-y",
+    ], { timeout: 30_000 });
+  } catch (err) {
+    await cleanupTempFile(wavPath);
+    throw err;
+  }
   return wavPath;
 }
 

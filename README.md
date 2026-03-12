@@ -173,8 +173,9 @@ Commands are auto-registered with the Telegram Bot API via `setMyCommands` on st
 ### Voice transcription requirements
 
 Voice transcription requires:
+- `ffmpeg` installed at `/opt/homebrew/bin/ffmpeg` (converts Opus-in-OGG to WAV)
 - `whisper-cli` installed at `/opt/homebrew/bin/whisper-cli`
-- Whisper model at `/opt/homebrew/share/ggml-small.bin`
+- Whisper model at `/opt/homebrew/share/whisper-cpp/ggml-small.bin`
 
 ### Common issues
 
