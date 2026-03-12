@@ -35,8 +35,8 @@ Investigate `stream-relay.ts` and `cli-protocol.ts` — how `extractText()` accu
 
 Investigate how `queue.add()` interacts with the async generator pattern and why lines are yielded only after the full response completes.
 
-- [ ] Make response lines yield in real-time
-- [ ] Update tests in `src/__tests__/session-manager.test.ts`
+- [x] Make response lines yield in real-time
+- [x] Update tests in `src/__tests__/session-manager.test.ts`
 
 ### Task 3: Handle EPIPE from dead subprocess
 

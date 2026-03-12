@@ -121,34 +121,71 @@ export class SessionManager {
   ): AsyncGenerator<StreamLine> {
     const session = await this.getOrCreateSession(chatId, agentId);
 
-    // Queue the message (concurrency=1 per session)
-    const lines: StreamLine[] = [];
-    await session.queue.add(async () => {
-      sendMessage(session.child, text, session.sessionId);
-      session.lastActivity = Date.now();
-      this.resetIdleTimer(chatId);
+    // Async channel: queue task pushes lines, generator yields them in real-time
+    const buffer: StreamLine[] = [];
+    let notify: (() => void) | null = null;
+    let done = false;
+    let taskError: Error | null = null;
 
-      // Update store with new activity time
-      this.store.setSession(chatId, {
-        sessionId: session.sessionId,
-        chatId,
-        agentId,
-        lastActivity: session.lastActivity,
-      });
+    const push = (line: StreamLine) => {
+      buffer.push(line);
+      if (notify) {
+        notify();
+        notify = null;
+      }
+    };
 
-      // Read response lines until we get a result
-      const stream = readStream(session.child);
-      for await (const line of stream) {
-        lines.push(line);
-        if (line.type === "result") {
-          break;
+    const finish = (err?: Error) => {
+      if (err) taskError = err;
+      done = true;
+      if (notify) {
+        notify();
+        notify = null;
+      }
+    };
+
+    // Start the queue task — do NOT await, so we can yield concurrently
+    const taskPromise = session.queue.add(async () => {
+      try {
+        sendMessage(session.child, text, session.sessionId);
+        session.lastActivity = Date.now();
+        this.resetIdleTimer(chatId);
+
+        // Update store with new activity time
+        this.store.setSession(chatId, {
+          sessionId: session.sessionId,
+          chatId,
+          agentId,
+          lastActivity: session.lastActivity,
+        });
+
+        // Read response lines until we get a result
+        const stream = readStream(session.child);
+        for await (const line of stream) {
+          push(line);
+          if (line.type === "result") {
+            break;
+          }
         }
+        finish();
+      } catch (err) {
+        finish(err instanceof Error ? err : new Error(String(err)));
       }
     });
 
-    // Yield collected lines
-    for (const line of lines) {
-      yield line;
+    // Yield lines as they arrive from the queue task
+    try {
+      while (true) {
+        while (buffer.length > 0) {
+          yield buffer.shift()!;
+        }
+        if (done) break;
+        await new Promise<void>((r) => { notify = r; });
+      }
+      if (taskError) throw taskError;
+    } finally {
+      // Ensure queue bookkeeping completes even if consumer stops early
+      await taskPromise;
     }
   }
 
