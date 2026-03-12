@@ -220,8 +220,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
     setTimeout(() => {
       stdout.push(
         JSON.stringify({
-          type: "assistant",
-          subtype: "stream_event",
+          type: "stream_event",
           event: { delta: { type: "text_delta", text: "Hello" } },
         }) + "\n"
       );
@@ -232,7 +231,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
     // because no lines were yielded until queue.add() fully resolved.
     const first = await gen.next();
     assert.ok(!first.done, "generator should not be done after first line");
-    assert.strictEqual(first.value.type, "assistant");
+    assert.strictEqual(first.value.type, "stream_event");
 
     // Now push the result — proves first line was streamed in real-time
     stdout.push(
@@ -344,8 +343,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
     setTimeout(() => {
       stdout.push(
         JSON.stringify({
-          type: "assistant",
-          subtype: "stream_event",
+          type: "stream_event",
           event: { delta: { type: "text_delta", text: "partial" } },
         }) + "\n"
       );

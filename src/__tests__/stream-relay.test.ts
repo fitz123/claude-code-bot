@@ -71,8 +71,7 @@ describe("splitMessage", () => {
 describe("extractText", () => {
   it("extracts text_delta from stream_event", () => {
     const msg: StreamEvent = {
-      type: "assistant",
-      subtype: "stream_event",
+      type: "stream_event",
       event: {
         delta: { type: "text_delta", text: "Hello" },
       },
@@ -134,8 +133,7 @@ describe("extractText", () => {
 
   it("handles stream_event without text delta", () => {
     const msg: StreamEvent = {
-      type: "assistant",
-      subtype: "stream_event",
+      type: "stream_event",
       event: {
         delta: { type: "input_json_delta" },
       },
@@ -151,8 +149,8 @@ describe("extractText", () => {
     // 2. assistant message snapshot (full text)
     // 3. result message (full text again)
     const events: StreamLine[] = [
-      { type: "assistant", subtype: "stream_event", event: { delta: { type: "text_delta", text: "Hello" } } } as StreamEvent,
-      { type: "assistant", subtype: "stream_event", event: { delta: { type: "text_delta", text: " world" } } } as StreamEvent,
+      { type: "stream_event", event: { delta: { type: "text_delta", text: "Hello" } } } as StreamEvent,
+      { type: "stream_event", event: { delta: { type: "text_delta", text: " world" } } } as StreamEvent,
       { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Hello world" }] }, session_id: "s" } as AssistantMessage,
       { type: "result", result: "Hello world", session_id: "s" } as ResultMessage,
     ];
