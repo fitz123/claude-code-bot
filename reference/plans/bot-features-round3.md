@@ -80,8 +80,8 @@ The `/status` command should show real subprocess state so the user can tell if 
 
 Add: subprocess PID, whether the process is alive, current response duration if processing, last successful response timestamp, subprocess restart count.
 
-- [ ] Add subprocess health info to /status output
-- [ ] Update tests
+- [x] Add subprocess health info to /status output
+- [x] Update tests
 
 ### Task 4: Per-topic bindings for forum supergroups (bot-h7j, P3)
 
