@@ -86,7 +86,10 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
 }
 
 function validateTopics(raw: unknown, bindingIndex: number): TopicOverride[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error(`Binding[${bindingIndex}].topics must be an array`);
+  }
   return raw.map((t, i) => {
     if (typeof t !== "object" || t === null) {
       throw new Error(`Binding[${bindingIndex}].topics[${i}] must be an object`);

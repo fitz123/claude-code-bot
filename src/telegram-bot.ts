@@ -131,8 +131,9 @@ export function shouldRespondInGroup(
   const text = message.text ?? message.caption ?? "";
   const entities = message.entities ?? message.caption_entities ?? [];
   const mention = `@${botUsername}`;
+  const mentionPattern = new RegExp(`(?<!\\w)@${botUsername}(?![a-zA-Z0-9_])`);
   if (
-    text.includes(mention) ||
+    mentionPattern.test(text) ||
     entities.some(
       (e) =>
         e.type === "mention" &&
