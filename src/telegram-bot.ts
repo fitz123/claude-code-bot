@@ -65,8 +65,9 @@ export function resolveBinding(
   if (fallback && topicId !== undefined && fallback.topics) {
     const topic = fallback.topics.find((t) => t.topicId === topicId);
     if (topic) {
+      const { topics: _, ...base } = fallback;
       return {
-        ...fallback,
+        ...base,
         agentId: topic.agentId ?? fallback.agentId,
         requireMention: topic.requireMention ?? fallback.requireMention,
         topicId,
@@ -93,9 +94,10 @@ export function buildSourcePrefix(
   }
 
   if (from) {
+    const name = from.first_name.replace(/[\n\r]/g, " ");
     const sender = from.username
-      ? `${from.first_name} (@${from.username})`
-      : from.first_name;
+      ? `${name} (@${from.username.replace(/[\n\r]/g, "")})`
+      : name;
     parts.push(`From: ${sender}`);
   }
 

@@ -374,6 +374,11 @@ describe("shouldRespondInGroup", () => {
     assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
   });
 
+  it("returns true when bot is @mentioned in text without entities", () => {
+    const msg = { text: "hey @testbot help me" };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+  });
+
   it("returns true for group with explicit requireMention: true and reply to bot", () => {
     const explicit: TelegramBinding = { ...groupBinding, requireMention: true };
     const msg = { reply_to_message: { from: { id: botId } } };
@@ -382,21 +387,6 @@ describe("shouldRespondInGroup", () => {
 });
 
 describe("voiceTranscriptEcho config", () => {
-  it("defaults to undefined (treated as true by voice handler)", () => {
-    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
-    assert.strictEqual(binding.voiceTranscriptEcho, undefined);
-  });
-
-  it("can be set to false to suppress echo", () => {
-    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", voiceTranscriptEcho: false };
-    assert.strictEqual(binding.voiceTranscriptEcho, false);
-  });
-
-  it("can be set to true explicitly", () => {
-    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", voiceTranscriptEcho: true };
-    assert.strictEqual(binding.voiceTranscriptEcho, true);
-  });
-
   it("is preserved through resolveBinding", () => {
     const bindings: TelegramBinding[] = [
       { chatId: 100, agentId: "main", kind: "dm", voiceTranscriptEcho: false },

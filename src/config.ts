@@ -63,7 +63,13 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
   if (typeof obj.agentId !== "string") {
     throw new Error(`Binding[${index}] missing agentId`);
   }
-  const kind = obj.kind === "group" ? "group" as const : "dm" as const;
+  if (obj.kind !== "dm" && obj.kind !== "group") {
+    throw new Error(`Binding[${index}] has invalid kind "${String(obj.kind)}" (must be "dm" or "group")`);
+  }
+  const kind = obj.kind;
+  if (obj.topics !== undefined && kind !== "group") {
+    throw new Error(`Binding[${index}] has topics but kind is "${kind}" (topics are only valid for groups)`);
+  }
   return {
     chatId: obj.chatId,
     agentId: obj.agentId,
