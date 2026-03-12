@@ -53,6 +53,7 @@ function createMockChild(initSessionId: string = "mock-session-id"): ChildProces
     stdin: stdinStream,
     pid: Math.floor(Math.random() * 100000),
     exitCode: null,
+    signalCode: null,
     killed: false,
     kill(signal?: string) {
       (child as unknown as Record<string, unknown>).killed = true;
@@ -189,6 +190,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       stdout, stderr, stdin,
       pid: 12345,
       exitCode: null,
+      signalCode: null,
       killed: false,
       kill(signal?: string) {
         (child as unknown as Record<string, unknown>).killed = true;
@@ -266,6 +268,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       stdout, stderr, stdin,
       pid: 12346,
       exitCode: null,
+      signalCode: null,
       killed: false,
       kill(signal?: string) {
         (child as unknown as Record<string, unknown>).killed = true;
@@ -313,6 +316,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       stdout, stderr, stdin,
       pid: 12347,
       exitCode: null,
+      signalCode: null,
       killed: false,
       kill(signal?: string) {
         (child as unknown as Record<string, unknown>).killed = true;
@@ -384,6 +388,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       stdout, stderr, stdin,
       pid: 12348,
       exitCode: null,
+      signalCode: null,
       killed: false,
       kill(signal?: string) {
         (child as unknown as Record<string, unknown>).killed = true;

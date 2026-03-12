@@ -8,6 +8,12 @@ import { SessionStore } from "./session-store.js";
 
 const LOG_DIR = "/Users/user/.openclaw/logs";
 const STARTUP_TIMEOUT_MS = 10_000;
+const RESPONSE_ACTIVITY_TIMEOUT_MS = 300_000; // 5 minutes with no events = hung
+
+/** Check whether a child process has exited (by exit code or signal). */
+function hasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
 
 export interface ActiveSession {
   child: ChildProcess;
@@ -82,14 +88,25 @@ export class SessionManager {
   async getOrCreateSession(chatId: string, agentId: string): Promise<ActiveSession> {
     // Check if session is active in memory
     const existing = this.active.get(chatId);
-    if (existing && existing.child.exitCode === null && !existing.child.killed) {
+    if (existing && !hasExited(existing.child) && !existing.child.killed) {
       existing.lastActivity = Date.now();
       this.resetIdleTimer(chatId);
       return existing;
     }
 
-    // If we had an active entry but child is dead, clean it up
+    // If we had an active entry but child is dead/dying, clean it up
     if (existing) {
+      // Clear idle timer to prevent it from closing the new session
+      if (existing.idleTimer) {
+        clearTimeout(existing.idleTimer);
+        existing.idleTimer = null;
+      }
+      // Ensure the child is actually dead before discarding the session;
+      // a SIGTERM may have been sent (child.killed=true) but the process
+      // could still be running if it ignored the signal.
+      if (!hasExited(existing.child)) {
+        existing.child.kill("SIGKILL");
+      }
       this.active.delete(chatId);
     }
 
@@ -119,7 +136,7 @@ export class SessionManager {
       await waitForSpawn(child, STARTUP_TIMEOUT_MS);
     } catch (err) {
       // Ensure child is dead before throwing
-      if (child.exitCode === null && !child.killed) {
+      if (!hasExited(child) && !child.killed) {
         child.kill("SIGKILL");
       }
       throw err;
@@ -198,6 +215,17 @@ export class SessionManager {
 
     // Start the queue task — do NOT await, so we can yield concurrently
     const taskPromise = session.queue.add(async () => {
+      let activityTimer: ReturnType<typeof setTimeout> | null = null;
+      let killEscalationTimer: ReturnType<typeof setTimeout> | null = null;
+      const clearActivityTimers = () => {
+        if (activityTimer) { clearTimeout(activityTimer); activityTimer = null; }
+        // Only cancel the SIGKILL escalation if the child has already exited;
+        // if SIGTERM was sent and the child is still alive, let escalation
+        // complete to avoid orphaning the process.
+        if (killEscalationTimer && hasExited(session.child)) {
+          clearTimeout(killEscalationTimer); killEscalationTimer = null;
+        }
+      };
       try {
         sendMessage(session.child, text, session.sessionId);
         session.lastActivity = Date.now();
@@ -211,22 +239,50 @@ export class SessionManager {
           lastActivity: session.lastActivity,
         });
 
-        // Read response lines until we get a result
+        // Read response lines until we get a result.
+        // Activity timeout: if no events arrive for RESPONSE_ACTIVITY_TIMEOUT_MS,
+        // kill the subprocess to unstick the queue (handles hung processes).
         let gotResult = false;
+        const resetActivityTimer = () => {
+          // Only reset the activity timer; never cancel a pending SIGKILL escalation.
+          // Once we've decided to kill the process, the escalation must complete.
+          if (activityTimer) { clearTimeout(activityTimer); activityTimer = null; }
+          activityTimer = setTimeout(() => {
+            if (!hasExited(session.child)) {
+              console.error(`[session-manager] Response activity timeout for chat ${chatId} — killing subprocess`);
+              if (!session.child.killed) {
+                session.child.kill("SIGTERM");
+              }
+              // Escalate to SIGKILL if SIGTERM doesn't terminate within 5s
+              if (!killEscalationTimer) {
+                killEscalationTimer = setTimeout(() => {
+                  if (!hasExited(session.child)) {
+                    console.error(`[session-manager] Subprocess ignored SIGTERM for chat ${chatId} — sending SIGKILL`);
+                    session.child.kill("SIGKILL");
+                  }
+                }, 5000);
+              }
+            }
+          }, RESPONSE_ACTIVITY_TIMEOUT_MS);
+        };
+        resetActivityTimer();
         const stream = readStream(session.child);
         for await (const line of stream) {
+          resetActivityTimer();
           push(line);
           if (line.type === "result") {
             gotResult = true;
             break;
           }
         }
+        clearActivityTimers();
         if (!gotResult) {
           finish(new Error("Claude subprocess exited before sending a result"));
           return;
         }
         finish();
       } catch (err) {
+        clearActivityTimers();
         finish(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -282,14 +338,16 @@ export class SessionManager {
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
 
-    // Gracefully terminate
-    if (session.child.exitCode === null && !session.child.killed) {
-      session.child.kill("SIGTERM");
+    // Gracefully terminate (even if SIGTERM was already sent elsewhere)
+    if (!hasExited(session.child)) {
+      if (!session.child.killed) {
+        session.child.kill("SIGTERM");
+      }
 
       // Wait up to 5s for graceful exit, then SIGKILL
       await new Promise<void>((resolve) => {
         const killTimer = setTimeout(() => {
-          if (session.child.exitCode === null && !session.child.killed) {
+          if (!hasExited(session.child)) {
             session.child.kill("SIGKILL");
           }
           resolve();
