@@ -96,6 +96,8 @@ export function createTelegramBot(
   // /reset command — close current session, next message creates fresh
   bot.command("reset", async (ctx) => {
     const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
+    if (!binding) return;
     const key = sessionKey(ctx.chat.id, topicId);
     messageQueue.clear(key);
     await sessionManager.closeSession(key);
@@ -104,6 +106,9 @@ export function createTelegramBot(
 
   // /status command — active sessions, memory, uptime, subprocess health
   bot.command("status", async (ctx) => {
+    const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
+    if (!binding) return;
     const activeCount = sessionManager.getActiveCount();
     const memUsage = process.memoryUsage();
     const uptimeSeconds = Math.floor(process.uptime());
@@ -116,7 +121,6 @@ export function createTelegramBot(
       `Uptime: ${hours}h ${minutes}m`,
     ];
 
-    const topicId = ctx.message?.message_thread_id;
     const health = sessionManager.getSessionHealth(sessionKey(ctx.chat.id, topicId));
     if (health) {
       const status = health.alive ? "alive" : "dead";

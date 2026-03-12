@@ -162,6 +162,9 @@ export class MessageQueue {
 
     // Drain collect buffer if messages arrived during processing
     await this.drainCollectBuffer(chatId);
+
+    // Evict idle state to prevent unbounded memory growth from stale entries
+    this.evictIfIdle(chatId);
   }
 
   private async drainCollectBuffer(chatId: string): Promise<void> {
@@ -232,5 +235,19 @@ export class MessageQueue {
       }
     }
     this.queues.clear();
+  }
+
+  /** Remove idle queue state to free memory (Context refs, etc). */
+  private evictIfIdle(chatId: string): void {
+    const state = this.queues.get(chatId);
+    if (
+      state &&
+      !state.busy &&
+      state.pendingTexts.length === 0 &&
+      state.collectBuffer.length === 0 &&
+      !state.debounceTimer
+    ) {
+      this.queues.delete(chatId);
+    }
   }
 }

@@ -84,6 +84,8 @@ export function waitForSpawn(child: ChildProcess, timeoutMs: number = STARTUP_TI
 
 export class SessionManager {
   private active: Map<string, ActiveSession> = new Map();
+  /** Restart counts survive crash recovery (active.delete) so they accumulate. */
+  private restartCounts: Map<string, number> = new Map();
   private store: SessionStore;
   private agents: Record<string, AgentConfig>;
   private idleTimeoutMs: number;
@@ -115,9 +117,7 @@ export class SessionManager {
     }
 
     // If we had an active entry but child is dead/dying, clean it up
-    let previousRestartCount = 0;
     if (existing) {
-      previousRestartCount = existing.restartCount;
       // Clear idle timer to prevent it from closing the new session
       if (existing.idleTimer) {
         clearTimeout(existing.idleTimer);
@@ -172,6 +172,12 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
+    // Restart count accumulates across crash recoveries via a separate map
+    // that survives active.delete() in setupCrashRecovery.
+    const prevCount = this.restartCounts.get(chatId) ?? 0;
+    const restartCount = (existing || resume) ? prevCount + 1 : 0;
+    this.restartCounts.set(chatId, restartCount);
+
     const session: ActiveSession = {
       child,
       sessionId,
@@ -181,7 +187,7 @@ export class SessionManager {
       lastActivity: Date.now(),
       processingStartedAt: null,
       lastSuccessAt: null,
-      restartCount: (existing || resume) ? previousRestartCount + 1 : 0,
+      restartCount,
     };
 
     this.active.set(chatId, session);
@@ -366,6 +372,9 @@ export class SessionManager {
 
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
+
+    // Clean up restart count — session lifecycle is complete
+    this.restartCounts.delete(chatId);
 
     // Gracefully terminate (even if SIGTERM was already sent elsewhere)
     if (!hasExited(session.child)) {
