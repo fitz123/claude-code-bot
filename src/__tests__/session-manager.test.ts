@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { Readable, Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
+import { waitForSpawn } from "../session-manager.js";
 
 const TEST_DIR = "/tmp/openclaw-test-session-manager";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -417,5 +418,91 @@ describe("SessionManager sendSessionMessage streaming", () => {
     }, /subprocess exited before sending a result/);
 
     await manager.closeAll();
+  });
+});
+
+describe("waitForSpawn", () => {
+  it("resolves when child emits 'spawn'", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { pid: 1, exitCode: null, killed: false });
+
+    setTimeout(() => child.emit("spawn"), 10);
+
+    await waitForSpawn(child, 1000);
+    // No error = success
+  });
+
+  it("rejects when child emits 'error' (e.g. ENOENT)", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { pid: undefined, exitCode: null, killed: false });
+
+    setTimeout(() => {
+      const err = new Error("spawn claude ENOENT") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      child.emit("error", err);
+    }, 10);
+
+    await assert.rejects(
+      () => waitForSpawn(child, 1000),
+      /Claude subprocess failed to start: spawn claude ENOENT/
+    );
+  });
+
+  it("rejects when child exits immediately (e.g. auth failure)", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { pid: 1, exitCode: null, killed: false });
+
+    setTimeout(() => child.emit("exit", 1, null), 10);
+
+    await assert.rejects(
+      () => waitForSpawn(child, 1000),
+      /Claude subprocess exited during startup: code=1 signal=null/
+    );
+  });
+
+  it("rejects on timeout and kills the child", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    let killed = false;
+    Object.assign(child, {
+      pid: 1,
+      exitCode: null,
+      killed: false,
+      kill(signal?: string) {
+        killed = true;
+        (child as unknown as Record<string, unknown>).killed = true;
+        return true;
+      },
+    });
+
+    await assert.rejects(
+      () => waitForSpawn(child, 50),
+      /Claude subprocess did not start within 50ms/
+    );
+    assert.ok(killed, "child should have been killed on timeout");
+  });
+
+  it("cleans up listeners after resolving", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { pid: 1, exitCode: null, killed: false });
+
+    setTimeout(() => child.emit("spawn"), 10);
+    await waitForSpawn(child, 1000);
+
+    assert.strictEqual(child.listenerCount("spawn"), 0);
+    assert.strictEqual(child.listenerCount("error"), 0);
+    assert.strictEqual(child.listenerCount("exit"), 0);
+  });
+
+  it("cleans up listeners after rejecting", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { pid: 1, exitCode: null, killed: false });
+
+    setTimeout(() => child.emit("exit", 1, null), 10);
+
+    await assert.rejects(() => waitForSpawn(child, 1000));
+
+    assert.strictEqual(child.listenerCount("spawn"), 0);
+    assert.strictEqual(child.listenerCount("error"), 0);
+    assert.strictEqual(child.listenerCount("exit"), 0);
   });
 });
