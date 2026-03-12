@@ -17,6 +17,11 @@ bindings:
     kind: dm
     label: Ninja DM
 
+  - chatId: -1003894624477
+    agentId: main
+    kind: group
+    label: Minime HQ
+
 sessionDefaults:
   idleTimeoutMs: 14400000 # 4hrs
   maxConcurrentSessions: 3
