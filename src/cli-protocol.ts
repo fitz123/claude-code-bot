@@ -3,7 +3,6 @@ import { createInterface } from "node:readline";
 import type {
   StreamLine,
   StreamMessageUser,
-  SystemInit,
   AgentConfig,
 } from "./types.js";
 
@@ -140,24 +139,7 @@ export function parseStreamLine(line: string): StreamLine | null {
   }
 
   try {
-    const parsed = JSON.parse(trimmed);
-
-    // system/init
-    if (parsed.type === "system" && parsed.subtype === "init") {
-      return parsed as SystemInit;
-    }
-
-    // result
-    if (parsed.type === "result") {
-      return parsed;
-    }
-
-    // assistant subtypes
-    if (parsed.type === "assistant") {
-      return parsed;
-    }
-
-    return parsed;
+    return JSON.parse(trimmed);
   } catch {
     return null;
   }
@@ -198,33 +180,3 @@ export function extractTextDelta(msg: StreamLine): string | null {
   return null;
 }
 
-/**
- * Extract full text from an assistant message.
- */
-export function extractAssistantText(msg: StreamLine): string | null {
-  if (
-    msg.type === "assistant" &&
-    !("subtype" in msg && msg.subtype) &&
-    "message" in msg
-  ) {
-    const assistantMsg = msg as { message?: { content?: Array<{ type: string; text?: string }> } };
-    const parts = assistantMsg.message?.content;
-    if (Array.isArray(parts)) {
-      return parts
-        .filter((p) => p.type === "text" && p.text)
-        .map((p) => p.text!)
-        .join("");
-    }
-  }
-  return null;
-}
-
-/**
- * Extract result text from a result message.
- */
-export function extractResultText(msg: StreamLine): string | null {
-  if (msg.type === "result" && "result" in msg) {
-    return (msg as { result: string }).result;
-  }
-  return null;
-}

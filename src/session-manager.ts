@@ -133,11 +133,9 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
-    const resolvedSessionId = sessionId;
-
     const session: ActiveSession = {
       child,
-      sessionId: resolvedSessionId,
+      sessionId,
       agentId,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
@@ -148,7 +146,7 @@ export class SessionManager {
 
     // Persist to store
     this.store.setSession(chatId, {
-      sessionId: resolvedSessionId,
+      sessionId,
       chatId,
       agentId,
       lastActivity: session.lastActivity,

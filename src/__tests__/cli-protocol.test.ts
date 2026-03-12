@@ -10,8 +10,6 @@ import {
   sendMessage,
   parseStreamLine,
   extractTextDelta,
-  extractAssistantText,
-  extractResultText,
 } from "../cli-protocol.js";
 import type { AgentConfig } from "../types.js";
 
@@ -179,43 +177,6 @@ describe("extractTextDelta", () => {
   it("returns null for non-stream-event", () => {
     const msg = parseStreamLine('{"type":"result","result":"done","session_id":"x"}')!;
     assert.strictEqual(extractTextDelta(msg), null);
-  });
-});
-
-describe("extractAssistantText", () => {
-  it("extracts text from assistant message", () => {
-    const msg = parseStreamLine(
-      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello there"}]},"session_id":"x"}'
-    )!;
-    assert.strictEqual(extractAssistantText(msg), "Hello there");
-  });
-
-  it("joins multiple text blocks", () => {
-    const msg = parseStreamLine(
-      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello "},{"type":"text","text":"world"}]},"session_id":"x"}'
-    )!;
-    assert.strictEqual(extractAssistantText(msg), "Hello world");
-  });
-
-  it("returns null for stream_event", () => {
-    const msg = parseStreamLine(
-      '{"type":"assistant","subtype":"stream_event","event":{}}'
-    )!;
-    assert.strictEqual(extractAssistantText(msg), null);
-  });
-});
-
-describe("extractResultText", () => {
-  it("extracts result text", () => {
-    const msg = parseStreamLine(
-      '{"type":"result","result":"Final answer","session_id":"x"}'
-    )!;
-    assert.strictEqual(extractResultText(msg), "Final answer");
-  });
-
-  it("returns null for non-result", () => {
-    const msg = parseStreamLine('{"type":"system","subtype":"init","session_id":"x"}')!;
-    assert.strictEqual(extractResultText(msg), null);
   });
 });
 
