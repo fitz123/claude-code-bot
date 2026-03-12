@@ -52,8 +52,8 @@ Investigate error propagation path from `sendMessage()` through the session mana
 
 `getOrCreateSession` spawns Claude CLI but never verifies it started successfully. If Claude hangs (auth, network), the session is stuck forever.
 
-- [ ] Add startup verification with timeout
-- [ ] Update tests
+- [x] Add startup verification with timeout
+- [x] Update tests
 
 ### Task 5: Clean up dead waitForInit code
 

@@ -7,6 +7,7 @@ import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
 
 const LOG_DIR = "/Users/ninja/.openclaw/logs";
+const STARTUP_TIMEOUT_MS = 10_000;
 
 export interface ActiveSession {
   child: ChildProcess;
@@ -15,6 +16,46 @@ export interface ActiveSession {
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
   lastActivity: number;
+}
+
+/**
+ * Wait for a child process to emit 'spawn' (successful start).
+ * Rejects if the process emits 'error', exits early, or times out.
+ */
+export function waitForSpawn(child: ChildProcess, timeoutMs: number = STARTUP_TIMEOUT_MS): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      removeListeners();
+      child.kill("SIGKILL");
+      reject(new Error(`Claude subprocess did not start within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    function removeListeners() {
+      clearTimeout(timer);
+      child.removeListener("spawn", onSpawn);
+      child.removeListener("error", onError);
+      child.removeListener("exit", onExit);
+    }
+
+    function onSpawn() {
+      removeListeners();
+      resolve();
+    }
+
+    function onError(err: Error) {
+      removeListeners();
+      reject(new Error(`Claude subprocess failed to start: ${err.message}`));
+    }
+
+    function onExit(code: number | null, signal: string | null) {
+      removeListeners();
+      reject(new Error(`Claude subprocess exited during startup: code=${code} signal=${signal}`));
+    }
+
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+    child.once("exit", onExit);
+  });
 }
 
 export class SessionManager {
@@ -72,6 +113,17 @@ export class SessionManager {
       resume,
       includePartialMessages: true,
     });
+
+    // Verify the subprocess actually started
+    try {
+      await waitForSpawn(child, STARTUP_TIMEOUT_MS);
+    } catch (err) {
+      // Ensure child is dead before throwing
+      if (child.exitCode === null && !child.killed) {
+        child.kill("SIGKILL");
+      }
+      throw err;
+    }
 
     // Prevent EPIPE from becoming uncaughtException when subprocess dies
     child.stdin?.on("error", (err) => {
