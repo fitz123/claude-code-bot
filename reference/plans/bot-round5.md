@@ -113,6 +113,6 @@ Options to consider:
 
 The echo reply is at `telegram-bot.ts` line ~249: `ctx.reply(\`📝 "\${transcript}"\`)`
 
-- [ ] Add echo transcript config option
-- [ ] Apply to voice handler
-- [ ] Update tests
+- [x] Add echo transcript config option
+- [x] Apply to voice handler
+- [x] Update tests

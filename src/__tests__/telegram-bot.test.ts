@@ -380,3 +380,45 @@ describe("shouldRespondInGroup", () => {
     assert.strictEqual(shouldRespondInGroup(explicit, botId, botUsername, msg), true);
   });
 });
+
+describe("voiceTranscriptEcho config", () => {
+  it("defaults to undefined (treated as true by voice handler)", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
+    assert.strictEqual(binding.voiceTranscriptEcho, undefined);
+  });
+
+  it("can be set to false to suppress echo", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", voiceTranscriptEcho: false };
+    assert.strictEqual(binding.voiceTranscriptEcho, false);
+  });
+
+  it("can be set to true explicitly", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", voiceTranscriptEcho: true };
+    assert.strictEqual(binding.voiceTranscriptEcho, true);
+  });
+
+  it("is preserved through resolveBinding", () => {
+    const bindings: TelegramBinding[] = [
+      { chatId: 100, agentId: "main", kind: "dm", voiceTranscriptEcho: false },
+    ];
+    const binding = resolveBinding(100, bindings);
+    assert.ok(binding);
+    assert.strictEqual(binding.voiceTranscriptEcho, false);
+  });
+
+  it("is preserved through resolveBinding with topic override", () => {
+    const bindings: TelegramBinding[] = [
+      {
+        chatId: -200,
+        agentId: "main",
+        kind: "group",
+        voiceTranscriptEcho: false,
+        topics: [{ topicId: 10, agentId: "finance" }],
+      },
+    ];
+    const binding = resolveBinding(-200, bindings, 10);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "finance");
+    assert.strictEqual(binding.voiceTranscriptEcho, false);
+  });
+});
