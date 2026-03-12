@@ -1,7 +1,7 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync, rmSync, readFileSync } from "node:fs";
-import { tempFilePath, downloadFile, cleanupTempFile, transcribeAudio, WHISPER_BIN, WHISPER_MODEL } from "../voice.js";
+import { tempFilePath, downloadFile, cleanupTempFile, transcribeAudio, convertToWav, FFMPEG_BIN, WHISPER_BIN, WHISPER_MODEL } from "../voice.js";
 
 describe("tempFilePath", () => {
   it("generates path with correct prefix and extension", () => {
@@ -84,10 +84,26 @@ describe("downloadFile", () => {
   });
 });
 
+describe("convertToWav", () => {
+  it("exports correct ffmpeg path", () => {
+    assert.strictEqual(FFMPEG_BIN, "/opt/homebrew/bin/ffmpeg");
+  });
+
+  it("rejects when given a nonexistent input file", async () => {
+    await assert.rejects(
+      () => convertToWav("/tmp/openclaw-nonexistent-audio-99999.oga"),
+      (err: Error) => {
+        assert.ok(err instanceof Error);
+        return true;
+      },
+    );
+  });
+});
+
 describe("transcribeAudio", () => {
   it("exports correct whisper-cli paths", () => {
     assert.strictEqual(WHISPER_BIN, "/opt/homebrew/bin/whisper-cli");
-    assert.strictEqual(WHISPER_MODEL, "/opt/homebrew/share/ggml-small.bin");
+    assert.strictEqual(WHISPER_MODEL, "/opt/homebrew/share/whisper-cpp/ggml-small.bin");
   });
 
   it("rejects when given a nonexistent audio file", async () => {

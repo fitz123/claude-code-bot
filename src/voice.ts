@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFileCb);
 
+export const FFMPEG_BIN = "/opt/homebrew/bin/ffmpeg";
 export const WHISPER_BIN = "/opt/homebrew/bin/whisper-cli";
 export const WHISPER_MODEL = "/opt/homebrew/share/whisper-cpp/ggml-small.bin";
 
@@ -29,16 +30,39 @@ export async function downloadFile(url: string, destPath: string): Promise<void>
 }
 
 /**
+ * Convert an audio file to 16kHz mono WAV using ffmpeg.
+ * Returns the path to the generated WAV file.
+ */
+export async function convertToWav(inputPath: string): Promise<string> {
+  const wavPath = tempFilePath("voice-wav", ".wav");
+  await execFileAsync(FFMPEG_BIN, [
+    "-i", inputPath,
+    "-ar", "16000",
+    "-ac", "1",
+    "-f", "wav",
+    wavPath,
+    "-y",
+  ], { timeout: 30_000 });
+  return wavPath;
+}
+
+/**
  * Transcribe an audio file using local whisper-cli.
+ * Converts to WAV first since whisper-cli cannot decode Opus-in-OGG directly.
  */
 export async function transcribeAudio(filePath: string): Promise<string> {
-  const { stdout } = await execFileAsync(WHISPER_BIN, [
-    "-m", WHISPER_MODEL,
-    "-f", filePath,
-    "--no-timestamps",
-    "--no-prints",
-  ], { timeout: 120_000 });
-  return stdout.trim();
+  const wavPath = await convertToWav(filePath);
+  try {
+    const { stdout } = await execFileAsync(WHISPER_BIN, [
+      "-m", WHISPER_MODEL,
+      "-f", wavPath,
+      "--no-timestamps",
+      "--no-prints",
+    ], { timeout: 120_000 });
+    return stdout.trim();
+  } finally {
+    await cleanupTempFile(wavPath);
+  }
 }
 
 /**
