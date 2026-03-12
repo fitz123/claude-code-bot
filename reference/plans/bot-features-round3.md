@@ -70,9 +70,9 @@ Reference implementation: OpenClaw `~/minime/openclaw/src/auto-reply/reply/queue
 
 Previous ralphex round attempted to fix empty session stderr logs by removing premature `logStream.end()`. Verify the fix works — when a subprocess crashes, `~/.openclaw/logs/session-<chatId>.log` should contain the actual error output. If still broken, investigate and fix.
 
-- [ ] Verify stderr logging captures subprocess crash output
-- [ ] Fix if still broken
-- [ ] Update tests
+- [x] Verify stderr logging captures subprocess crash output
+- [x] Fix if still broken
+- [x] Update tests
 
 ### Task 3: Enhanced /status command with session health (bot-7ed, P2)
 
