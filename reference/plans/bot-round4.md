@@ -110,13 +110,13 @@ Pipeline:
 7. Also handle `message:document` with image MIME types (image/png, image/jpeg, etc.)
 8. Clean up temp files after response
 
-- [ ] Add photo message handler
-- [ ] Implement file download to temp file
-- [ ] Append image path to message text
-- [ ] Handle documents with image MIME types
-- [ ] Support photo + caption
-- [ ] Clean up temp files
-- [ ] Update tests
+- [x] Add photo message handler
+- [x] Implement file download to temp file
+- [x] Append image path to message text
+- [x] Handle documents with image MIME types
+- [x] Support photo + caption
+- [x] Clean up temp files
+- [x] Update tests
 
 ### Task 3: Verify subprocess crash logging (bot-ai2, P1)
 
