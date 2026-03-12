@@ -70,6 +70,9 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
   if (obj.topics !== undefined && kind !== "group") {
     throw new Error(`Binding[${index}] has topics but kind is "${kind}" (topics are only valid for groups)`);
   }
+  if (obj.topicId !== undefined && obj.topics !== undefined) {
+    throw new Error(`Binding[${index}] cannot have both topicId and topics`);
+  }
   return {
     chatId: obj.chatId,
     agentId: obj.agentId,
