@@ -6,6 +6,13 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 
+/** Commands to register with the Telegram Bot API via setMyCommands */
+export const BOT_COMMANDS = [
+  { command: "start", description: "Start the bot" },
+  { command: "reset", description: "Reset current session" },
+  { command: "status", description: "Show bot status" },
+] as const;
+
 /** Check if a MIME type is an image type */
 export function isImageMimeType(mimeType: string | undefined): boolean {
   return mimeType?.startsWith("image/") ?? false;
