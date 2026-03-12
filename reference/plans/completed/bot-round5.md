@@ -62,9 +62,9 @@ Claude does not know which chat or topic a message came from. Prefix every messa
 
 All 4 enqueue call sites in `telegram-bot.ts` need the prefix. Sender info from `ctx.from` (first_name, username). Chat name from `binding.label`.
 
-- [ ] Add helper to build source context prefix from binding and ctx
-- [ ] Apply prefix at all 4 enqueue sites
-- [ ] Update tests
+- [x] Add helper to build source context prefix from binding and ctx
+- [x] Apply prefix at all 4 enqueue sites
+- [x] Update tests
 
 ### Task 2: Flexible forum topic bindings with requireMention (bot-odl, P2)
 
@@ -94,11 +94,12 @@ bindings:
         requireMention: false
 ```
 
-- [ ] Add requireMention and topics to TelegramBinding type
-- [ ] Parse and validate in config.ts
-- [ ] Update resolveBinding to handle topic overrides
-- [ ] Update group mention filter to use resolved requireMention
-Note: the group mention filter is duplicated across 4 handlers. The text handler (line 188) checks both @mention and reply-to-bot. The voice (222), photo (270), and document (319) handlers only check reply-to-bot. When implementing requireMention, all 4 handlers need to use the resolved setting. Consider extracting a shared helper.- [ ] Update tests
+- [x] Add requireMention and topics to TelegramBinding type
+- [x] Parse and validate in config.ts
+- [x] Update resolveBinding to handle topic overrides
+- [x] Update group mention filter to use resolved requireMention
+Note: the group mention filter is duplicated across 4 handlers. The text handler (line 188) checks both @mention and reply-to-bot. The voice (222), photo (270), and document (319) handlers only check reply-to-bot. When implementing requireMention, all 4 handlers need to use the resolved setting. Consider extracting a shared helper.
+- [x] Update tests
 
 ### Task 3: Configurable echo transcript for voice messages (bot-61u, P2)
 
@@ -113,6 +114,6 @@ Options to consider:
 
 The echo reply is at `telegram-bot.ts` line ~249: `ctx.reply(\`📝 "\${transcript}"\`)`
 
-- [ ] Add echo transcript config option
-- [ ] Apply to voice handler
-- [ ] Update tests
+- [x] Add echo transcript config option
+- [x] Apply to voice handler
+- [x] Update tests

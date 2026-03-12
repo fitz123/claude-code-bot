@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { BotConfig, AgentConfig, TelegramBinding, SessionDefaults } from "./types.js";
+import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "config.yaml");
@@ -63,14 +63,47 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
   if (typeof obj.agentId !== "string") {
     throw new Error(`Binding[${index}] missing agentId`);
   }
-  const kind = obj.kind === "group" ? "group" as const : "dm" as const;
+  if (obj.kind !== "dm" && obj.kind !== "group") {
+    throw new Error(`Binding[${index}] has invalid kind "${String(obj.kind)}" (must be "dm" or "group")`);
+  }
+  const kind = obj.kind;
+  if (obj.topics !== undefined && kind !== "group") {
+    throw new Error(`Binding[${index}] has topics but kind is "${kind}" (topics are only valid for groups)`);
+  }
+  if (obj.topicId !== undefined && obj.topics !== undefined) {
+    throw new Error(`Binding[${index}] cannot have both topicId and topics`);
+  }
   return {
     chatId: obj.chatId,
     agentId: obj.agentId,
     kind,
     topicId: typeof obj.topicId === "number" ? obj.topicId : undefined,
     label: typeof obj.label === "string" ? obj.label : undefined,
+    requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
+    topics: validateTopics(obj.topics, index),
+    voiceTranscriptEcho: typeof obj.voiceTranscriptEcho === "boolean" ? obj.voiceTranscriptEcho : undefined,
   };
+}
+
+function validateTopics(raw: unknown, bindingIndex: number): TopicOverride[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error(`Binding[${bindingIndex}].topics must be an array`);
+  }
+  return raw.map((t, i) => {
+    if (typeof t !== "object" || t === null) {
+      throw new Error(`Binding[${bindingIndex}].topics[${i}] must be an object`);
+    }
+    const obj = t as Record<string, unknown>;
+    if (typeof obj.topicId !== "number") {
+      throw new Error(`Binding[${bindingIndex}].topics[${i}] missing topicId (number)`);
+    }
+    return {
+      topicId: obj.topicId,
+      agentId: typeof obj.agentId === "string" ? obj.agentId : undefined,
+      requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
+    };
+  });
 }
 
 function validateSessionDefaults(raw: unknown): SessionDefaults {
@@ -116,6 +149,13 @@ export function loadConfig(configPath?: string): BotConfig {
     const binding = validateBinding(b, i);
     if (!agents[binding.agentId]) {
       throw new Error(`Binding[${i}] references unknown agent "${binding.agentId}"`);
+    }
+    if (binding.topics) {
+      for (const [j, topic] of binding.topics.entries()) {
+        if (topic.agentId && !agents[topic.agentId]) {
+          throw new Error(`Binding[${i}].topics[${j}] references unknown agent "${topic.agentId}"`);
+        }
+      }
     }
     return binding;
   });

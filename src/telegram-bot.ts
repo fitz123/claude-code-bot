@@ -60,7 +60,90 @@ export function resolveBinding(
       fallback ??= b; // chatId-only binding as fallback
     }
   }
+
+  // Check topics array for per-topic overrides
+  if (fallback && topicId !== undefined && fallback.topics) {
+    const topic = fallback.topics.find((t) => t.topicId === topicId);
+    if (topic) {
+      const { topics: _, ...base } = fallback;
+      return {
+        ...base,
+        agentId: topic.agentId ?? fallback.agentId,
+        requireMention: topic.requireMention ?? fallback.requireMention,
+        topicId,
+      };
+    }
+  }
+
   return fallback;
+}
+
+/**
+ * Build a source context prefix from binding and sender info.
+ * Prepended to every message before enqueuing so Claude knows
+ * which chat/topic a message came from and who sent it.
+ */
+export function buildSourcePrefix(
+  binding: TelegramBinding,
+  from?: { first_name: string; username?: string },
+): string {
+  const parts: string[] = [];
+
+  if (binding.label) {
+    parts.push(`Chat: ${binding.label}`);
+  }
+
+  if (from) {
+    const name = from.first_name.replace(/[\n\r]/g, " ");
+    const sender = from.username
+      ? `${name} (@${from.username.replace(/[\n\r]/g, "")})`
+      : name;
+    parts.push(`From: ${sender}`);
+  }
+
+  return parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
+}
+
+/**
+ * Check whether the bot should respond to a message in a group chat.
+ * Returns true if the binding is a DM, requireMention is false,
+ * or the message is a reply to the bot / @mentions the bot.
+ */
+export function shouldRespondInGroup(
+  binding: TelegramBinding,
+  botId: number,
+  botUsername: string,
+  message: {
+    reply_to_message?: { from?: { id: number } };
+    text?: string;
+    caption?: string;
+    entities?: Array<{ type: string; offset: number; length: number }>;
+    caption_entities?: Array<{ type: string; offset: number; length: number }>;
+  },
+): boolean {
+  if (binding.kind !== "group") return true;
+
+  const requireMention = binding.requireMention ?? true;
+  if (!requireMention) return true;
+
+  if (message.reply_to_message?.from?.id === botId) return true;
+
+  const text = message.text ?? message.caption ?? "";
+  const entities = message.entities ?? message.caption_entities ?? [];
+  const mention = `@${botUsername}`;
+  const mentionPattern = new RegExp(`(?<!\\w)@${botUsername}(?![a-zA-Z0-9_])`);
+  if (
+    mentionPattern.test(text) ||
+    entities.some(
+      (e) =>
+        e.type === "mention" &&
+        text.slice(e.offset, e.offset + e.length) === mention,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -184,27 +267,11 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    // Group chat: only respond if bot is mentioned or message is a reply to bot
-    if (binding.kind === "group") {
-      const botInfo = bot.botInfo;
-      const text = ctx.message.text ?? "";
-      const isReplyToBot =
-        ctx.message.reply_to_message?.from?.id === botInfo.id;
-      const isMentioned =
-        text.includes(`@${botInfo.username}`) ||
-        (ctx.message.entities ?? []).some(
-          (e) =>
-            e.type === "mention" &&
-            text.slice(e.offset, e.offset + e.length) === `@${botInfo.username}`,
-        );
-
-      if (!isReplyToBot && !isMentioned) {
-        return; // Ignore group messages not directed at bot
-      }
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
-    const messageText = ctx.message.text;
+    const prefix = buildSourcePrefix(binding, ctx.from);
+    const messageText = prefix + ctx.message.text;
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
@@ -218,11 +285,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    // Group chat: only respond if message is a reply to bot
-    if (binding.kind === "group") {
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
-      if (!isReplyToBot) return;
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -244,12 +307,15 @@ export function createTelegramBot(
       }
 
       // Send transcript text to Claude session
-      messageQueue.enqueue(key, binding.agentId, `[Voice message] ${transcript}`, ctx);
+      const prefix = buildSourcePrefix(binding, ctx.from);
+      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, ctx);
 
       // Echo transcript back to user (non-critical — don't block enqueue)
-      await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
-        console.warn(`[telegram-bot] Failed to echo transcript for chat ${chatId}:`, echoErr);
-      });
+      if (binding.voiceTranscriptEcho !== false) {
+        await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
+          console.warn(`[telegram-bot] Failed to echo transcript for chat ${chatId}:`, echoErr);
+        });
+      }
     } catch (err) {
       console.error(`[telegram-bot] Voice transcription error for chat ${chatId}:`, err);
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
@@ -267,10 +333,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    if (binding.kind === "group") {
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
-      if (!isReplyToBot) return;
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -286,10 +349,11 @@ export function createTelegramBot(
       await downloadFile(url, tempPath);
 
       // Build message: caption (if any) + image file path
+      const prefix = buildSourcePrefix(binding, ctx.from);
       const caption = ctx.msg.caption ?? "";
       const messageText = caption.trimEnd()
-        ? `${caption.trimEnd()}\n\n${tempPath}`
-        : tempPath;
+        ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
+        : `${prefix}${tempPath}`;
 
       // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
@@ -316,10 +380,7 @@ export function createTelegramBot(
     const doc = ctx.msg.document;
     if (!isImageMimeType(doc.mime_type)) return;
 
-    if (binding.kind === "group") {
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
-      if (!isReplyToBot) return;
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -332,10 +393,11 @@ export function createTelegramBot(
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);
 
+      const prefix = buildSourcePrefix(binding, ctx.from);
       const caption = ctx.msg.caption ?? "";
       const messageText = caption.trimEnd()
-        ? `${caption.trimEnd()}\n\n${tempPath}`
-        : tempPath;
+        ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
+        : `${prefix}${tempPath}`;
 
       const pathToClean = tempPath;
       tempPath = null;
