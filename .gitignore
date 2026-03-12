@@ -4,3 +4,7 @@ data/
 *.log
 .ralphex/
 config.yaml.bak
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
