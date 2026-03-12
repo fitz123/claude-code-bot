@@ -35,6 +35,8 @@ Telegram Cloud
       Anthropic API
 ```
 
+**Message queue** sits between grammY and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while Claude is processing are collected (up to 20) and delivered as a combined followup after the current turn completes.
+
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
 
 **Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId -> agentId). Telegram token is read from macOS Keychain at runtime.
@@ -111,7 +113,21 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
        agentId: new-agent
        kind: dm          # or "group"
        label: New Agent DM
+
+     # For forum supergroups, bind specific topics to agents:
+     - chatId: -1001234567890
+       agentId: general
+       kind: group
+       label: Forum General     # fallback for unbound topics
+
+     - chatId: -1001234567890
+       topicId: 42               # message_thread_id from Telegram
+       agentId: dev-agent
+       kind: group
+       label: Forum Dev Topic   # this topic gets its own agent + session
    ```
+
+   For forum supergroups, add `topicId` to bind a specific topic thread to its own agent. Each topic with a binding gets an isolated Claude session. Messages in unbound topics fall back to the chatId-only binding if one exists.
 
 3. Validate and restart:
    ```bash
@@ -119,6 +135,14 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    # Then ask Ninja to confirm restart
    launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
    ```
+
+## Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Show bot info and bound agent |
+| `/reset` | Close current session and clear message queue; next message starts fresh |
+| `/status` | Show active sessions, memory, uptime, and subprocess health (PID, alive/dead, processing duration, last success, restart count) |
 
 ## Troubleshooting
 
@@ -128,7 +152,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 |-----|------|
 | Bot stdout | `~/.openclaw/logs/telegram-bot-stdout.log` |
 | Bot stderr | `~/.openclaw/logs/telegram-bot-stderr.log` |
-| Session stderr (per-chat) | `~/.openclaw/logs/session-<chatId>.log` |
+| Session stderr (per-chat/topic) | `~/.openclaw/logs/session-<chatId>[_<topicId>].log` |
 | Cron (per-task) | `~/.openclaw/logs/cron-<name>.log` |
 | Message delivery | `~/.openclaw/logs/cron-delivery.log` |
 
