@@ -45,7 +45,9 @@ function validateAgent(raw: unknown, id: string): AgentConfig {
     systemPrompt: typeof obj.systemPrompt === "string" ? obj.systemPrompt : undefined,
     allowedTools: Array.isArray(obj.allowedTools) ? obj.allowedTools.map(String) : undefined,
     maxTurns: typeof obj.maxTurns === "number" ? obj.maxTurns : undefined,
-    effort: typeof obj.effort === "string" ? obj.effort : undefined,
+    effort: typeof obj.effort === "string" && ["low", "medium", "high"].includes(obj.effort)
+      ? (obj.effort as AgentConfig["effort"])
+      : undefined,
   };
 }
 

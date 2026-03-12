@@ -1,7 +1,7 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync, rmSync, readFileSync } from "node:fs";
-import { tempFilePath, downloadFile, cleanupTempFile } from "../voice.js";
+import { tempFilePath, downloadFile, cleanupTempFile, transcribeAudio, WHISPER_BIN, WHISPER_MODEL } from "../voice.js";
 
 describe("tempFilePath", () => {
   it("generates path with correct prefix and extension", () => {
@@ -81,6 +81,23 @@ describe("downloadFile", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("transcribeAudio", () => {
+  it("exports correct whisper-cli paths", () => {
+    assert.strictEqual(WHISPER_BIN, "/opt/homebrew/bin/whisper-cli");
+    assert.strictEqual(WHISPER_MODEL, "/opt/homebrew/share/ggml-small.bin");
+  });
+
+  it("rejects when given a nonexistent audio file", async () => {
+    await assert.rejects(
+      () => transcribeAudio("/tmp/openclaw-nonexistent-audio-99999.oga"),
+      (err: Error) => {
+        assert.ok(err instanceof Error);
+        return true;
+      },
+    );
   });
 });
 
