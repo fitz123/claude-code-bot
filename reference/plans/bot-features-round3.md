@@ -61,10 +61,10 @@ Two behaviors:
 
 Reference implementation: OpenClaw `~/minime/openclaw/src/auto-reply/reply/queue/` (modes, debounce, drain loop, collect prompt building). Key files: `types.ts` (QueueMode, QueueSettings), `settings.ts` (resolveQueueSettings), `drain.ts` (scheduleFollowupDrain, buildCollectPrompt), `state.ts` (DEFAULT_QUEUE_DEBOUNCE_MS=1000, DEFAULT_QUEUE_CAP=20).
 
-- [ ] Implement pre-send debounce in message handler
-- [ ] Implement mid-turn collect queue
-- [ ] Auto-drain queued messages after turn completes
-- [ ] Update tests
+- [x] Implement pre-send debounce in message handler
+- [x] Implement mid-turn collect queue
+- [x] Auto-drain queued messages after turn completes
+- [x] Update tests
 
 ### Task 2: Verify and fix subprocess crash logging (bot-ai2, P1)
 
