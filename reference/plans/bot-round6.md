@@ -190,10 +190,10 @@ await ctx.replyWithPhoto(new InputFile("/path/to/image.jpg"), {
 5. No external MIME library needed — use simple extension check (project has no `mime-types` dep). Can reuse logic from existing `imageExtensionForMime()` in `telegram-bot.ts`
 6. Update the `processFn` callback in `telegram-bot.ts` to pass `workspaceCwd` through to `relayStream`
 
-- [ ] Extend relayStream signature to accept workspaceCwd
-- [ ] Detect Write tool_use events in stream processing (deduplicate with Set)
-- [ ] After stream completes, verify file exists and path is within allowed directories
-- [ ] Send files via replyWithPhoto (images) or replyWithDocument (other)
-- [ ] Include message_thread_id for forum topic support
-- [ ] Update processFn in telegram-bot.ts to pass workspaceCwd
-- [ ] Add tests
+- [x] Extend relayStream signature to accept workspaceCwd
+- [x] Detect Write tool_use events in stream processing (deduplicate with Set)
+- [x] After stream completes, verify file exists and path is within allowed directories
+- [x] Send files via replyWithPhoto (images) or replyWithDocument (other)
+- [x] Include message_thread_id for forum topic support
+- [x] Update processFn in telegram-bot.ts to pass workspaceCwd
+- [x] Add tests
