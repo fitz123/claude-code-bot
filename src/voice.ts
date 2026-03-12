@@ -25,7 +25,7 @@ export async function downloadFile(url: string, destPath: string): Promise<void>
     throw new Error(`Download failed: HTTP ${resp.status}`);
   }
   const buffer = Buffer.from(await resp.arrayBuffer());
-  await writeFile(destPath, buffer);
+  await writeFile(destPath, buffer, { mode: 0o600 });
 }
 
 /**
