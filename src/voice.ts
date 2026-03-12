@@ -36,6 +36,7 @@ export async function transcribeAudio(filePath: string): Promise<string> {
     "-m", WHISPER_MODEL,
     "-f", filePath,
     "--no-timestamps",
+    "--no-prints",
   ], { timeout: 120_000 });
   return stdout.trim();
 }
