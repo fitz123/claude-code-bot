@@ -283,6 +283,82 @@ describe("collectWritePaths", () => {
     assert.strictEqual(paths.size, 1);
   });
 
+  it("ignores Write block with missing file_path in input", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01GHI",
+            input: { content: "hello" },
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
+  it("ignores Write block with non-string file_path", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01JKL",
+            input: { file_path: 12345, content: "hello" },
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
+  it("ignores Write block with undefined input", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01MNO",
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
+  it("handles assistant message with non-array content", () => {
+    const paths = new Set<string>();
+    const msg = {
+      type: "assistant" as const,
+      message: {
+        role: "assistant" as const,
+        content: "just a string",
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg as unknown as AssistantMessage, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
   it("collects multiple distinct Write paths", () => {
     const paths = new Set<string>();
     const msg: AssistantMessage = {

@@ -105,17 +105,19 @@ export function buildSourcePrefix(
 }
 
 /**
- * Check whether the bot should respond to a message in a group chat.
- * Returns true if the binding is a DM, requireMention is false,
- * or the message is a reply to the bot / @mentions the bot.
- */
-/**
  * Check if a reply_to_message is a forum service message (topic creation/edit/close etc).
  * Telegram sets reply_to_message on every message in a forum topic, pointing to the
  * topic's creation service message. This is NOT a real user reply.
  */
 function isForumServiceMessage(
-  msg: Record<string, unknown>,
+  msg: {
+    forum_topic_created?: unknown;
+    forum_topic_edited?: unknown;
+    forum_topic_closed?: unknown;
+    forum_topic_reopened?: unknown;
+    general_forum_topic_hidden?: unknown;
+    general_forum_topic_unhidden?: unknown;
+  },
 ): boolean {
   return !!(
     msg.forum_topic_created ||
@@ -126,6 +128,12 @@ function isForumServiceMessage(
     msg.general_forum_topic_unhidden
   );
 }
+
+/**
+ * Check whether the bot should respond to a message in a group chat.
+ * Returns true if the binding is a DM, requireMention is false,
+ * or the message is a reply to the bot / @mentions the bot.
+ */
 
 export function shouldRespondInGroup(
   binding: TelegramBinding,
@@ -154,7 +162,7 @@ export function shouldRespondInGroup(
 
   if (
     message.reply_to_message?.from?.id === botId &&
-    !isForumServiceMessage(message.reply_to_message as Record<string, unknown>)
+    !isForumServiceMessage(message.reply_to_message)
   ) {
     return true;
   }
