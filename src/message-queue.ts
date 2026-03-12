@@ -113,6 +113,12 @@ export class MessageQueue {
     }
 
     // Pre-send debounce: add to pending and reset timer
+    if (state.pendingTexts.length >= this.queueCap) {
+      console.warn(
+        `[message-queue] Debounce buffer full for ${chatId}, dropping message`,
+      );
+      return;
+    }
     state.pendingTexts.push(text);
 
     if (state.debounceTimer) {
@@ -149,6 +155,9 @@ export class MessageQueue {
       }
     }
 
+    // If queue was cleared during processing (e.g., /reset), stop here
+    if (this.queues.get(chatId) !== state) return;
+
     state.busy = false;
 
     // Drain collect buffer if messages arrived during processing
@@ -159,32 +168,33 @@ export class MessageQueue {
     const state = this.queues.get(chatId);
     if (!state || state.collectBuffer.length === 0) return;
 
-    const collected = state.collectBuffer.splice(0);
-    const prompt = buildCollectPrompt(collected);
+    // Loop to drain messages that arrive during processing (avoids recursion)
+    while (state.collectBuffer.length > 0) {
+      const collected = state.collectBuffer.splice(0);
+      const prompt = buildCollectPrompt(collected);
 
-    state.busy = true;
-    console.log(
-      `[message-queue] Draining ${collected.length} collected message(s) for ${chatId}`,
-    );
+      state.busy = true;
+      console.log(
+        `[message-queue] Draining ${collected.length} collected message(s) for ${chatId}`,
+      );
 
-    try {
-      if (state.latestCtx) {
-        await this.processFn(chatId, state.agentId, prompt, state.latestCtx);
+      try {
+        if (state.latestCtx) {
+          await this.processFn(chatId, state.agentId, prompt, state.latestCtx);
+        }
+      } catch (err) {
+        console.error(`[message-queue] Collect drain error for ${chatId}:`, err);
+        if (state.latestCtx) {
+          await state.latestCtx
+            .reply("Something went wrong processing queued messages. Try again or /reset the session.")
+            .catch(() => {});
+        }
       }
-    } catch (err) {
-      console.error(`[message-queue] Collect drain error for ${chatId}:`, err);
-      if (state.latestCtx) {
-        await state.latestCtx
-          .reply("Something went wrong processing queued messages. Try again or /reset the session.")
-          .catch(() => {});
-      }
-    }
 
-    state.busy = false;
+      // If queue was cleared during processing, stop draining
+      if (this.queues.get(chatId) !== state) return;
 
-    // Recurse if more messages arrived during drain
-    if (state.collectBuffer.length > 0) {
-      await this.drainCollectBuffer(chatId);
+      state.busy = false;
     }
   }
 

@@ -10,12 +10,13 @@ async function main(): Promise<void> {
   const sessionManager = new SessionManager(config);
   console.log("[main] Session manager initialized");
 
-  const bot = createTelegramBot(config, sessionManager);
+  const { bot, messageQueue } = createTelegramBot(config, sessionManager);
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`[main] Received ${signal}, shutting down...`);
     bot.stop();
+    messageQueue.clearAll();
     await sessionManager.closeAll();
     console.log("[main] All sessions closed. Exiting.");
     process.exit(0);

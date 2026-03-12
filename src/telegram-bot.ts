@@ -43,13 +43,18 @@ export function isAuthorized(chatId: number, bindings: TelegramBinding[]): boole
   return bindings.some((b) => b.chatId === chatId);
 }
 
+export interface TelegramBotResult {
+  bot: Bot;
+  messageQueue: MessageQueue;
+}
+
 /**
  * Create and configure the Telegram bot.
  */
 export function createTelegramBot(
   config: BotConfig,
   sessionManager: SessionManager,
-): Bot {
+): TelegramBotResult {
   const bot = new Bot(config.telegramToken);
 
   // Auto-retry on rate limits
@@ -181,5 +186,5 @@ export function createTelegramBot(
     console.error("[telegram-bot] Update that caused the error:", JSON.stringify(err.ctx.update));
   });
 
-  return bot;
+  return { bot, messageQueue };
 }
