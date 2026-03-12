@@ -3,7 +3,7 @@ import { createWriteStream, mkdirSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import PQueue from "p-queue";
 import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.js";
-import { spawnClaudeSession, sendMessage, readStream, waitForInit } from "./cli-protocol.js";
+import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
 
 const LOG_DIR = "/Users/ninja/.openclaw/logs";
@@ -76,17 +76,10 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
-    // Create stream reader and wait for init
-    const stream = readStream(child);
-    let resolvedSessionId = sessionId;
-    if (!resume) {
-      // For new sessions, wait for system/init to get the real session_id
-      try {
-        resolvedSessionId = await waitForInit(stream);
-      } catch {
-        // If init fails, try with the UUID we generated
-      }
-    }
+    // Skip waitForInit: Claude CLI only emits system/init AFTER receiving
+    // the first stdin message, causing a deadlock if we wait before sending.
+    // The init message is harmlessly skipped by extractText() in the read loop.
+    const resolvedSessionId = sessionId;
 
     const session: ActiveSession = {
       child,
