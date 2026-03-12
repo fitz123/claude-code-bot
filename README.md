@@ -80,7 +80,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot
 
 3. Load the new plist:
    ```bash
-   launchctl load ~/Library/LaunchAgents/ai.openclaw.cron.my-task.plist
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.cron.my-task.plist
    ```
 
 4. Test it:
@@ -89,7 +89,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot
    tail -f ~/.openclaw/logs/cron-my-task.log
    ```
 
-To remove a cron: unload the plist, delete the entry from `crons.yaml`, regenerate.
+To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, delete the entry from `crons.yaml`, regenerate.
 
 ## Add a Binding
 
