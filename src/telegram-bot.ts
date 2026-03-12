@@ -6,6 +6,25 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 
+/** Check if a MIME type is an image type */
+export function isImageMimeType(mimeType: string | undefined): boolean {
+  return mimeType?.startsWith("image/") ?? false;
+}
+
+/** Map image MIME type to file extension */
+export function imageExtensionForMime(mimeType: string | undefined): string {
+  switch (mimeType) {
+    case "image/png": return ".png";
+    case "image/gif": return ".gif";
+    case "image/webp": return ".webp";
+    case "image/bmp": return ".bmp";
+    default: return ".jpg";
+  }
+}
+
+/** Delay before cleaning up image temp files (gives Claude time to read) */
+const IMAGE_CLEANUP_DELAY_MS = 10 * 60 * 1000;
+
 /**
  * Build a session key from chatId and optional topicId.
  * Returns "chatId" or "chatId:topicId" when topicId is present.
@@ -225,6 +244,95 @@ export function createTelegramBot(
       console.error(`[telegram-bot] Voice transcription error for chat ${chatId}:`, err);
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
     } finally {
+      if (tempPath) {
+        cleanupTempFile(tempPath).catch(() => {});
+      }
+    }
+  });
+
+  // Handle photo messages — download image and pass file path to Claude for vision
+  bot.on("message:photo", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(chatId, config.bindings, topicId);
+    if (!binding) return;
+
+    if (binding.kind === "group") {
+      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
+      if (!isReplyToBot) return;
+    }
+
+    const key = sessionKey(chatId, topicId);
+    let tempPath: string | null = null;
+
+    try {
+      // Get largest photo size (last element in array)
+      const photos = ctx.msg.photo;
+      const largest = photos[photos.length - 1];
+      const file = await ctx.api.getFile(largest.file_id);
+      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      tempPath = tempFilePath("photo", ".jpg");
+      await downloadFile(url, tempPath);
+
+      // Build message: caption (if any) + image file path
+      const caption = ctx.msg.caption ?? "";
+      const messageText = caption.trimEnd()
+        ? `${caption.trimEnd()}\n\n${tempPath}`
+        : tempPath;
+
+      messageQueue.enqueue(key, binding.agentId, messageText, ctx);
+
+      // Schedule delayed cleanup to give Claude time to read the file
+      const pathToClean = tempPath;
+      tempPath = null;
+      setTimeout(() => cleanupTempFile(pathToClean).catch(() => {}), IMAGE_CLEANUP_DELAY_MS);
+    } catch (err) {
+      console.error(`[telegram-bot] Photo handling error for chat ${chatId}:`, err);
+      await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
+      if (tempPath) {
+        cleanupTempFile(tempPath).catch(() => {});
+      }
+    }
+  });
+
+  // Handle document messages with image MIME types
+  bot.on("message:document", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(chatId, config.bindings, topicId);
+    if (!binding) return;
+
+    const doc = ctx.msg.document;
+    if (!isImageMimeType(doc.mime_type)) return;
+
+    if (binding.kind === "group") {
+      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
+      if (!isReplyToBot) return;
+    }
+
+    const key = sessionKey(chatId, topicId);
+    let tempPath: string | null = null;
+
+    try {
+      const file = await ctx.api.getFile(doc.file_id);
+      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const ext = imageExtensionForMime(doc.mime_type);
+      tempPath = tempFilePath("doc", ext);
+      await downloadFile(url, tempPath);
+
+      const caption = ctx.msg.caption ?? "";
+      const messageText = caption.trimEnd()
+        ? `${caption.trimEnd()}\n\n${tempPath}`
+        : tempPath;
+
+      messageQueue.enqueue(key, binding.agentId, messageText, ctx);
+
+      const pathToClean = tempPath;
+      tempPath = null;
+      setTimeout(() => cleanupTempFile(pathToClean).catch(() => {}), IMAGE_CLEANUP_DELAY_MS);
+    } catch (err) {
+      console.error(`[telegram-bot] Document image handling error for chat ${chatId}:`, err);
+      await ctx.reply("Failed to process image document. Please try again.").catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath).catch(() => {});
       }
