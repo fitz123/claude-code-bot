@@ -82,7 +82,7 @@ describe("extractText", () => {
     assert.strictEqual(result.isFinal, false);
   });
 
-  it("extracts text from assistant message", () => {
+  it("ignores assistant message snapshot (text already delivered via deltas)", () => {
     const msg: AssistantMessage = {
       type: "assistant",
       message: {
@@ -95,11 +95,11 @@ describe("extractText", () => {
       session_id: "test-id",
     };
     const result = extractText(msg);
-    assert.strictEqual(result.text, "Hello world");
+    assert.strictEqual(result.text, null);
     assert.strictEqual(result.isFinal, false);
   });
 
-  it("extracts text from result message", () => {
+  it("returns isFinal for result message without duplicating text", () => {
     const msg: ResultMessage = {
       type: "result",
       result: "Final answer",
@@ -108,7 +108,7 @@ describe("extractText", () => {
       duration_ms: 1000,
     };
     const result = extractText(msg);
-    assert.strictEqual(result.text, "Final answer");
+    assert.strictEqual(result.text, null);
     assert.strictEqual(result.isFinal, true);
   });
 
@@ -143,5 +143,29 @@ describe("extractText", () => {
     const result = extractText(msg);
     assert.strictEqual(result.text, null);
     assert.strictEqual(result.isFinal, false);
+  });
+
+  it("does not duplicate text when processing full CLI event sequence", () => {
+    // Simulates the event sequence from Claude CLI with --include-partial-messages:
+    // 1. text_delta events (streaming chunks)
+    // 2. assistant message snapshot (full text)
+    // 3. result message (full text again)
+    const events: StreamLine[] = [
+      { type: "assistant", subtype: "stream_event", event: { delta: { type: "text_delta", text: "Hello" } } } as StreamEvent,
+      { type: "assistant", subtype: "stream_event", event: { delta: { type: "text_delta", text: " world" } } } as StreamEvent,
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Hello world" }] }, session_id: "s" } as AssistantMessage,
+      { type: "result", result: "Hello world", session_id: "s" } as ResultMessage,
+    ];
+
+    let accumulated = "";
+    let isFinal = false;
+    for (const msg of events) {
+      const r = extractText(msg);
+      if (r.text !== null) accumulated += r.text;
+      if (r.isFinal) isFinal = true;
+    }
+
+    assert.strictEqual(accumulated, "Hello world");
+    assert.strictEqual(isFinal, true);
   });
 });

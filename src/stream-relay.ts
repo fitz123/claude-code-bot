@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import type { StreamLine } from "./types.js";
-import { extractTextDelta, extractAssistantText, extractResultText } from "./cli-protocol.js";
+import { extractTextDelta } from "./cli-protocol.js";
 
 /** Maximum Telegram message length. */
 const MAX_MSG_LENGTH = 4096;
@@ -54,19 +54,13 @@ export function splitMessage(text: string, maxLen: number = MAX_MSG_LENGTH): str
  * Returns text delta for streaming events, full text for assistant/result messages.
  */
 export function extractText(msg: StreamLine): { text: string | null; isFinal: boolean } {
+  // Only accumulate text from streaming deltas.
+  // Assistant message snapshots and result messages repeat the same text
+  // that was already delivered via text_delta events, so extracting text
+  // from them would cause duplicate/triple output.
   const delta = extractTextDelta(msg);
   if (delta !== null) {
     return { text: delta, isFinal: false };
-  }
-
-  const assistantText = extractAssistantText(msg);
-  if (assistantText !== null) {
-    return { text: assistantText, isFinal: false };
-  }
-
-  const resultText = extractResultText(msg);
-  if (resultText !== null) {
-    return { text: resultText, isFinal: true };
   }
 
   if (msg.type === "result") {

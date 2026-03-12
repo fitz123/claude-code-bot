@@ -25,9 +25,9 @@ User receives the same response text 2-3 times concatenated in a single message.
 
 Investigate `stream-relay.ts` and `cli-protocol.ts` — how `extractText()` accumulates text from stream events, and whether multiple event types contribute duplicate text to the same `accumulated` buffer.
 
-- [ ] Identify root cause in text extraction/accumulation
-- [ ] Fix the duplication
-- [ ] Update tests in `src/__tests__/stream-relay.test.ts`
+- [x] Identify root cause in text extraction/accumulation
+- [x] Fix the duplication
+- [x] Update tests in `src/__tests__/stream-relay.test.ts`
 
 ### Task 2: Fix sendSessionMessage to actually stream
 
