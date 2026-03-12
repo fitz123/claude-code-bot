@@ -135,11 +135,18 @@ export async function relayStream(
   };
 
   try {
+    let resultText: string | null = null;
+
     for await (const msg of stream) {
       const { text, isFinal } = extractText(msg);
 
       if (text !== null) {
         accumulated += text;
+      }
+
+      // Track result text as fallback when no streaming deltas arrive
+      if (msg.type === "result" && msg.result) {
+        resultText = msg.result;
       }
 
       // Send initial message once we have text
@@ -164,6 +171,12 @@ export async function relayStream(
       if (isFinal) {
         break;
       }
+    }
+
+    // Fallback: if no streaming deltas arrived but result contains text,
+    // use it (handles edge case where protocol sends no text_delta events)
+    if (!accumulated && resultText) {
+      accumulated = resultText;
     }
 
     // Clean up pending edit timer
