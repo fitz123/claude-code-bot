@@ -104,6 +104,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
        model: claude-opus-4-6
        fallbackModel: claude-sonnet-4-6
        maxTurns: 250  # max agentic loops per message (omit for unlimited)
+       effort: high   # Claude reasoning effort: low, medium, high (omit for default)
    ```
 
 2. Add the binding:
@@ -136,6 +137,17 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
    ```
 
+## Supported Message Types
+
+| Type | Handling |
+|------|----------|
+| Text | Sent directly to Claude session |
+| Voice | Transcribed locally via whisper-cli, transcript echoed back and sent to Claude |
+| Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
+| Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
+
+In group chats, voice/photo/document messages must be replies to the bot (text messages also support @mentions).
+
 ## Bot Commands
 
 | Command | Description |
@@ -143,6 +155,8 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | `/start` | Show bot info and bound agent |
 | `/reset` | Close current session and clear message queue; next message starts fresh |
 | `/status` | Show active sessions, memory, uptime, and subprocess health (PID, alive/dead, processing duration, last success, restart count) |
+
+Commands are auto-registered with the Telegram Bot API via `setMyCommands` on startup. To add or change commands, update the `BOT_COMMANDS` array in `telegram-bot.ts`.
 
 ## Troubleshooting
 
@@ -155,6 +169,12 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | Session stderr (per-chat/topic) | `~/.openclaw/logs/session-<chatId>[_<topicId>].log` |
 | Cron (per-task) | `~/.openclaw/logs/cron-<name>.log` |
 | Message delivery | `~/.openclaw/logs/cron-delivery.log` |
+
+### Voice transcription requirements
+
+Voice transcription requires:
+- `whisper-cli` installed at `/opt/homebrew/bin/whisper-cli`
+- Whisper model at `/opt/homebrew/share/ggml-small.bin`
 
 ### Common issues
 

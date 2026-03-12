@@ -231,6 +231,7 @@ export function createTelegramBot(
       // Download voice file from Telegram
       const fileId = ctx.msg.voice.file_id;
       const file = await ctx.api.getFile(fileId);
+      if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
       tempPath = tempFilePath("voice", ".oga");
       await downloadFile(url, tempPath);
@@ -252,7 +253,7 @@ export function createTelegramBot(
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
     } finally {
       if (tempPath) {
-        cleanupTempFile(tempPath).catch(() => {});
+        cleanupTempFile(tempPath);
       }
     }
   });
@@ -277,6 +278,7 @@ export function createTelegramBot(
       const photos = ctx.msg.photo;
       const largest = photos[photos.length - 1];
       const file = await ctx.api.getFile(largest.file_id);
+      if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
       tempPath = tempFilePath("photo", ".jpg");
       await downloadFile(url, tempPath);
@@ -292,12 +294,12 @@ export function createTelegramBot(
       // Schedule delayed cleanup to give Claude time to read the file
       const pathToClean = tempPath;
       tempPath = null;
-      setTimeout(() => cleanupTempFile(pathToClean).catch(() => {}), IMAGE_CLEANUP_DELAY_MS);
+      setTimeout(() => cleanupTempFile(pathToClean), IMAGE_CLEANUP_DELAY_MS);
     } catch (err) {
       console.error(`[telegram-bot] Photo handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
       if (tempPath) {
-        cleanupTempFile(tempPath).catch(() => {});
+        cleanupTempFile(tempPath);
       }
     }
   });
@@ -322,6 +324,7 @@ export function createTelegramBot(
 
     try {
       const file = await ctx.api.getFile(doc.file_id);
+      if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
       const ext = imageExtensionForMime(doc.mime_type);
       tempPath = tempFilePath("doc", ext);
@@ -336,12 +339,12 @@ export function createTelegramBot(
 
       const pathToClean = tempPath;
       tempPath = null;
-      setTimeout(() => cleanupTempFile(pathToClean).catch(() => {}), IMAGE_CLEANUP_DELAY_MS);
+      setTimeout(() => cleanupTempFile(pathToClean), IMAGE_CLEANUP_DELAY_MS);
     } catch (err) {
       console.error(`[telegram-bot] Document image handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process image document. Please try again.").catch(() => {});
       if (tempPath) {
-        cleanupTempFile(tempPath).catch(() => {});
+        cleanupTempFile(tempPath);
       }
     }
   });
