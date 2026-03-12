@@ -98,7 +98,7 @@ bindings:
 - [ ] Parse and validate in config.ts
 - [ ] Update resolveBinding to handle topic overrides
 - [ ] Update group mention filter to use resolved requireMention
-- [ ] Update tests
+Note: the group mention filter is duplicated across 4 handlers. The text handler (line 188) checks both @mention and reply-to-bot. The voice (222), photo (270), and document (319) handlers only check reply-to-bot. When implementing requireMention, all 4 handlers need to use the resolved setting. Consider extracting a shared helper.- [ ] Update tests
 
 ### Task 3: Configurable echo transcript for voice messages (bot-61u, P2)
 
