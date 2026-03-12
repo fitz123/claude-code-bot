@@ -1,6 +1,6 @@
 import { loadConfig } from "./config.js";
 import { SessionManager } from "./session-manager.js";
-import { createTelegramBot } from "./telegram-bot.js";
+import { createTelegramBot, BOT_COMMANDS } from "./telegram-bot.js";
 
 async function main(): Promise<void> {
   console.log("[main] Loading config...");
@@ -35,8 +35,14 @@ async function main(): Promise<void> {
 
   console.log("[main] Starting Telegram bot polling...");
   await bot.start({
-    onStart: (botInfo) => {
+    onStart: async (botInfo) => {
       console.log(`[main] Bot @${botInfo.username} is running (id: ${botInfo.id})`);
+      try {
+        await bot.api.setMyCommands(BOT_COMMANDS);
+        console.log("[main] Bot commands registered with Telegram");
+      } catch (err) {
+        console.error("[main] Failed to register bot commands:", err);
+      }
     },
   });
 }

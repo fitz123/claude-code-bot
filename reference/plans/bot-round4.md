@@ -129,8 +129,8 @@ Previous ralphex round fixed empty session stderr logs by removing premature `lo
 
 Bot doesn't call `setMyCommands` — Telegram menu shows stale commands from old OpenClaw gateway. On startup after bot.start(), call `bot.api.setMyCommands()` with the commands that actually exist: /start, /reset, /status. This clears old commands and registers current ones.
 
-- [ ] Add setMyCommands call on startup
-- [ ] Update tests
+- [x] Add setMyCommands call on startup
+- [x] Update tests
 
 ### Task 5: Agent effort level config (bot-86s, P2)
 

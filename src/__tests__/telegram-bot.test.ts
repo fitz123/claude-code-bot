@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, BOT_COMMANDS } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -177,6 +177,19 @@ describe("isImageMimeType", () => {
 
   it("returns false for video/mp4", () => {
     assert.strictEqual(isImageMimeType("video/mp4"), false);
+  });
+});
+
+describe("BOT_COMMANDS", () => {
+  it("contains start, reset, and status commands", () => {
+    const names = BOT_COMMANDS.map((c) => c.command);
+    assert.deepStrictEqual(names, ["start", "reset", "status"]);
+  });
+
+  it("each command has a non-empty description", () => {
+    for (const cmd of BOT_COMMANDS) {
+      assert.ok(cmd.description.length > 0, `${cmd.command} has empty description`);
+    }
   });
 });
 
