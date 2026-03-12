@@ -130,10 +130,10 @@ describe("parseStreamLine", () => {
   });
 
   it("parses stream_event with text delta", () => {
-    const line = '{"type":"assistant","subtype":"stream_event","event":{"delta":{"type":"text_delta","text":"Hello"}}}';
+    const line = '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}';
     const parsed = parseStreamLine(line);
     assert.ok(parsed);
-    assert.strictEqual(parsed!.type, "assistant");
+    assert.strictEqual(parsed!.type, "stream_event");
   });
 
   it("parses result", () => {
@@ -162,14 +162,14 @@ describe("parseStreamLine", () => {
 describe("extractTextDelta", () => {
   it("extracts text from stream_event", () => {
     const msg = parseStreamLine(
-      '{"type":"assistant","subtype":"stream_event","event":{"delta":{"type":"text_delta","text":"world"}}}'
+      '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"world"}}}'
     )!;
     assert.strictEqual(extractTextDelta(msg), "world");
   });
 
   it("returns null for non-text deltas", () => {
     const msg = parseStreamLine(
-      '{"type":"assistant","subtype":"stream_event","event":{"delta":{"type":"input_json_delta"}}}'
+      '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta"}}}'
     )!;
     assert.strictEqual(extractTextDelta(msg), null);
   });

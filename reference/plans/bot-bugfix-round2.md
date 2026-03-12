@@ -25,8 +25,8 @@ npm test
 
 `extractTextDelta()` in `cli-protocol.ts` checks `msg.type === "assistant" && msg.subtype === "stream_event"` but Claude CLI actually emits streaming deltas as `msg.type === "stream_event"` (top-level type, no subtype). All text deltas are silently dropped, making streaming non-functional.
 
-- [ ] Fix the type check to match real CLI output
-- [ ] Update tests to use correct event shape
+- [x] Fix the type check to match real CLI output
+- [x] Update tests to use correct event shape
 
 ### Task 2: Fix readline listener leak in readStream (bot-07l, P1)
 

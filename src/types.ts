@@ -64,8 +64,7 @@ export interface SystemInit {
 }
 
 export interface StreamEvent {
-  type: "assistant";
-  subtype: "stream_event";
+  type: "stream_event";
   event: {
     delta?: {
       type: string;

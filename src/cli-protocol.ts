@@ -167,12 +167,8 @@ export async function* readStream(child: ChildProcess): AsyncGenerator<StreamLin
  * Extract text from a stream event delta.
  */
 export function extractTextDelta(msg: StreamLine): string | null {
-  if (
-    msg.type === "assistant" &&
-    "subtype" in msg &&
-    msg.subtype === "stream_event"
-  ) {
-    const event = (msg as { event?: { delta?: { type: string; text?: string } } }).event;
+  if (msg.type === "stream_event") {
+    const event = msg.event;
     if (event?.delta?.type === "text_delta" && event.delta.text) {
       return event.delta.text;
     }
