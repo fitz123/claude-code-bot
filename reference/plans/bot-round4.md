@@ -122,8 +122,8 @@ Pipeline:
 
 Previous ralphex round fixed empty session stderr logs by removing premature `logStream.end()`. Verify the fix works — when a subprocess crashes, `~/.openclaw/logs/session-<chatId>.log` should contain actual error output. Write a test that simulates subprocess crash and verifies stderr is captured.
 
-- [ ] Write test that verifies stderr capture on crash
-- [ ] Fix if still broken
+- [x] Write test that verifies stderr capture on crash
+- [x] Fix if still broken
 
 ### Task 4: Register bot commands with Telegram API (bot-413, P2)
 
