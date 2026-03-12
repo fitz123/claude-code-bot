@@ -282,6 +282,31 @@ describe("MessageQueue queue cap", () => {
 
     queue.clearAll();
   });
+
+  it("drops messages beyond queue cap during debounce", async () => {
+    const { processFn, calls } = createMockProcess();
+    const queue = new MessageQueue(processFn, { debounceMs: 50, queueCap: 3 });
+    const ctx = mockCtx();
+
+    // Fill debounce buffer to cap
+    queue.enqueue("chat1", "main", "d1", ctx);
+    queue.enqueue("chat1", "main", "d2", ctx);
+    queue.enqueue("chat1", "main", "d3", ctx);
+    assert.strictEqual(queue.getPendingCount("chat1"), 3);
+
+    // This should be dropped
+    queue.enqueue("chat1", "main", "d4-dropped", ctx);
+    assert.strictEqual(queue.getPendingCount("chat1"), 3);
+
+    await wait(100);
+
+    assert.strictEqual(calls.length, 1);
+    assert.ok(calls[0].text.includes("d1"));
+    assert.ok(calls[0].text.includes("d3"));
+    assert.ok(!calls[0].text.includes("d4-dropped"));
+
+    queue.clearAll();
+  });
 });
 
 // -------------------------------------------------------------------
@@ -365,6 +390,47 @@ describe("MessageQueue error handling", () => {
     await wait(80);
 
     assert.ok(repliedText.includes("Something went wrong"));
+    assert.strictEqual(queue.isBusy("chat1"), false);
+
+    queue.clearAll();
+  });
+
+  it("catches errors during collect buffer drain and sends error reply", async () => {
+    let callCount = 0;
+    let repliedText = "";
+    const errorCtx = {
+      reply: async (text: string) => {
+        repliedText = text;
+        return { message_id: 1 };
+      },
+    } as unknown as Context;
+
+    const failOnDrain = async () => {
+      callCount++;
+      if (callCount === 2) {
+        throw new Error("Drain exploded");
+      }
+      // First call (flush) succeeds but blocks to allow enqueueing mid-turn
+      if (callCount === 1) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 30);
+        });
+      }
+    };
+
+    const queue = new MessageQueue(failOnDrain, { debounceMs: 20 });
+    queue.enqueue("chat1", "main", "initial", errorCtx);
+
+    await wait(40);
+
+    // Now enqueue a mid-turn message while busy
+    queue.enqueue("chat1", "main", "queued msg", errorCtx);
+
+    // Wait for flush + drain to complete
+    await wait(100);
+
+    assert.strictEqual(callCount, 2);
+    assert.ok(repliedText.includes("Something went wrong processing queued messages"));
     assert.strictEqual(queue.isBusy("chat1"), false);
 
     queue.clearAll();

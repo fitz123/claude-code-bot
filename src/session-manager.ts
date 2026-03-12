@@ -471,7 +471,8 @@ export class SessionManager {
     const logDir = this.logDir;
     mkdirSync(logDir, { recursive: true });
 
-    const logPath = `${logDir}/session-${chatId}.log`;
+    const safeChatId = chatId.replace(/:/g, "_");
+    const logPath = `${logDir}/session-${safeChatId}.log`;
     const logStream = createWriteStream(logPath, { flags: "a" });
 
     logStream.on("error", (err) => {

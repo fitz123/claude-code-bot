@@ -63,6 +63,10 @@ describe("sessionKey", () => {
   it("does not append colon when topicId is undefined", () => {
     assert.strictEqual(sessionKey(123456, undefined), "123456");
   });
+
+  it("handles topicId 0 (General topic in forums)", () => {
+    assert.strictEqual(sessionKey(123456, 0), "123456:0");
+  });
 });
 
 describe("resolveBinding with topicId", () => {
