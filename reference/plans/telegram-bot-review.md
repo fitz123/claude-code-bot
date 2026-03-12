@@ -59,5 +59,5 @@ Investigate error propagation path from `sendMessage()` through the session mana
 
 `waitForInit()` in `cli-protocol.ts` is exported but no longer called anywhere. Remove dead code and any unused type imports.
 
-- [ ] Remove dead code
-- [ ] Verify no references remain
+- [x] Remove dead code
+- [x] Verify no references remain

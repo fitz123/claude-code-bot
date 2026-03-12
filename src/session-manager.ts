@@ -133,9 +133,6 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
-    // Skip waitForInit: Claude CLI only emits system/init AFTER receiving
-    // the first stdin message, causing a deadlock if we wait before sending.
-    // The init message is harmlessly skipped by extractText() in the read loop.
     const resolvedSessionId = sessionId;
 
     const session: ActiveSession = {
