@@ -126,9 +126,28 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
        agentId: dev-agent
        kind: group
        label: Forum Dev Topic   # this topic gets its own agent + session
+
+     # Inline per-topic overrides (alternative to separate bindings):
+     - chatId: -1001234567890
+       agentId: main
+       kind: group
+       label: HQ Forum
+       requireMention: true          # require @mention or reply-to-bot (default for groups)
+       voiceTranscriptEcho: false    # suppress voice transcript echo reply
+       topics:
+         - topicId: 42
+           agentId: dev-agent        # override agent for this topic
+           requireMention: false     # respond to all messages in this topic
+         - topicId: 99
+           requireMention: false     # inherits agentId from parent binding
    ```
 
-   For forum supergroups, add `topicId` to bind a specific topic thread to its own agent. Each topic with a binding gets an isolated Claude session. Messages in unbound topics fall back to the chatId-only binding if one exists.
+   For forum supergroups, add `topicId` to bind a specific topic thread to its own agent. Each topic with a binding gets an isolated Claude session. Messages in unbound topics fall back to the chatId-only binding if one exists. Alternatively, use inline `topics` on a single binding to override `agentId` and `requireMention` per topic.
+
+   Additional binding options:
+   - `requireMention` (boolean): Whether the bot requires an @mention or reply-to-bot to respond in groups. Defaults to `true` for groups. Can be overridden per topic.
+   - `voiceTranscriptEcho` (boolean): Whether to echo the voice transcript back to the chat. Defaults to `true`. Set `false` to suppress.
+   - `topics` (array): Per-topic overrides within a forum supergroup. Each entry has a required `topicId` and optional `agentId` and `requireMention` that override the parent binding's values.
 
 3. Validate and restart:
    ```bash
@@ -146,7 +165,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
 | Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
 
-In group chats, voice/photo/document messages must be replies to the bot (text messages also support @mentions).
+In group chats, the bot only responds to messages that @mention the bot or reply to the bot (configurable via `requireMention` in bindings). Every message sent to Claude is prefixed with source context (e.g. `[Chat: HQ Forum | From: John (@johndoe)]`) using the binding's `label` and the sender's Telegram profile.
 
 ## Bot Commands
 
