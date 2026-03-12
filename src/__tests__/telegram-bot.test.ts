@@ -178,6 +178,14 @@ describe("isImageMimeType", () => {
   it("returns false for video/mp4", () => {
     assert.strictEqual(isImageMimeType("video/mp4"), false);
   });
+
+  it("returns false for image/svg+xml (unsupported by Claude vision)", () => {
+    assert.strictEqual(isImageMimeType("image/svg+xml"), false);
+  });
+
+  it("returns false for image/tiff (unsupported by Claude vision)", () => {
+    assert.strictEqual(isImageMimeType("image/tiff"), false);
+  });
 });
 
 describe("BOT_COMMANDS", () => {

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -17,8 +17,9 @@ interface RawConfig {
 
 function resolveKeychainSecret(service: string): string {
   try {
-    return execSync(
-      `security find-generic-password -s '${service}' -w`,
+    return execFileSync(
+      "security",
+      ["find-generic-password", "-s", service, "-w"],
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
     ).trim();
   } catch {
