@@ -4,6 +4,7 @@ import type { BotConfig, TelegramBinding } from "./types.js";
 import type { SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
+import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 
 /**
  * Build a session key from chatId and optional topicId.
@@ -182,6 +183,52 @@ export function createTelegramBot(
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
     messageQueue.enqueue(key, binding.agentId, messageText, ctx);
+  });
+
+  // Handle voice messages — transcribe with whisper-cli and send to Claude
+  bot.on("message:voice", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const topicId = ctx.message?.message_thread_id;
+    const binding = resolveBinding(chatId, config.bindings, topicId);
+    if (!binding) return;
+
+    // Group chat: only respond if message is a reply to bot
+    if (binding.kind === "group") {
+      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
+      if (!isReplyToBot) return;
+    }
+
+    const key = sessionKey(chatId, topicId);
+    let tempPath: string | null = null;
+
+    try {
+      // Download voice file from Telegram
+      const fileId = ctx.msg.voice.file_id;
+      const file = await ctx.api.getFile(fileId);
+      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      tempPath = tempFilePath("voice", ".oga");
+      await downloadFile(url, tempPath);
+
+      // Transcribe with whisper-cli
+      const transcript = await transcribeAudio(tempPath);
+      if (!transcript) {
+        await ctx.reply("Could not transcribe voice message (empty result).");
+        return;
+      }
+
+      // Echo transcript back to user
+      await ctx.reply(`\ud83d\udcdd "${transcript}"`);
+
+      // Send transcript text to Claude session
+      messageQueue.enqueue(key, binding.agentId, transcript, ctx);
+    } catch (err) {
+      console.error(`[telegram-bot] Voice transcription error for chat ${chatId}:`, err);
+      await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
+    } finally {
+      if (tempPath) {
+        cleanupTempFile(tempPath).catch(() => {});
+      }
+    }
   });
 
   // Global error handler

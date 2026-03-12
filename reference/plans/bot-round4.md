@@ -89,12 +89,12 @@ No conversion step needed — whisper-cli handles OGG natively.
 
 Error handling: if transcription fails, reply with error message, don't send to Claude.
 
-- [ ] Add voice message handler
-- [ ] Implement file download
-- [ ] Implement whisper-cli transcription
-- [ ] Add echo transcript reply
-- [ ] Clean up temp files
-- [ ] Update tests
+- [x] Add voice message handler
+- [x] Implement file download
+- [x] Implement whisper-cli transcription
+- [x] Add echo transcript reply
+- [x] Clean up temp files
+- [x] Update tests
 
 ### Task 2: Image support — pass photos to Claude (bot-hxe, P1)
 
