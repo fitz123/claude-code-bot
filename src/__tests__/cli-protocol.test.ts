@@ -72,6 +72,17 @@ describe("buildSpawnArgs", () => {
     assert.ok(args.includes("50"));
   });
 
+  it("includes --effort when set", () => {
+    const agentWithEffort: AgentConfig = {
+      ...testAgent,
+      effort: "high",
+    };
+    const args = buildSpawnArgs({ agent: agentWithEffort });
+    assert.ok(args.includes("--effort"));
+    const idx = args.indexOf("--effort");
+    assert.strictEqual(args[idx + 1], "high");
+  });
+
   it("omits optional flags when not set", () => {
     const minAgent: AgentConfig = {
       id: "min",
@@ -82,6 +93,7 @@ describe("buildSpawnArgs", () => {
     assert.ok(!args.includes("--fallback-model"));
     assert.ok(!args.includes("--max-turns"));
     assert.ok(!args.includes("--append-system-prompt"));
+    assert.ok(!args.includes("--effort"));
   });
 });
 

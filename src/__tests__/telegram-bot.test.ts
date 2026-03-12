@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, BOT_COMMANDS } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -139,5 +139,94 @@ describe("isAuthorized", () => {
 
   it("handles empty bindings", () => {
     assert.strictEqual(isAuthorized(<redacted-user-id>, []), false);
+  });
+});
+
+describe("isImageMimeType", () => {
+  it("returns true for image/jpeg", () => {
+    assert.strictEqual(isImageMimeType("image/jpeg"), true);
+  });
+
+  it("returns true for image/png", () => {
+    assert.strictEqual(isImageMimeType("image/png"), true);
+  });
+
+  it("returns true for image/gif", () => {
+    assert.strictEqual(isImageMimeType("image/gif"), true);
+  });
+
+  it("returns true for image/webp", () => {
+    assert.strictEqual(isImageMimeType("image/webp"), true);
+  });
+
+  it("returns true for image/bmp", () => {
+    assert.strictEqual(isImageMimeType("image/bmp"), true);
+  });
+
+  it("returns false for application/pdf", () => {
+    assert.strictEqual(isImageMimeType("application/pdf"), false);
+  });
+
+  it("returns false for text/plain", () => {
+    assert.strictEqual(isImageMimeType("text/plain"), false);
+  });
+
+  it("returns false for undefined", () => {
+    assert.strictEqual(isImageMimeType(undefined), false);
+  });
+
+  it("returns false for video/mp4", () => {
+    assert.strictEqual(isImageMimeType("video/mp4"), false);
+  });
+
+  it("returns false for image/svg+xml (unsupported by Claude vision)", () => {
+    assert.strictEqual(isImageMimeType("image/svg+xml"), false);
+  });
+
+  it("returns false for image/tiff (unsupported by Claude vision)", () => {
+    assert.strictEqual(isImageMimeType("image/tiff"), false);
+  });
+});
+
+describe("BOT_COMMANDS", () => {
+  it("contains start, reset, and status commands", () => {
+    const names = BOT_COMMANDS.map((c) => c.command);
+    assert.deepStrictEqual(names, ["start", "reset", "status"]);
+  });
+
+  it("each command has a non-empty description", () => {
+    for (const cmd of BOT_COMMANDS) {
+      assert.ok(cmd.description.length > 0, `${cmd.command} has empty description`);
+    }
+  });
+});
+
+describe("imageExtensionForMime", () => {
+  it("returns .jpg for image/jpeg", () => {
+    assert.strictEqual(imageExtensionForMime("image/jpeg"), ".jpg");
+  });
+
+  it("returns .png for image/png", () => {
+    assert.strictEqual(imageExtensionForMime("image/png"), ".png");
+  });
+
+  it("returns .gif for image/gif", () => {
+    assert.strictEqual(imageExtensionForMime("image/gif"), ".gif");
+  });
+
+  it("returns .webp for image/webp", () => {
+    assert.strictEqual(imageExtensionForMime("image/webp"), ".webp");
+  });
+
+  it("returns .bmp for image/bmp", () => {
+    assert.strictEqual(imageExtensionForMime("image/bmp"), ".bmp");
+  });
+
+  it("returns .jpg for undefined", () => {
+    assert.strictEqual(imageExtensionForMime(undefined), ".jpg");
+  });
+
+  it("returns .jpg for unknown image type", () => {
+    assert.strictEqual(imageExtensionForMime("image/tiff"), ".jpg");
   });
 });

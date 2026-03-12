@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -17,8 +17,9 @@ interface RawConfig {
 
 function resolveKeychainSecret(service: string): string {
   try {
-    return execSync(
-      `security find-generic-password -s '${service}' -w`,
+    return execFileSync(
+      "security",
+      ["find-generic-password", "-s", service, "-w"],
       { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
     ).trim();
   } catch {
@@ -45,6 +46,9 @@ function validateAgent(raw: unknown, id: string): AgentConfig {
     systemPrompt: typeof obj.systemPrompt === "string" ? obj.systemPrompt : undefined,
     allowedTools: Array.isArray(obj.allowedTools) ? obj.allowedTools.map(String) : undefined,
     maxTurns: typeof obj.maxTurns === "number" ? obj.maxTurns : undefined,
+    effort: typeof obj.effort === "string" && ["low", "medium", "high"].includes(obj.effort)
+      ? (obj.effort as AgentConfig["effort"])
+      : undefined,
   };
 }
 

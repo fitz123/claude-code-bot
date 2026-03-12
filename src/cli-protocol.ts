@@ -44,6 +44,10 @@ export function buildSpawnArgs(opts: SpawnOptions): string[] {
     args.push("--append-system-prompt", opts.agent.systemPrompt);
   }
 
+  if (opts.agent.effort) {
+    args.push("--effort", opts.agent.effort);
+  }
+
   if (opts.resume && opts.sessionId) {
     // --resume <sessionId> takes ID as argument, NOT combined with --session-id
     args.push("--resume", opts.sessionId);
