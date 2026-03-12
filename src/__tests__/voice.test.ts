@@ -89,6 +89,43 @@ describe("convertToWav", () => {
     assert.strictEqual(FFMPEG_BIN, "/opt/homebrew/bin/ffmpeg");
   });
 
+  it("converts a valid audio file to 16kHz mono WAV", async () => {
+    // Create a minimal valid WAV: 44-byte RIFF header + 2 bytes of silence
+    const header = Buffer.alloc(46);
+    header.write("RIFF", 0);
+    header.writeUInt32LE(38, 4);
+    header.write("WAVE", 8);
+    header.write("fmt ", 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20); // PCM
+    header.writeUInt16LE(1, 22); // mono
+    header.writeUInt32LE(44100, 24); // sample rate
+    header.writeUInt32LE(88200, 28); // byte rate
+    header.writeUInt16LE(2, 32); // block align
+    header.writeUInt16LE(16, 34); // bits per sample
+    header.write("data", 36);
+    header.writeUInt32LE(2, 40); // 2 bytes of audio data
+    // 2 bytes of silence already zeroed
+
+    const inputPath = tempFilePath("test-input", ".wav");
+    writeFileSync(inputPath, header);
+
+    try {
+      const outputPath = await convertToWav(inputPath);
+      try {
+        assert.ok(existsSync(outputPath), "Output WAV file should exist");
+        assert.ok(outputPath.includes("/tg-voice-wav-"), "Output path should use voice-wav prefix");
+        assert.ok(outputPath.endsWith(".wav"), "Output should have .wav extension");
+        const content = readFileSync(outputPath);
+        assert.strictEqual(content.toString("ascii", 0, 4), "RIFF", "Output should have RIFF header");
+      } finally {
+        await cleanupTempFile(outputPath);
+      }
+    } finally {
+      rmSync(inputPath, { force: true });
+    }
+  });
+
   it("rejects when given a nonexistent input file", async () => {
     await assert.rejects(
       () => convertToWav("/tmp/openclaw-nonexistent-audio-99999.oga"),
