@@ -1,8 +1,8 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
-import { Readable, Writable } from "node:stream";
+import { Readable, Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
 import { waitForSpawn } from "../session-manager.js";
@@ -507,5 +507,110 @@ describe("waitForSpawn", () => {
     assert.strictEqual(child.listenerCount("spawn"), 0);
     assert.strictEqual(child.listenerCount("error"), 0);
     assert.strictEqual(child.listenerCount("exit"), 0);
+  });
+});
+
+describe("setupStderrLogging", () => {
+  const STDERR_LOG_DIR = `${TEST_DIR}/stderr-logs`;
+
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("captures stderr data that arrives after exit event", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+
+    // Create mock child with a PassThrough as stderr
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stderr = new PassThrough();
+    Object.assign(child, { stderr, pid: 77777, exitCode: null, signalCode: null, killed: false });
+
+    // Call the private method via cast
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("stderr-test", child);
+
+    // Write stderr data before exit
+    stderr.write("error: crash detected\n");
+
+    // Simulate process exit (fires before stdio closes)
+    (child as unknown as Record<string, unknown>).exitCode = 1;
+    child.emit("exit", 1, null);
+
+    // Write more stderr data after exit but before stdio closes
+    stderr.write("backtrace: frame0 frame1\n");
+
+    // End stderr (simulates stdio close — the 'close' event follows)
+    stderr.end();
+
+    // Wait for pipe to flush to disk
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    const logPath = `${STDERR_LOG_DIR}/session-stderr-test.log`;
+    assert.ok(existsSync(logPath), "log file should exist");
+    const content = readFileSync(logPath, "utf8");
+    assert.ok(content.includes("error: crash detected"), "should capture stderr before exit");
+    assert.ok(content.includes("backtrace: frame0 frame1"), "should capture stderr after exit");
+  });
+
+  it("creates log directory if it does not exist", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const nestedDir = `${TEST_DIR}/nested/deep/logs`;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH, nestedDir);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stderr = new PassThrough();
+    Object.assign(child, { stderr, pid: 77778, exitCode: null, signalCode: null, killed: false });
+
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("dir-test", child);
+
+    stderr.write("test output\n");
+    stderr.end();
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    assert.ok(existsSync(nestedDir), "log directory should be created");
+    const content = readFileSync(`${nestedDir}/session-dir-test.log`, "utf8");
+    assert.ok(content.includes("test output"), "should capture stderr output");
+  });
+
+  it("appends to existing log file", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+    mkdirSync(STDERR_LOG_DIR, { recursive: true });
+
+    // First child writes some output
+    const child1 = new EventEmitter() as unknown as ChildProcess;
+    const stderr1 = new PassThrough();
+    Object.assign(child1, { stderr: stderr1, pid: 77779, exitCode: null, signalCode: null, killed: false });
+
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("append-test", child1);
+
+    stderr1.write("first session output\n");
+    stderr1.end();
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    // Second child appends to same log
+    const child2 = new EventEmitter() as unknown as ChildProcess;
+    const stderr2 = new PassThrough();
+    Object.assign(child2, { stderr: stderr2, pid: 77780, exitCode: null, signalCode: null, killed: false });
+
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("append-test", child2);
+
+    stderr2.write("second session output\n");
+    stderr2.end();
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    const content = readFileSync(`${STDERR_LOG_DIR}/session-append-test.log`, "utf8");
+    assert.ok(content.includes("first session output"), "should contain first session output");
+    assert.ok(content.includes("second session output"), "should contain second session output");
   });
 });
