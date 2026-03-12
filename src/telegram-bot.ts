@@ -29,9 +29,6 @@ export function imageExtensionForMime(mimeType: string | undefined): string {
   }
 }
 
-/** Delay before cleaning up image temp files (gives Claude time to read) */
-const IMAGE_CLEANUP_DELAY_MS = 10 * 60 * 1000;
-
 /**
  * Build a session key from chatId and optional topicId.
  * Returns "chatId" or "chatId:topicId" when topicId is present.
@@ -243,11 +240,13 @@ export function createTelegramBot(
         return;
       }
 
-      // Echo transcript back to user
-      await ctx.reply(`\ud83d\udcdd "${transcript}"`);
-
       // Send transcript text to Claude session
       messageQueue.enqueue(key, binding.agentId, transcript, ctx);
+
+      // Echo transcript back to user (non-critical — don't block enqueue)
+      await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
+        console.warn(`[telegram-bot] Failed to echo transcript for chat ${chatId}:`, echoErr);
+      });
     } catch (err) {
       console.error(`[telegram-bot] Voice transcription error for chat ${chatId}:`, err);
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
@@ -289,12 +288,12 @@ export function createTelegramBot(
         ? `${caption.trimEnd()}\n\n${tempPath}`
         : tempPath;
 
-      messageQueue.enqueue(key, binding.agentId, messageText, ctx);
-
-      // Schedule delayed cleanup to give Claude time to read the file
+      // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
       tempPath = null;
-      setTimeout(() => cleanupTempFile(pathToClean), IMAGE_CLEANUP_DELAY_MS);
+      messageQueue.enqueue(key, binding.agentId, messageText, ctx, () => {
+        cleanupTempFile(pathToClean);
+      });
     } catch (err) {
       console.error(`[telegram-bot] Photo handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
@@ -335,11 +334,11 @@ export function createTelegramBot(
         ? `${caption.trimEnd()}\n\n${tempPath}`
         : tempPath;
 
-      messageQueue.enqueue(key, binding.agentId, messageText, ctx);
-
       const pathToClean = tempPath;
       tempPath = null;
-      setTimeout(() => cleanupTempFile(pathToClean), IMAGE_CLEANUP_DELAY_MS);
+      messageQueue.enqueue(key, binding.agentId, messageText, ctx, () => {
+        cleanupTempFile(pathToClean);
+      });
     } catch (err) {
       console.error(`[telegram-bot] Document image handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process image document. Please try again.").catch(() => {});
