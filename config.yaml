@@ -5,7 +5,7 @@ telegramTokenService: telegram-bot-token
 agents:
   main:
     id: main
-    workspaceCwd: /Users/ninja/.openclaw/workspace
+    workspaceCwd: /Users/ninja/.minime/workspace
     model: claude-opus-4-6
     fallbackModel: claude-sonnet-4-6
     maxTurns: 250 # just a safety from infinite loop
