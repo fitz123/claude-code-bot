@@ -244,7 +244,7 @@ export function createTelegramBot(
       }
 
       // Send transcript text to Claude session
-      messageQueue.enqueue(key, binding.agentId, transcript, ctx);
+      messageQueue.enqueue(key, binding.agentId, `[Voice message] ${transcript}`, ctx);
 
       // Echo transcript back to user (non-critical — don't block enqueue)
       await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
