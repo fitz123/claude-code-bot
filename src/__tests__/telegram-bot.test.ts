@@ -379,6 +379,21 @@ describe("shouldRespondInGroup", () => {
     assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
   });
 
+  it("returns false for substring username match without entities", () => {
+    const msg = { text: "hey @testbot2 help me" };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns false for email-like substring match without entities", () => {
+    const msg = { text: "send to user@testbot.com" };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns true when @mention is at end of text without entities", () => {
+    const msg = { text: "hey @testbot" };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+  });
+
   it("returns true for group with explicit requireMention: true and reply to bot", () => {
     const explicit: TelegramBinding = { ...groupBinding, requireMention: true };
     const msg = { reply_to_message: { from: { id: botId } } };
