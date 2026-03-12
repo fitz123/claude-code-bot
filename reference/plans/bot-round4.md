@@ -139,7 +139,7 @@ Bot doesn't call `setMyCommands` — Telegram menu shows stale commands from old
 2. Parse it in config.ts
 3. Pass `--effort <level>` in buildSpawnArgs in cli-protocol.ts when set
 
-- [ ] Add effort to AgentConfig type
-- [ ] Parse in config
-- [ ] Pass --effort flag in buildSpawnArgs
-- [ ] Update tests
+- [x] Add effort to AgentConfig type
+- [x] Parse in config
+- [x] Pass --effort flag in buildSpawnArgs
+- [x] Update tests
