@@ -9,6 +9,7 @@ agents:
     model: claude-opus-4-6
     fallbackModel: claude-sonnet-4-6
     maxTurns: 250 # just a safety from infinite loop
+    effort: high
 
 bindings:
   - chatId: 306600687
