@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFileCb);
 
 export const WHISPER_BIN = "/opt/homebrew/bin/whisper-cli";
-export const WHISPER_MODEL = "/opt/homebrew/share/ggml-small.bin";
+export const WHISPER_MODEL = "/opt/homebrew/share/whisper-cpp/ggml-small.bin";
 
 /**
  * Generate a unique temp file path with given prefix and extension.
