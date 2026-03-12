@@ -211,6 +211,9 @@ describe("SessionManager sendSessionMessage streaming", () => {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["123", session]]);
 
@@ -286,6 +289,9 @@ describe("SessionManager sendSessionMessage streaming", () => {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["err-chat", session]]);
 
@@ -334,6 +340,9 @@ describe("SessionManager sendSessionMessage streaming", () => {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["dead-chat", session]]);
 
@@ -405,6 +414,9 @@ describe("SessionManager sendSessionMessage streaming", () => {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["epipe-chat", session]]);
 
@@ -670,6 +682,9 @@ describe("setupStderrLogging", () => {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
     };
     (manager as unknown as Record<string, Map<string, unknown>>).active.set("crash-integration", session);
 
@@ -729,5 +744,275 @@ describe("setupStderrLogging", () => {
     assert.ok(content.includes(lines[0]), "should contain first line");
     assert.ok(content.includes(lines[49]), "should contain middle line");
     assert.ok(content.includes(lines[99]), "should contain last line");
+  });
+});
+
+describe("SessionManager.getSessionHealth", () => {
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("returns undefined for unknown chatId", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    assert.strictEqual(manager.getSessionHealth("unknown"), undefined);
+  });
+
+  it("returns health info for an alive session", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 42000,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+    });
+
+    const now = Date.now();
+    const session = {
+      child,
+      sessionId: "health-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: now - 5000,
+      processingStartedAt: null,
+      lastSuccessAt: now - 10000,
+      restartCount: 2,
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["health-chat", session]]);
+
+    const health = manager.getSessionHealth("health-chat");
+    assert.ok(health);
+    assert.strictEqual(health.pid, 42000);
+    assert.strictEqual(health.alive, true);
+    assert.strictEqual(health.agentId, "main");
+    assert.ok(health.idleMs >= 5000, "idle should be at least 5s");
+    assert.strictEqual(health.processingMs, null);
+    assert.strictEqual(health.lastSuccessAt, now - 10000);
+    assert.strictEqual(health.restartCount, 2);
+  });
+
+  it("returns processing duration when session is processing", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 42001,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+    });
+
+    const now = Date.now();
+    const session = {
+      child,
+      sessionId: "proc-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: now,
+      processingStartedAt: now - 3000,
+      lastSuccessAt: null,
+      restartCount: 0,
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["proc-chat", session]]);
+
+    const health = manager.getSessionHealth("proc-chat");
+    assert.ok(health);
+    assert.ok(health.processingMs !== null && health.processingMs >= 3000,
+      "processingMs should be at least 3s");
+  });
+
+  it("reports dead when child has exited", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 42002,
+      exitCode: 1,
+      signalCode: null,
+      killed: false,
+    });
+
+    const session = {
+      child,
+      sessionId: "dead-health-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["dead-health", session]]);
+
+    const health = manager.getSessionHealth("dead-health");
+    assert.ok(health);
+    assert.strictEqual(health.alive, false);
+  });
+
+  it("reports dead when child was killed", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 42003,
+      exitCode: null,
+      signalCode: null,
+      killed: true,
+    });
+
+    const session = {
+      child,
+      sessionId: "killed-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["killed-chat", session]]);
+
+    const health = manager.getSessionHealth("killed-chat");
+    assert.ok(health);
+    assert.strictEqual(health.alive, false);
+  });
+
+  it("handles null PID gracefully", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: undefined,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+    });
+
+    const session = {
+      child,
+      sessionId: "no-pid-test",
+      agentId: "yulia",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["nopid-chat", session]]);
+
+    const health = manager.getSessionHealth("nopid-chat");
+    assert.ok(health);
+    assert.strictEqual(health.pid, null);
+    assert.strictEqual(health.agentId, "yulia");
+  });
+});
+
+describe("ActiveSession health fields tracked in sendSessionMessage", () => {
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("sets processingStartedAt during processing and clears after result", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    const stdin = new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } });
+    Object.assign(child, {
+      stdout, stderr, stdin,
+      pid: 55000,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = 0;
+          child.emit("exit", 0, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+
+    const session = {
+      child,
+      sessionId: "proc-track-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["proc-track", session]]);
+
+    const gen = manager.sendSessionMessage("proc-track", "main", "hello");
+
+    // After sending, processingStartedAt should be set
+    setTimeout(() => {
+      assert.ok(session.processingStartedAt !== null, "processingStartedAt should be set during processing");
+
+      stdout.push(
+        JSON.stringify({
+          type: "result",
+          result: "done",
+          session_id: "proc-track-test",
+        }) + "\n"
+      );
+    }, 30);
+
+    for await (const _line of gen) {
+      // consume
+    }
+
+    // After completion, processingStartedAt should be cleared and lastSuccessAt set
+    assert.strictEqual(session.processingStartedAt, null, "processingStartedAt should be null after completion");
+    assert.ok(session.lastSuccessAt !== null, "lastSuccessAt should be set after success");
   });
 });

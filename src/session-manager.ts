@@ -22,6 +22,24 @@ export interface ActiveSession {
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
   lastActivity: number;
+  /** Timestamp when current turn started processing, null if idle. */
+  processingStartedAt: number | null;
+  /** Timestamp of last successful response (result received). */
+  lastSuccessAt: number | null;
+  /** Number of times this session's subprocess was restarted. */
+  restartCount: number;
+}
+
+export interface SessionHealth {
+  pid: number | null;
+  alive: boolean;
+  agentId: string;
+  idleMs: number;
+  /** Milliseconds since current turn started, or null if not processing. */
+  processingMs: number | null;
+  /** Timestamp of last successful response, or null if none yet. */
+  lastSuccessAt: number | null;
+  restartCount: number;
 }
 
 /**
@@ -97,7 +115,9 @@ export class SessionManager {
     }
 
     // If we had an active entry but child is dead/dying, clean it up
+    let previousRestartCount = 0;
     if (existing) {
+      previousRestartCount = existing.restartCount;
       // Clear idle timer to prevent it from closing the new session
       if (existing.idleTimer) {
         clearTimeout(existing.idleTimer);
@@ -159,6 +179,9 @@ export class SessionManager {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: (existing || resume) ? previousRestartCount + 1 : 0,
     };
 
     this.active.set(chatId, session);
@@ -231,6 +254,7 @@ export class SessionManager {
       try {
         sendMessage(session.child, text, session.sessionId);
         session.lastActivity = Date.now();
+        session.processingStartedAt = Date.now();
         this.resetIdleTimer(chatId);
 
         // Update store with new activity time
@@ -274,10 +298,12 @@ export class SessionManager {
           push(line);
           if (line.type === "result") {
             gotResult = true;
+            session.lastSuccessAt = Date.now();
             break;
           }
         }
         clearActivityTimers();
+        session.processingStartedAt = null;
         if (!gotResult) {
           finish(new Error("Claude subprocess exited before sending a result"));
           return;
@@ -285,6 +311,7 @@ export class SessionManager {
         finish();
       } catch (err) {
         clearActivityTimers();
+        session.processingStartedAt = null;
         finish(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -377,6 +404,25 @@ export class SessionManager {
   /** Get active session for a chatId (for monitoring/status). */
   getActive(chatId: string): ActiveSession | undefined {
     return this.active.get(chatId);
+  }
+
+  /** Get subprocess health info for a session (for /status command). */
+  getSessionHealth(chatId: string): SessionHealth | undefined {
+    const session = this.active.get(chatId);
+    if (!session) return undefined;
+
+    const alive = !hasExited(session.child) && !session.child.killed;
+    const now = Date.now();
+
+    return {
+      pid: session.child.pid ?? null,
+      alive,
+      agentId: session.agentId,
+      idleMs: now - session.lastActivity,
+      processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
+      lastSuccessAt: session.lastSuccessAt,
+      restartCount: session.restartCount,
+    };
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */

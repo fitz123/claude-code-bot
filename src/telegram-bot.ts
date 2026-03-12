@@ -75,7 +75,7 @@ export function createTelegramBot(
     await ctx.reply("Session reset. Next message starts a fresh conversation.");
   });
 
-  // /status command — active sessions, memory, uptime
+  // /status command — active sessions, memory, uptime, subprocess health
   bot.command("status", async (ctx) => {
     const activeCount = sessionManager.getActiveCount();
     const memUsage = process.memoryUsage();
@@ -89,11 +89,30 @@ export function createTelegramBot(
       `Uptime: ${hours}h ${minutes}m`,
     ];
 
-    const session = sessionManager.getActive(String(ctx.chat.id));
-    if (session) {
-      const idleMs = Date.now() - session.lastActivity;
-      const idleMins = Math.floor(idleMs / 60000);
-      lines.push(`This session: idle ${idleMins}m, agent "${session.agentId}"`);
+    const health = sessionManager.getSessionHealth(String(ctx.chat.id));
+    if (health) {
+      const status = health.alive ? "alive" : "dead";
+      const pidStr = health.pid !== null ? String(health.pid) : "n/a";
+      const idleMins = Math.floor(health.idleMs / 60000);
+
+      lines.push(`This session: agent "${health.agentId}", PID ${pidStr} (${status})`);
+
+      if (health.processingMs !== null) {
+        const procSecs = Math.floor(health.processingMs / 1000);
+        lines.push(`  Processing: ${procSecs}s`);
+      } else {
+        lines.push(`  Idle: ${idleMins}m`);
+      }
+
+      if (health.lastSuccessAt !== null) {
+        const agoMs = Date.now() - health.lastSuccessAt;
+        const agoMins = Math.floor(agoMs / 60000);
+        lines.push(`  Last success: ${agoMins}m ago`);
+      } else {
+        lines.push(`  Last success: none`);
+      }
+
+      lines.push(`  Restarts: ${health.restartCount}`);
     }
 
     await ctx.reply(lines.join("\n"));
