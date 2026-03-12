@@ -21,7 +21,8 @@ bindings:
     agentId: main
     kind: group
     label: Minime HQ
+    requireMention: false
 
 sessionDefaults:
   idleTimeoutMs: 14400000 # 4hrs
-  maxConcurrentSessions: 3
+  maxConcurrentSessions: 6
