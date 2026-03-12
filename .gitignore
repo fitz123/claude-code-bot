@@ -2,3 +2,5 @@ node_modules/
 dist/
 data/
 *.log
+.ralphex/
+config.yaml.bak
