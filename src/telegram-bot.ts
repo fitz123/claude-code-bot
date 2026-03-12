@@ -64,6 +64,31 @@ export function resolveBinding(
 }
 
 /**
+ * Build a source context prefix from binding and sender info.
+ * Prepended to every message before enqueuing so Claude knows
+ * which chat/topic a message came from and who sent it.
+ */
+export function buildSourcePrefix(
+  binding: TelegramBinding,
+  from?: { first_name: string; username?: string },
+): string {
+  const parts: string[] = [];
+
+  if (binding.label) {
+    parts.push(`Chat: ${binding.label}`);
+  }
+
+  if (from) {
+    const sender = from.username
+      ? `${from.first_name} (@${from.username})`
+      : from.first_name;
+    parts.push(`From: ${sender}`);
+  }
+
+  return parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
+}
+
+/**
  * Check if a chat is authorized based on bindings allowlist.
  */
 export function isAuthorized(chatId: number, bindings: TelegramBinding[]): boolean {
@@ -204,7 +229,8 @@ export function createTelegramBot(
     }
 
     const key = sessionKey(chatId, topicId);
-    const messageText = ctx.message.text;
+    const prefix = buildSourcePrefix(binding, ctx.from);
+    const messageText = prefix + ctx.message.text;
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
@@ -244,7 +270,8 @@ export function createTelegramBot(
       }
 
       // Send transcript text to Claude session
-      messageQueue.enqueue(key, binding.agentId, `[Voice message] ${transcript}`, ctx);
+      const prefix = buildSourcePrefix(binding, ctx.from);
+      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, ctx);
 
       // Echo transcript back to user (non-critical — don't block enqueue)
       await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
@@ -286,10 +313,11 @@ export function createTelegramBot(
       await downloadFile(url, tempPath);
 
       // Build message: caption (if any) + image file path
+      const prefix = buildSourcePrefix(binding, ctx.from);
       const caption = ctx.msg.caption ?? "";
       const messageText = caption.trimEnd()
-        ? `${caption.trimEnd()}\n\n${tempPath}`
-        : tempPath;
+        ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
+        : `${prefix}${tempPath}`;
 
       // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
@@ -332,10 +360,11 @@ export function createTelegramBot(
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);
 
+      const prefix = buildSourcePrefix(binding, ctx.from);
       const caption = ctx.msg.caption ?? "";
       const messageText = caption.trimEnd()
-        ? `${caption.trimEnd()}\n\n${tempPath}`
-        : tempPath;
+        ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
+        : `${prefix}${tempPath}`;
 
       const pathToClean = tempPath;
       tempPath = null;

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, BOT_COMMANDS } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, BOT_COMMANDS } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -198,6 +198,36 @@ describe("BOT_COMMANDS", () => {
     for (const cmd of BOT_COMMANDS) {
       assert.ok(cmd.description.length > 0, `${cmd.command} has empty description`);
     }
+  });
+});
+
+describe("buildSourcePrefix", () => {
+  it("includes chat label and sender with username", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "Minime HQ" };
+    const from = { first_name: "John", username: "johndoe" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: Minime HQ | From: John (@johndoe)]\n");
+  });
+
+  it("includes sender without username", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", label: "User DM" };
+    const from = { first_name: "Alice" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: User DM | From: Alice]\n");
+  });
+
+  it("omits chat label when binding has no label", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
+    const from = { first_name: "Bob", username: "bob123" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[From: Bob (@bob123)]\n");
+  });
+
+  it("omits sender when from is undefined", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "Dev Chat" };
+    assert.strictEqual(buildSourcePrefix(binding, undefined), "[Chat: Dev Chat]\n");
+  });
+
+  it("returns empty string when no label and no from", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
+    assert.strictEqual(buildSourcePrefix(binding, undefined), "");
   });
 });
 
