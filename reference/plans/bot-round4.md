@@ -33,19 +33,27 @@ Model: `/opt/homebrew/share/ggml-small.bin`
 whisper-cli -m /opt/homebrew/share/ggml-small.bin -f /path/to/audio.ogg --no-timestamps
 ```
 
-Telegram voice messages are `.oga` (Opus in OGG container). whisper-cli may need conversion to WAV first — check if it handles OGG natively, if not use `ffmpeg -i input.oga output.wav`.
+Telegram voice messages are `.oga` (Opus in OGG container). whisper-cli handles OGG natively — no ffmpeg conversion needed.
 
-Check if ffmpeg is available: `/opt/homebrew/bin/ffmpeg`
+## Reference: OpenClaw image handling pattern
 
-## Reference: OpenClaw voice transcription
+OpenClaw passes images to Claude CLI by:
+1. Writing image data to temp files on disk
+2. Appending file paths to the prompt text before sending
 
-See `~/minime/openclaw/src/media-understanding/` for the full pipeline:
-- `audio-preflight.ts` — preflight transcription for group mention matching
-- `transcribe-audio.ts` — public transcription API
-- `echo-transcript.ts` — echo transcript back to chat before agent processing
-- `providers/` — provider implementations (openai, groq, deepgram, google, mistral, local CLI)
+From `openclaw/src/agents/cli-runner/helpers.ts`:
 
-OpenClaw whisper-cli provider: looks for `whisper-cli` binary, passes `WHISPER_CPP_MODEL` env var or defaults to `/opt/homebrew/share/whisper.bin`.
+```typescript
+// appendImagePathsToPrompt — appends image file paths to prompt text
+export function appendImagePathsToPrompt(prompt: string, paths: string[]): string {
+  if (!paths.length) return prompt;
+  const trimmed = prompt.trimEnd();
+  const separator = trimmed ? "\n\n" : "";
+  return `${trimmed}${separator}${paths.join("\n")}`;
+}
+```
+
+For mid-session messages (after subprocess is already running), image file paths are appended to the text sent via stdin. Claude Code recognizes file paths and reads the images. The `--file` CLI flag only works at initial spawn.
 
 ## Reference: Telegram Bot API file download
 
@@ -70,13 +78,14 @@ Pipeline:
 1. Handle `message:voice` in telegram-bot.ts
 2. Get file_id from `ctx.msg.voice.file_id`
 3. Download via Telegram getFile() API to a temp file
-4. Convert to WAV if whisper-cli doesn't support OGG (use ffmpeg)
-5. Run `whisper-cli -m /opt/homebrew/share/ggml-small.bin -f <file> --no-timestamps`
-6. Parse transcript from stdout
-7. Echo transcript back to chat: reply with 📝 "<transcript>"
-8. Send transcript text to Claude session via sendSessionMessage
-9. Relay Claude's response as usual
-10. Clean up temp files
+4. Run `whisper-cli -m /opt/homebrew/share/ggml-small.bin -f <file> --no-timestamps`
+5. Parse transcript from stdout
+6. Echo transcript back to chat: reply with 📝 "<transcript>"
+7. Send transcript text to Claude session via sendSessionMessage
+8. Relay Claude's response as usual
+9. Clean up temp files
+
+No conversion step needed — whisper-cli handles OGG natively.
 
 Error handling: if transcription fails, reply with error message, don't send to Claude.
 
@@ -94,14 +103,16 @@ Receive Telegram photos, download, pass to Claude session for vision analysis.
 Pipeline:
 1. Handle `message:photo` in telegram-bot.ts
 2. Get file_id from `ctx.msg.photo` (last element = largest size)
-3. Download via Telegram getFile() API to a temp file
-4. Send to Claude session — investigate how stream-json input format handles image attachments. Options: base64 in message content, or save to workspace and reference in text.
-5. Also handle `message:document` with image MIME types (image/png, image/jpeg, etc.)
-6. Support photo + caption: use caption as message text alongside the image
+3. Download via Telegram getFile() API to a temp file (use descriptive filename with extension, e.g. `/tmp/tg-photo-<id>.jpg`)
+4. Build message text: if caption exists use it, otherwise use empty string. Append the temp file path to the text (following OpenClaw's `appendImagePathsToPrompt` pattern — just append the path on a new line)
+5. Send the combined text+path to Claude session via sendSessionMessage
+6. Claude Code will recognize the file path and read the image for vision analysis
+7. Also handle `message:document` with image MIME types (image/png, image/jpeg, etc.)
+8. Clean up temp files after response
 
 - [ ] Add photo message handler
-- [ ] Implement file download
-- [ ] Pass image to Claude session
+- [ ] Implement file download to temp file
+- [ ] Append image path to message text
 - [ ] Handle documents with image MIME types
 - [ ] Support photo + caption
 - [ ] Clean up temp files
