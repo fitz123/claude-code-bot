@@ -1,9 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { Writable } from "node:stream";
+import type { ChildProcess } from "node:child_process";
 import {
   buildSpawnArgs,
   buildSpawnEnv,
   buildUserMessage,
+  sendMessage,
   parseStreamLine,
   extractTextDelta,
   extractAssistantText,
@@ -212,5 +216,67 @@ describe("extractResultText", () => {
   it("returns null for non-result", () => {
     const msg = parseStreamLine('{"type":"system","subtype":"init","session_id":"x"}')!;
     assert.strictEqual(extractResultText(msg), null);
+  });
+});
+
+describe("sendMessage", () => {
+  function createMockChild(overrides: Partial<Record<string, unknown>> = {}): ChildProcess {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stdin = new Writable({ write(_chunk, _enc, cb) { cb(); } });
+    Object.assign(child, {
+      stdin,
+      pid: 1234,
+      exitCode: null,
+      killed: false,
+      ...overrides,
+    });
+    return child;
+  }
+
+  it("throws when child exitCode is set (process exited)", () => {
+    const child = createMockChild({ exitCode: 1 });
+    assert.throws(
+      () => sendMessage(child, "hello", "sess-1"),
+      /Child process is not available/
+    );
+  });
+
+  it("throws when child is killed", () => {
+    const child = createMockChild({ killed: true });
+    assert.throws(
+      () => sendMessage(child, "hello", "sess-1"),
+      /Child process is not available/
+    );
+  });
+
+  it("throws when stdin is destroyed", () => {
+    const child = createMockChild();
+    child.stdin!.destroy();
+    assert.throws(
+      () => sendMessage(child, "hello", "sess-1"),
+      /Child process is not available/
+    );
+  });
+
+  it("throws when stdin is null", () => {
+    const child = createMockChild({ stdin: null });
+    assert.throws(
+      () => sendMessage(child, "hello", "sess-1"),
+      /Child process is not available/
+    );
+  });
+
+  it("writes JSON message to stdin for live process", () => {
+    const chunks: Buffer[] = [];
+    const stdin = new Writable({
+      write(chunk, _enc, cb) { chunks.push(chunk); cb(); },
+    });
+    const child = createMockChild({ stdin });
+    sendMessage(child, "hello", "sess-1");
+    const written = Buffer.concat(chunks).toString();
+    const parsed = JSON.parse(written.trim());
+    assert.strictEqual(parsed.type, "user");
+    assert.strictEqual(parsed.message.content, "hello");
+    assert.strictEqual(parsed.session_id, "sess-1");
   });
 });

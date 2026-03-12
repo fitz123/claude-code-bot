@@ -73,6 +73,11 @@ export class SessionManager {
       includePartialMessages: true,
     });
 
+    // Prevent EPIPE from becoming uncaughtException when subprocess dies
+    child.stdin?.on("error", (err) => {
+      console.error(`[session-manager] stdin error for chat ${chatId}: ${err.message}`);
+    });
+
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
@@ -160,12 +165,18 @@ export class SessionManager {
         });
 
         // Read response lines until we get a result
+        let gotResult = false;
         const stream = readStream(session.child);
         for await (const line of stream) {
           push(line);
           if (line.type === "result") {
+            gotResult = true;
             break;
           }
+        }
+        if (!gotResult) {
+          finish(new Error("Claude subprocess exited before sending a result"));
+          return;
         }
         finish();
       } catch (err) {
