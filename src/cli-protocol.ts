@@ -182,18 +182,6 @@ export async function* readStream(child: ChildProcess): AsyncGenerator<StreamLin
 }
 
 /**
- * Wait for the system/init message and extract session_id.
- */
-export async function waitForInit(stream: AsyncGenerator<StreamLine>): Promise<string> {
-  for await (const msg of stream) {
-    if (msg.type === "system" && "subtype" in msg && msg.subtype === "init") {
-      return (msg as SystemInit).session_id;
-    }
-  }
-  throw new Error("Claude CLI exited without sending system/init");
-}
-
-/**
  * Extract text from a stream event delta.
  */
 export function extractTextDelta(msg: StreamLine): string | null {
