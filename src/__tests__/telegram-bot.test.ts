@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -40,6 +40,83 @@ describe("resolveBinding", () => {
   it("returns undefined for unknown chatId", () => {
     const binding = resolveBinding(999999, testBindings);
     assert.strictEqual(binding, undefined);
+  });
+});
+
+describe("sessionKey", () => {
+  it("returns chatId string when no topicId", () => {
+    assert.strictEqual(sessionKey(123456), "123456");
+  });
+
+  it("returns chatId:topicId when topicId is present", () => {
+    assert.strictEqual(sessionKey(123456, 42), "123456:42");
+  });
+
+  it("works with negative chatId (group)", () => {
+    assert.strictEqual(sessionKey(-1003783997959, 99), "-1003783997959:99");
+  });
+
+  it("accepts string chatId", () => {
+    assert.strictEqual(sessionKey("123456", 7), "123456:7");
+  });
+
+  it("does not append colon when topicId is undefined", () => {
+    assert.strictEqual(sessionKey(123456, undefined), "123456");
+  });
+
+  it("handles topicId 0 (General topic in forums)", () => {
+    assert.strictEqual(sessionKey(123456, 0), "123456:0");
+  });
+});
+
+describe("resolveBinding with topicId", () => {
+  const topicBindings: TelegramBinding[] = [
+    { chatId: -100999, agentId: "general", kind: "group", label: "General" },
+    { chatId: -100999, agentId: "dev-topic", kind: "group", topicId: 10, label: "Dev Topic" },
+    { chatId: -100999, agentId: "ops-topic", kind: "group", topicId: 20, label: "Ops Topic" },
+  ];
+
+  it("returns exact topic match when topicId matches", () => {
+    const binding = resolveBinding(-100999, topicBindings, 10);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "dev-topic");
+  });
+
+  it("returns different topic binding for different topicId", () => {
+    const binding = resolveBinding(-100999, topicBindings, 20);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "ops-topic");
+  });
+
+  it("falls back to chatId-only binding for unknown topicId", () => {
+    const binding = resolveBinding(-100999, topicBindings, 999);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "general");
+  });
+
+  it("falls back to chatId-only binding when no topicId provided", () => {
+    const binding = resolveBinding(-100999, topicBindings);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "general");
+  });
+
+  it("returns undefined when chatId does not match at all", () => {
+    const binding = resolveBinding(-999999, topicBindings, 10);
+    assert.strictEqual(binding, undefined);
+  });
+
+  it("returns undefined when only topic bindings exist and topicId does not match", () => {
+    const topicOnly: TelegramBinding[] = [
+      { chatId: -100999, agentId: "dev-topic", kind: "group", topicId: 10 },
+    ];
+    const binding = resolveBinding(-100999, topicOnly, 999);
+    assert.strictEqual(binding, undefined);
+  });
+
+  it("existing bindings without topicId still work (backward compatible)", () => {
+    const binding = resolveBinding(<redacted-user-id>, testBindings);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "main");
   });
 });
 

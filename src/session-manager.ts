@@ -22,6 +22,24 @@ export interface ActiveSession {
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
   lastActivity: number;
+  /** Timestamp when current turn started processing, null if idle. */
+  processingStartedAt: number | null;
+  /** Timestamp of last successful response (result received). */
+  lastSuccessAt: number | null;
+  /** Number of times this session's subprocess was restarted. */
+  restartCount: number;
+}
+
+export interface SessionHealth {
+  pid: number | null;
+  alive: boolean;
+  agentId: string;
+  idleMs: number;
+  /** Milliseconds since current turn started, or null if not processing. */
+  processingMs: number | null;
+  /** Timestamp of last successful response, or null if none yet. */
+  lastSuccessAt: number | null;
+  restartCount: number;
 }
 
 /**
@@ -66,6 +84,8 @@ export function waitForSpawn(child: ChildProcess, timeoutMs: number = STARTUP_TI
 
 export class SessionManager {
   private active: Map<string, ActiveSession> = new Map();
+  /** Restart counts survive crash recovery (active.delete) so they accumulate. */
+  private restartCounts: Map<string, number> = new Map();
   private store: SessionStore;
   private agents: Record<string, AgentConfig>;
   private idleTimeoutMs: number;
@@ -152,6 +172,12 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
+    // Restart count accumulates across crash recoveries via a separate map
+    // that survives active.delete() in setupCrashRecovery.
+    const prevCount = this.restartCounts.get(chatId) ?? 0;
+    const restartCount = (existing || resume) ? prevCount + 1 : 0;
+    this.restartCounts.set(chatId, restartCount);
+
     const session: ActiveSession = {
       child,
       sessionId,
@@ -159,6 +185,9 @@ export class SessionManager {
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount,
     };
 
     this.active.set(chatId, session);
@@ -231,6 +260,7 @@ export class SessionManager {
       try {
         sendMessage(session.child, text, session.sessionId);
         session.lastActivity = Date.now();
+        session.processingStartedAt = Date.now();
         this.resetIdleTimer(chatId);
 
         // Update store with new activity time
@@ -274,10 +304,12 @@ export class SessionManager {
           push(line);
           if (line.type === "result") {
             gotResult = true;
+            session.lastSuccessAt = Date.now();
             break;
           }
         }
         clearActivityTimers();
+        session.processingStartedAt = null;
         if (!gotResult) {
           finish(new Error("Claude subprocess exited before sending a result"));
           return;
@@ -285,6 +317,7 @@ export class SessionManager {
         finish();
       } catch (err) {
         clearActivityTimers();
+        session.processingStartedAt = null;
         finish(err instanceof Error ? err : new Error(String(err)));
       }
     });
@@ -340,6 +373,9 @@ export class SessionManager {
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
 
+    // Clean up restart count — session lifecycle is complete
+    this.restartCounts.delete(chatId);
+
     // Gracefully terminate (even if SIGTERM was already sent elsewhere)
     if (!hasExited(session.child)) {
       if (!session.child.killed) {
@@ -377,6 +413,25 @@ export class SessionManager {
   /** Get active session for a chatId (for monitoring/status). */
   getActive(chatId: string): ActiveSession | undefined {
     return this.active.get(chatId);
+  }
+
+  /** Get subprocess health info for a session (for /status command). */
+  getSessionHealth(chatId: string): SessionHealth | undefined {
+    const session = this.active.get(chatId);
+    if (!session) return undefined;
+
+    const alive = !hasExited(session.child) && !session.child.killed;
+    const now = Date.now();
+
+    return {
+      pid: session.child.pid ?? null,
+      alive,
+      agentId: session.agentId,
+      idleMs: now - session.lastActivity,
+      processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
+      lastSuccessAt: session.lastSuccessAt,
+      restartCount: session.restartCount,
+    };
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */
@@ -425,7 +480,8 @@ export class SessionManager {
     const logDir = this.logDir;
     mkdirSync(logDir, { recursive: true });
 
-    const logPath = `${logDir}/session-${chatId}.log`;
+    const safeChatId = chatId.replace(/:/g, "_");
+    const logPath = `${logDir}/session-${safeChatId}.log`;
     const logStream = createWriteStream(logPath, { flags: "a" });
 
     logStream.on("error", (err) => {

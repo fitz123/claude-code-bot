@@ -61,18 +61,18 @@ Two behaviors:
 
 Reference implementation: OpenClaw `~/minime/openclaw/src/auto-reply/reply/queue/` (modes, debounce, drain loop, collect prompt building). Key files: `types.ts` (QueueMode, QueueSettings), `settings.ts` (resolveQueueSettings), `drain.ts` (scheduleFollowupDrain, buildCollectPrompt), `state.ts` (DEFAULT_QUEUE_DEBOUNCE_MS=1000, DEFAULT_QUEUE_CAP=20).
 
-- [ ] Implement pre-send debounce in message handler
-- [ ] Implement mid-turn collect queue
-- [ ] Auto-drain queued messages after turn completes
-- [ ] Update tests
+- [x] Implement pre-send debounce in message handler
+- [x] Implement mid-turn collect queue
+- [x] Auto-drain queued messages after turn completes
+- [x] Update tests
 
 ### Task 2: Verify and fix subprocess crash logging (bot-ai2, P1)
 
 Previous ralphex round attempted to fix empty session stderr logs by removing premature `logStream.end()`. Verify the fix works — when a subprocess crashes, `~/.openclaw/logs/session-<chatId>.log` should contain the actual error output. If still broken, investigate and fix.
 
-- [ ] Verify stderr logging captures subprocess crash output
-- [ ] Fix if still broken
-- [ ] Update tests
+- [x] Verify stderr logging captures subprocess crash output
+- [x] Fix if still broken
+- [x] Update tests
 
 ### Task 3: Enhanced /status command with session health (bot-7ed, P2)
 
@@ -80,8 +80,8 @@ The `/status` command should show real subprocess state so the user can tell if 
 
 Add: subprocess PID, whether the process is alive, current response duration if processing, last successful response timestamp, subprocess restart count.
 
-- [ ] Add subprocess health info to /status output
-- [ ] Update tests
+- [x] Add subprocess health info to /status output
+- [x] Update tests
 
 ### Task 4: Per-topic bindings for forum supergroups (bot-h7j, P3)
 
@@ -89,6 +89,6 @@ Allow binding a specific Telegram forum topic (thread) to an agent. The `topicId
 
 `resolveBinding()` in `telegram-bot.ts` currently matches only on `chatId` — it should also match `topicId` when set in the binding config. Session key is currently just `chatId` string — it should include topicId so each topic gets its own Claude session. grammY exposes topic as `ctx.msg.message_thread_id`.
 
-- [ ] Update binding resolution to match chatId + topicId
-- [ ] Update session key to include topicId
-- [ ] Update tests
+- [x] Update binding resolution to match chatId + topicId
+- [x] Update session key to include topicId
+- [x] Update tests
