@@ -1,5 +1,5 @@
 import { tmpdir } from "node:os";
-import { writeFile, unlink } from "node:fs/promises";
+import { writeFile, unlink, chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -43,7 +43,8 @@ export async function convertToWav(inputPath: string): Promise<string> {
       "-f", "wav",
       wavPath,
       "-y",
-    ], { timeout: 30_000 });
+    ], { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+    await chmod(wavPath, 0o600);
   } catch (err) {
     await cleanupTempFile(wavPath);
     throw err;
