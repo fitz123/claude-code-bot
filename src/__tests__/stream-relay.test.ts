@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { splitMessage, extractText } from "../stream-relay.js";
+import { splitMessage, extractText, collectWritePaths, isImageExtension } from "../stream-relay.js";
 import type { StreamLine, StreamEvent, AssistantMessage, ResultMessage, ToolProgress } from "../types.js";
 
 describe("splitMessage", () => {
@@ -165,5 +165,150 @@ describe("extractText", () => {
 
     assert.strictEqual(accumulated, "Hello world");
     assert.strictEqual(isFinal, true);
+  });
+});
+
+describe("isImageExtension", () => {
+  it("returns true for supported image extensions", () => {
+    assert.strictEqual(isImageExtension("/path/to/file.jpg"), true);
+    assert.strictEqual(isImageExtension("/path/to/file.jpeg"), true);
+    assert.strictEqual(isImageExtension("/path/to/file.png"), true);
+    assert.strictEqual(isImageExtension("/path/to/file.gif"), true);
+    assert.strictEqual(isImageExtension("/path/to/file.webp"), true);
+  });
+
+  it("returns true for uppercase extensions", () => {
+    assert.strictEqual(isImageExtension("/path/to/file.PNG"), true);
+    assert.strictEqual(isImageExtension("/path/to/file.JPG"), true);
+  });
+
+  it("returns false for non-image extensions", () => {
+    assert.strictEqual(isImageExtension("/path/to/file.txt"), false);
+    assert.strictEqual(isImageExtension("/path/to/file.pdf"), false);
+    assert.strictEqual(isImageExtension("/path/to/file.bmp"), false);
+    assert.strictEqual(isImageExtension("/path/to/file.ts"), false);
+  });
+
+  it("returns false for files with no extension", () => {
+    assert.strictEqual(isImageExtension("/path/to/Makefile"), false);
+  });
+});
+
+describe("collectWritePaths", () => {
+  it("collects file path from Write tool_use block", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01ABC",
+            input: { file_path: "/workspace/output.png", content: "..." },
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 1);
+    assert.ok(paths.has("/workspace/output.png"));
+  });
+
+  it("ignores Edit tool_use blocks", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Edit",
+            id: "toolu_01DEF",
+            input: { file_path: "/workspace/existing.ts", old_string: "a", new_string: "b" },
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
+  it("ignores non-assistant messages", () => {
+    const paths = new Set<string>();
+    const result: ResultMessage = {
+      type: "result",
+      result: "done",
+      session_id: "s",
+    };
+    collectWritePaths(result, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
+  it("ignores assistant messages with subtype (tool_progress etc)", () => {
+    const paths = new Set<string>();
+    const msg: ToolProgress = {
+      type: "assistant",
+      subtype: "tool_progress",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 0);
+  });
+
+  it("deduplicates repeated snapshots of the same Write", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01ABC",
+            input: { file_path: "/workspace/file.txt", content: "hello" },
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    // Simulate repeated snapshots from --include-partial-messages
+    collectWritePaths(msg, paths);
+    collectWritePaths(msg, paths);
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 1);
+  });
+
+  it("collects multiple distinct Write paths", () => {
+    const paths = new Set<string>();
+    const msg: AssistantMessage = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01A",
+            input: { file_path: "/workspace/a.png", content: "..." },
+          },
+          {
+            type: "tool_use",
+            name: "Write",
+            id: "toolu_01B",
+            input: { file_path: "/workspace/b.txt", content: "..." },
+          },
+        ],
+      },
+      session_id: "s",
+    };
+    collectWritePaths(msg, paths);
+    assert.strictEqual(paths.size, 2);
+    assert.ok(paths.has("/workspace/a.png"));
+    assert.ok(paths.has("/workspace/b.txt"));
   });
 });

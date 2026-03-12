@@ -205,7 +205,8 @@ export function createTelegramBot(
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, ctx) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
-      await relayStream(stream, ctx);
+      const agent = config.agents[agentId];
+      await relayStream(stream, ctx, agent?.workspaceCwd);
     },
   );
 
