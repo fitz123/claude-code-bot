@@ -613,4 +613,121 @@ describe("setupStderrLogging", () => {
     assert.ok(content.includes("first session output"), "should contain first session output");
     assert.ok(content.includes("second session output"), "should contain second session output");
   });
+
+  it("skips logging when child has no stderr", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+
+    // Create a mock child with null stderr
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { stderr: null, pid: 77781, exitCode: null, signalCode: null, killed: false });
+
+    // Should not throw
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("no-stderr-test", child);
+
+    // No log file should be created
+    assert.ok(!existsSync(`${STDERR_LOG_DIR}/session-no-stderr-test.log`), "no log file when stderr is null");
+  });
+
+  it("crash recovery does not interfere with stderr capture", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+
+    // Create a mock child that simulates a crash
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stderr = new PassThrough();
+    const stdout = new Readable({ read() {} });
+    const stdin = new Writable({ write(_chunk, _enc, cb) { cb(); } });
+    Object.assign(child, {
+      stderr, stdout, stdin,
+      pid: 77782,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = signal === "SIGKILL" ? 137 : 0;
+          child.emit("exit", signal === "SIGKILL" ? 137 : 0, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+
+    // Set up both stderr logging and crash recovery (like getOrCreateSession does)
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("crash-integration", child);
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupCrashRecovery("crash-integration", child);
+
+    // Inject session into active map so crash recovery has something to clean up
+    const session = {
+      child,
+      sessionId: "crash-test-session",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+    };
+    (manager as unknown as Record<string, Map<string, unknown>>).active.set("crash-integration", session);
+
+    // Write stderr data, then crash the process
+    stderr.write("FATAL: segmentation fault\n");
+    stderr.write("stack trace: 0x7fff...\n");
+
+    // Simulate crash: exit fires first, then stderr has more data
+    (child as unknown as Record<string, unknown>).exitCode = 139;
+    (child as unknown as Record<string, unknown>).signalCode = "SIGSEGV";
+    child.emit("exit", 139, "SIGSEGV");
+
+    // Crash recovery should have removed the session from active map
+    assert.strictEqual(manager.getActive("crash-integration"), undefined,
+      "crash recovery should remove session from active map");
+
+    // More stderr data arrives after exit (from kernel buffers)
+    stderr.write("core dumped\n");
+    stderr.end();
+
+    // Wait for pipe to flush
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    // All stderr data should be captured despite crash recovery running
+    const logPath = `${STDERR_LOG_DIR}/session-crash-integration.log`;
+    assert.ok(existsSync(logPath), "log file should exist");
+    const content = readFileSync(logPath, "utf8");
+    assert.ok(content.includes("FATAL: segmentation fault"), "should capture pre-crash stderr");
+    assert.ok(content.includes("stack trace: 0x7fff"), "should capture stack trace");
+    assert.ok(content.includes("core dumped"), "should capture post-exit stderr data");
+  });
+
+  it("captures large stderr output without truncation", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stderr = new PassThrough();
+    Object.assign(child, { stderr, pid: 77783, exitCode: null, signalCode: null, killed: false });
+
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupStderrLogging("large-output", child);
+
+    // Write many lines of stderr output (simulates verbose crash with backtrace)
+    const lines: string[] = [];
+    for (let i = 0; i < 100; i++) {
+      const line = `frame #${i}: 0x${i.toString(16).padStart(8, "0")} in function_${i}()`;
+      lines.push(line);
+      stderr.write(line + "\n");
+    }
+
+    stderr.end();
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    const content = readFileSync(`${STDERR_LOG_DIR}/session-large-output.log`, "utf8");
+    // Verify first, middle, and last lines are present
+    assert.ok(content.includes(lines[0]), "should contain first line");
+    assert.ok(content.includes(lines[49]), "should contain middle line");
+    assert.ok(content.includes(lines[99]), "should contain last line");
+  });
 });
