@@ -308,9 +308,11 @@ export function createTelegramBot(
       messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, ctx);
 
       // Echo transcript back to user (non-critical — don't block enqueue)
-      await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
-        console.warn(`[telegram-bot] Failed to echo transcript for chat ${chatId}:`, echoErr);
-      });
+      if (binding.voiceTranscriptEcho !== false) {
+        await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
+          console.warn(`[telegram-bot] Failed to echo transcript for chat ${chatId}:`, echoErr);
+        });
+      }
     } catch (err) {
       console.error(`[telegram-bot] Voice transcription error for chat ${chatId}:`, err);
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});

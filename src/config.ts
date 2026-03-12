@@ -72,6 +72,7 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
     label: typeof obj.label === "string" ? obj.label : undefined,
     requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
     topics: validateTopics(obj.topics, index),
+    voiceTranscriptEcho: typeof obj.voiceTranscriptEcho === "boolean" ? obj.voiceTranscriptEcho : undefined,
   };
 }
 

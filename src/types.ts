@@ -25,6 +25,7 @@ export interface TelegramBinding {
   label?: string;
   requireMention?: boolean;
   topics?: TopicOverride[];
+  voiceTranscriptEcho?: boolean;
 }
 
 export interface CronJob {
