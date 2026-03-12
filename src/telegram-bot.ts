@@ -109,12 +109,38 @@ export function buildSourcePrefix(
  * Returns true if the binding is a DM, requireMention is false,
  * or the message is a reply to the bot / @mentions the bot.
  */
+/**
+ * Check if a reply_to_message is a forum service message (topic creation/edit/close etc).
+ * Telegram sets reply_to_message on every message in a forum topic, pointing to the
+ * topic's creation service message. This is NOT a real user reply.
+ */
+function isForumServiceMessage(
+  msg: Record<string, unknown>,
+): boolean {
+  return !!(
+    msg.forum_topic_created ||
+    msg.forum_topic_edited ||
+    msg.forum_topic_closed ||
+    msg.forum_topic_reopened ||
+    msg.general_forum_topic_hidden ||
+    msg.general_forum_topic_unhidden
+  );
+}
+
 export function shouldRespondInGroup(
   binding: TelegramBinding,
   botId: number,
   botUsername: string,
   message: {
-    reply_to_message?: { from?: { id: number } };
+    reply_to_message?: {
+      from?: { id: number };
+      forum_topic_created?: unknown;
+      forum_topic_edited?: unknown;
+      forum_topic_closed?: unknown;
+      forum_topic_reopened?: unknown;
+      general_forum_topic_hidden?: unknown;
+      general_forum_topic_unhidden?: unknown;
+    };
     text?: string;
     caption?: string;
     entities?: Array<{ type: string; offset: number; length: number }>;
@@ -126,7 +152,12 @@ export function shouldRespondInGroup(
   const requireMention = binding.requireMention ?? true;
   if (!requireMention) return true;
 
-  if (message.reply_to_message?.from?.id === botId) return true;
+  if (
+    message.reply_to_message?.from?.id === botId &&
+    !isForumServiceMessage(message.reply_to_message as Record<string, unknown>)
+  ) {
+    return true;
+  }
 
   const text = message.text ?? message.caption ?? "";
   const entities = message.entities ?? message.caption_entities ?? [];

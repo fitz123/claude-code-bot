@@ -42,11 +42,11 @@ If any of these fields exist on `reply_to_message`, it is a forum service messag
 
 **Fix:** Before checking `reply_to_message.from.id`, check if `reply_to_message` is a forum service message. If it is, do not treat it as a reply to the bot. Extend the `reply_to_message` type in the `message` parameter to include these optional fields.
 
-- [ ] Add a helper (e.g. `isForumServiceMessage`) that checks for any `forum_topic_*` field on reply_to_message
-- [ ] Update shouldRespondInGroup to skip the reply check when reply_to_message is a forum service message
-- [ ] Extend the message type to include the new fields
-- [ ] Add tests for forum topic scenarios (thread-association vs real reply vs General topic)
-- [ ] Verify existing tests still pass
+- [x] Add a helper (e.g. `isForumServiceMessage`) that checks for any `forum_topic_*` field on reply_to_message
+- [x] Update shouldRespondInGroup to skip the reply check when reply_to_message is a forum service message
+- [x] Extend the message type to include the new fields
+- [x] Add tests for forum topic scenarios (thread-association vs real reply vs General topic)
+- [x] Verify existing tests still pass
 
 ### Task 2: Add startup timeout to bot.start() (bot-pv0, P1)
 
