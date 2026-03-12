@@ -294,7 +294,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       for await (const _line of gen) {
         // consume
       }
-    });
+    }, /Child process is not available/);
 
     await manager.closeAll();
   });
@@ -460,15 +460,15 @@ describe("waitForSpawn", () => {
     );
   });
 
-  it("rejects on timeout and kills the child", async () => {
+  it("rejects on timeout and kills the child with SIGKILL", async () => {
     const child = new EventEmitter() as unknown as ChildProcess;
-    let killed = false;
+    let killedWithSignal: string | undefined;
     Object.assign(child, {
       pid: 1,
       exitCode: null,
       killed: false,
       kill(signal?: string) {
-        killed = true;
+        killedWithSignal = signal;
         (child as unknown as Record<string, unknown>).killed = true;
         return true;
       },
@@ -478,7 +478,7 @@ describe("waitForSpawn", () => {
       () => waitForSpawn(child, 50),
       /Claude subprocess did not start within 50ms/
     );
-    assert.ok(killed, "child should have been killed on timeout");
+    assert.strictEqual(killedWithSignal, "SIGKILL", "child should have been killed with SIGKILL on timeout");
   });
 
   it("cleans up listeners after resolving", async () => {
