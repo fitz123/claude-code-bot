@@ -39,5 +39,5 @@ npm test
 
 When a Claude subprocess crashes, the per-session log at `~/.openclaw/logs/session-<chatId>.log` is 0 bytes. `setupStderrLogging()` in `session-manager.ts` pipes `child.stderr` to a file, but crash details are not being captured. Investigate why and fix.
 
-- [ ] Ensure subprocess crash output is captured in session logs
-- [ ] Update tests
+- [x] Ensure subprocess crash output is captured in session logs
+- [x] Update tests

@@ -70,12 +70,14 @@ export class SessionManager {
   private agents: Record<string, AgentConfig>;
   private idleTimeoutMs: number;
   private maxConcurrentSessions: number;
+  private logDir: string;
 
-  constructor(config: BotConfig, storePath?: string) {
+  constructor(config: BotConfig, storePath?: string, logDir?: string) {
     this.agents = config.agents;
     this.idleTimeoutMs = config.sessionDefaults.idleTimeoutMs;
     this.maxConcurrentSessions = config.sessionDefaults.maxConcurrentSessions;
     this.store = new SessionStore(storePath);
+    this.logDir = logDir ?? LOG_DIR;
   }
 
   /**
@@ -420,16 +422,22 @@ export class SessionManager {
   private setupStderrLogging(chatId: string, child: ChildProcess): void {
     if (!child.stderr) return;
 
-    if (!existsSync(LOG_DIR)) {
-      mkdirSync(LOG_DIR, { recursive: true });
+    const logDir = this.logDir;
+    if (!existsSync(logDir)) {
+      mkdirSync(logDir, { recursive: true });
     }
 
-    const logPath = `${LOG_DIR}/session-${chatId}.log`;
+    const logPath = `${logDir}/session-${chatId}.log`;
     const logStream = createWriteStream(logPath, { flags: "a" });
-    child.stderr.pipe(logStream);
 
-    child.once("exit", () => {
-      logStream.end();
+    logStream.on("error", (err) => {
+      console.error(`[session-manager] Log write error for chat ${chatId}: ${err.message}`);
     });
+
+    // pipe() auto-ends logStream when stderr emits 'end', which fires after
+    // all buffered data has been consumed. Do NOT manually call logStream.end()
+    // on the 'exit' event — 'exit' can fire while stderr data is still in
+    // kernel buffers, causing data loss (0-byte log files).
+    child.stderr.pipe(logStream);
   }
 }
