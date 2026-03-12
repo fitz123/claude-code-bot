@@ -62,9 +62,9 @@ Claude does not know which chat or topic a message came from. Prefix every messa
 
 All 4 enqueue call sites in `telegram-bot.ts` need the prefix. Sender info from `ctx.from` (first_name, username). Chat name from `binding.label`.
 
-- [ ] Add helper to build source context prefix from binding and ctx
-- [ ] Apply prefix at all 4 enqueue sites
-- [ ] Update tests
+- [x] Add helper to build source context prefix from binding and ctx
+- [x] Apply prefix at all 4 enqueue sites
+- [x] Update tests
 
 ### Task 2: Flexible forum topic bindings with requireMention (bot-odl, P2)
 
