@@ -11,12 +11,20 @@ export interface AgentConfig {
   effort?: "low" | "medium" | "high";
 }
 
+export interface TopicOverride {
+  topicId: number;
+  agentId?: string;
+  requireMention?: boolean;
+}
+
 export interface TelegramBinding {
   chatId: number;
   agentId: string;
   kind: "dm" | "group";
   topicId?: number;
   label?: string;
+  requireMention?: boolean;
+  topics?: TopicOverride[];
 }
 
 export interface CronJob {
