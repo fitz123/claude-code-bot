@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { realpathSync } from "node:fs";
 import { type Context, InputFile } from "grammy";
 import type { StreamLine } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
@@ -262,16 +261,22 @@ export async function relayStream(
     // Send any files created by Claude's Write tool
     if (workspaceCwd && writtenFiles.size > 0) {
       for (const filePath of writtenFiles) {
-        const resolved = resolve(filePath);
-        if (!existsSync(resolved)) continue;
-        if (!resolved.startsWith(workspaceCwd + "/") && !resolved.startsWith("/tmp/")) continue;
+        // Resolve symlinks to prevent path-check bypass (e.g. symlink inside
+        // workspace pointing outside it). realpathSync also verifies existence.
+        let realPath: string;
+        try {
+          realPath = realpathSync(filePath);
+        } catch {
+          continue; // File doesn't exist or is inaccessible
+        }
+        if (!realPath.startsWith(workspaceCwd + "/") && !realPath.startsWith("/tmp/") && !realPath.startsWith("/private/tmp/")) continue;
 
         try {
           const opts = threadId ? { message_thread_id: threadId } : {};
-          if (isImageExtension(resolved)) {
-            await ctx.replyWithPhoto(new InputFile(resolved), opts);
+          if (isImageExtension(realPath)) {
+            await ctx.replyWithPhoto(new InputFile(realPath), opts);
           } else {
-            await ctx.replyWithDocument(new InputFile(resolved), opts);
+            await ctx.replyWithDocument(new InputFile(realPath), opts);
           }
         } catch (err) {
           console.error(`[stream-relay] Failed to send file ${filePath}:`, err);
