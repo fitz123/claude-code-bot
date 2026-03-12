@@ -440,8 +440,8 @@ describe("shouldRespondInGroup", () => {
     assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
   });
 
-  it("returns false for forum service message even with requireMention false on topic override", () => {
-    // When requireMention is false, shouldRespondInGroup returns true regardless
+  it("returns true when requireMention is false, even for forum service messages (early exit)", () => {
+    // When requireMention is false, shouldRespondInGroup returns true before reaching the service message check
     const msg = {
       text: "hello",
       reply_to_message: { from: { id: botId }, forum_topic_created: { name: "Topic", icon_color: 0 } },

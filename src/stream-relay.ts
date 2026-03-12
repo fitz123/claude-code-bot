@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { type Context, InputFile } from "grammy";
 import type { StreamLine } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
@@ -230,46 +231,47 @@ export async function relayStream(
 
     finalSent = true;
 
-    // Send final version
-    if (!accumulated) return;
+    // Send final text version
+    if (accumulated) {
+      const chunks = splitMessage(accumulated);
 
-    const chunks = splitMessage(accumulated);
+      if (sentMessageId !== null && chunks.length >= 1) {
+        // Edit the first message to final text
+        try {
+          await ctx.api.editMessageText(chatId, sentMessageId, chunks[0]);
+        } catch {
+          // May fail if text unchanged
+        }
 
-    if (sentMessageId !== null && chunks.length >= 1) {
-      // Edit the first message to final text
-      try {
-        await ctx.api.editMessageText(chatId, sentMessageId, chunks[0]);
-      } catch {
-        // May fail if text unchanged
-      }
-
-      // Send remaining chunks as new messages
-      for (let i = 1; i < chunks.length; i++) {
-        await ctx.reply(chunks[i], {
-          ...(threadId ? { message_thread_id: threadId } : {}),
-        });
-      }
-    } else if (sentMessageId === null && accumulated) {
-      // Never sent an initial message (shouldn't happen, but handle it)
-      for (const chunk of chunks) {
-        await ctx.reply(chunk, {
-          ...(threadId ? { message_thread_id: threadId } : {}),
-        });
+        // Send remaining chunks as new messages
+        for (let i = 1; i < chunks.length; i++) {
+          await ctx.reply(chunks[i], {
+            ...(threadId ? { message_thread_id: threadId } : {}),
+          });
+        }
+      } else if (sentMessageId === null) {
+        // Never sent an initial message (shouldn't happen, but handle it)
+        for (const chunk of chunks) {
+          await ctx.reply(chunk, {
+            ...(threadId ? { message_thread_id: threadId } : {}),
+          });
+        }
       }
     }
 
     // Send any files created by Claude's Write tool
     if (workspaceCwd && writtenFiles.size > 0) {
       for (const filePath of writtenFiles) {
-        if (!existsSync(filePath)) continue;
-        if (!filePath.startsWith(workspaceCwd) && !filePath.startsWith("/tmp")) continue;
+        const resolved = resolve(filePath);
+        if (!existsSync(resolved)) continue;
+        if (!resolved.startsWith(workspaceCwd + "/") && !resolved.startsWith("/tmp/")) continue;
 
         try {
           const opts = threadId ? { message_thread_id: threadId } : {};
-          if (isImageExtension(filePath)) {
-            await ctx.replyWithPhoto(new InputFile(filePath), opts);
+          if (isImageExtension(resolved)) {
+            await ctx.replyWithPhoto(new InputFile(resolved), opts);
           } else {
-            await ctx.replyWithDocument(new InputFile(filePath), opts);
+            await ctx.replyWithDocument(new InputFile(resolved), opts);
           }
         } catch (err) {
           console.error(`[stream-relay] Failed to send file ${filePath}:`, err);

@@ -18,8 +18,8 @@ Telegram Cloud
 ┌──────────────────────────┐
 │  Session Manager         │
 │  - 1 session per chatId  │
-│  - LRU eviction (max 3)  │
-│  - 15 min idle timeout   │
+│  - LRU eviction (max 6)  │
+│  - 4 hour idle timeout   │
 │  - resume on respawn     │
 └──────────┬───────────────┘
            │ spawns claude -p (stream-json)
@@ -164,6 +164,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | Voice | Transcribed locally via whisper-cli, transcript echoed back and sent to Claude |
 | Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
 | Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
+| File output | Files created by Claude via Write tool are sent back: images as photos, others as documents. Only files within the agent's `workspaceCwd` or `/tmp` are sent. |
 
 In group chats, the bot only responds to messages that @mention the bot or reply to the bot (configurable via `requireMention` in bindings). Every message sent to Claude is prefixed with source context (e.g. `[Chat: HQ Forum | From: John (@johndoe)]`) using the binding's `label` and the sender's Telegram profile.
 
@@ -194,7 +195,7 @@ Commands are auto-registered with the Telegram Bot API via `setMyCommands` on st
 Voice transcription requires:
 - `ffmpeg` installed at `/opt/homebrew/bin/ffmpeg` (converts Opus-in-OGG to WAV)
 - `whisper-cli` installed at `/opt/homebrew/bin/whisper-cli`
-- Whisper model at `/opt/homebrew/share/whisper-cpp/ggml-small.bin`
+- Whisper model at `/opt/homebrew/share/whisper-cpp/ggml-medium.bin`
 
 ### Common issues
 
@@ -205,7 +206,7 @@ Claude Code sets `CLAUDECODE` in its environment. If a subprocess inherits it, s
 The bot reads the Telegram token via `security find-generic-password -s 'telegram-bot-token' -w`. If this fails, macOS may be prompting for Keychain access in a non-interactive context. Fix: unlock Keychain before starting, or grant "Always Allow" to `security` for this item.
 
 **Session stuck / not responding**
-Sessions have a 15-min idle timeout and max 3 concurrent (LRU eviction). If a session is stuck:
+Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a session is stuck:
 - Check per-session stderr logs for subprocess crash details: `~/.openclaw/logs/session-<chatId>.log`
 - Check bot stderr log for bot-level errors
 - The session store persists across restarts: `~/.openclaw/bot/data/sessions.json`
@@ -219,7 +220,7 @@ Sessions have a 15-min idle timeout and max 3 concurrent (LRU eviction). If a se
 **maxTurns limit**
 Limits how many agentic loops (tool call chains) Claude can do per single user message. Safety net against runaway agents burning rate limit quota. Set to 250 by default. Remove from config for unlimited. If hit mid-work, Claude stops and the subprocess exits — next message spawns a fresh session via --resume.
 **Max concurrent sessions reached**
-Only 3 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
+Only 6 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
 
 ## Scripts
 
