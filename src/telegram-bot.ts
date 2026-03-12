@@ -60,6 +60,20 @@ export function resolveBinding(
       fallback ??= b; // chatId-only binding as fallback
     }
   }
+
+  // Check topics array for per-topic overrides
+  if (fallback && topicId !== undefined && fallback.topics) {
+    const topic = fallback.topics.find((t) => t.topicId === topicId);
+    if (topic) {
+      return {
+        ...fallback,
+        agentId: topic.agentId ?? fallback.agentId,
+        requireMention: topic.requireMention ?? fallback.requireMention,
+        topicId,
+      };
+    }
+  }
+
   return fallback;
 }
 
@@ -86,6 +100,47 @@ export function buildSourcePrefix(
   }
 
   return parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
+}
+
+/**
+ * Check whether the bot should respond to a message in a group chat.
+ * Returns true if the binding is a DM, requireMention is false,
+ * or the message is a reply to the bot / @mentions the bot.
+ */
+export function shouldRespondInGroup(
+  binding: TelegramBinding,
+  botId: number,
+  botUsername: string,
+  message: {
+    reply_to_message?: { from?: { id: number } };
+    text?: string;
+    caption?: string;
+    entities?: Array<{ type: string; offset: number; length: number }>;
+    caption_entities?: Array<{ type: string; offset: number; length: number }>;
+  },
+): boolean {
+  if (binding.kind !== "group") return true;
+
+  const requireMention = binding.requireMention ?? true;
+  if (!requireMention) return true;
+
+  if (message.reply_to_message?.from?.id === botId) return true;
+
+  const text = message.text ?? message.caption ?? "";
+  const entities = message.entities ?? message.caption_entities ?? [];
+  const mention = `@${botUsername}`;
+  if (
+    text.includes(mention) ||
+    entities.some(
+      (e) =>
+        e.type === "mention" &&
+        text.slice(e.offset, e.offset + e.length) === mention,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -209,24 +264,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    // Group chat: only respond if bot is mentioned or message is a reply to bot
-    if (binding.kind === "group") {
-      const botInfo = bot.botInfo;
-      const text = ctx.message.text ?? "";
-      const isReplyToBot =
-        ctx.message.reply_to_message?.from?.id === botInfo.id;
-      const isMentioned =
-        text.includes(`@${botInfo.username}`) ||
-        (ctx.message.entities ?? []).some(
-          (e) =>
-            e.type === "mention" &&
-            text.slice(e.offset, e.offset + e.length) === `@${botInfo.username}`,
-        );
-
-      if (!isReplyToBot && !isMentioned) {
-        return; // Ignore group messages not directed at bot
-      }
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     const prefix = buildSourcePrefix(binding, ctx.from);
@@ -244,11 +282,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    // Group chat: only respond if message is a reply to bot
-    if (binding.kind === "group") {
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
-      if (!isReplyToBot) return;
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -294,10 +328,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    if (binding.kind === "group") {
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
-      if (!isReplyToBot) return;
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -344,10 +375,7 @@ export function createTelegramBot(
     const doc = ctx.msg.document;
     if (!isImageMimeType(doc.mime_type)) return;
 
-    if (binding.kind === "group") {
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === bot.botInfo.id;
-      if (!isReplyToBot) return;
-    }
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
