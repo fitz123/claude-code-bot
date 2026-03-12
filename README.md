@@ -101,7 +101,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
        workspaceCwd: /Users/user/.openclaw/workspace-new
        model: claude-opus-4-6
        fallbackModel: claude-sonnet-4-6
-       maxTurns: 50
+       maxTurns: 250  # max agentic loops per message (omit for unlimited)
    ```
 
 2. Add the binding:
@@ -128,6 +128,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 |-----|------|
 | Bot stdout | `~/.openclaw/logs/telegram-bot-stdout.log` |
 | Bot stderr | `~/.openclaw/logs/telegram-bot-stderr.log` |
+| Session stderr (per-chat) | `~/.openclaw/logs/session-<chatId>.log` |
 | Cron (per-task) | `~/.openclaw/logs/cron-<name>.log` |
 | Message delivery | `~/.openclaw/logs/cron-delivery.log` |
 
@@ -141,7 +142,8 @@ The bot reads the Telegram token via `security find-generic-password -s 'telegra
 
 **Session stuck / not responding**
 Sessions have a 15-min idle timeout and max 3 concurrent (LRU eviction). If a session is stuck:
-- Check bot stderr log for child process errors
+- Check per-session stderr logs for subprocess crash details: `~/.openclaw/logs/session-<chatId>.log`
+- Check bot stderr log for bot-level errors
 - The session store persists across restarts: `~/.openclaw/bot/data/sessions.json`
 - Restarting the bot cleanly closes all sessions (graceful SIGTERM)
 
@@ -150,6 +152,8 @@ Sessions have a 15-min idle timeout and max 3 concurrent (LRU eviction). If a se
 - Check schedule: plists use `StartCalendarInterval`, not cron syntax directly. Regenerate if in doubt.
 - Check cron log for errors: `tail ~/.openclaw/logs/cron-my-task.log`
 
+**maxTurns limit**
+Limits how many agentic loops (tool call chains) Claude can do per single user message. Safety net against runaway agents burning rate limit quota. Set to 250 by default. Remove from config for unlimited. If hit mid-work, Claude stops and the subprocess exits — next message spawns a fresh session via --resume.
 **Max concurrent sessions reached**
 Only 3 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
 

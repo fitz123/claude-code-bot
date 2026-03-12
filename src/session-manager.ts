@@ -1,5 +1,5 @@
 import { type ChildProcess } from "node:child_process";
-import { createWriteStream, mkdirSync, existsSync } from "node:fs";
+import { createWriteStream, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import PQueue from "p-queue";
 import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.js";
@@ -423,9 +423,7 @@ export class SessionManager {
     if (!child.stderr) return;
 
     const logDir = this.logDir;
-    if (!existsSync(logDir)) {
-      mkdirSync(logDir, { recursive: true });
-    }
+    mkdirSync(logDir, { recursive: true });
 
     const logPath = `${logDir}/session-${chatId}.log`;
     const logStream = createWriteStream(logPath, { flags: "a" });

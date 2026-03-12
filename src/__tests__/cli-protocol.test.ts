@@ -179,6 +179,15 @@ describe("extractTextDelta", () => {
     const msg = parseStreamLine('{"type":"result","result":"done","session_id":"x"}')!;
     assert.strictEqual(extractTextDelta(msg), null);
   });
+
+  it("rejects the old incorrect event shape (regression for bot-jbr)", () => {
+    // Before the fix, extractTextDelta matched {type:"assistant", subtype:"stream_event"}.
+    // Real CLI sends {type:"stream_event"} — ensure the old shape returns null.
+    const msg = parseStreamLine(
+      '{"type":"assistant","subtype":"stream_event","event":{"delta":{"type":"text_delta","text":"should not match"}}}'
+    )!;
+    assert.strictEqual(extractTextDelta(msg), null);
+  });
 });
 
 describe("sendMessage", () => {
@@ -298,10 +307,10 @@ describe("readStream", () => {
     );
   });
 
-  it("throws when stdout is null", () => {
+  it("throws when stdout is null", async () => {
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, { stdout: null, pid: 1234 });
-    assert.rejects(async () => {
+    await assert.rejects(async () => {
       const gen = readStream(child);
       await gen.next();
     }, /stdout is not available/);
