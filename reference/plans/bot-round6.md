@@ -90,10 +90,10 @@ The startup timeout must also be cleared in the SIGTERM/SIGINT shutdown handler 
 
 launchd's KeepAlive + ThrottleInterval (35s in the plist) will handle restart on `process.exit(1)`. No retry loop needed.
 
-- [ ] Add startup timeout with timer+flag pattern in main.ts
-- [ ] Clear the timeout both in onStart and in the shutdown handler
-- [ ] Log clear error message on timeout before exit
-- [ ] Verify graceful shutdown still works (SIGTERM during normal operation)
+- [x] Add startup timeout with timer+flag pattern in main.ts
+- [x] Clear the timeout both in onStart and in the shutdown handler
+- [x] Log clear error message on timeout before exit
+- [x] Verify graceful shutdown still works (SIGTERM during normal operation)
 
 ### Task 3: Send files from Claude back to Telegram (bot-sdo, P2)
 
