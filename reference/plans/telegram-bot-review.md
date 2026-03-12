@@ -44,9 +44,9 @@ When a Claude subprocess dies unexpectedly, writing to its stdin causes an EPIPE
 
 Investigate error propagation path from `sendMessage()` through the session manager to the telegram bot error handler.
 
-- [ ] Ensure EPIPE is caught and handled gracefully
-- [ ] Ensure dead sessions are recovered on next message
-- [ ] Update tests
+- [x] Ensure EPIPE is caught and handled gracefully
+- [x] Ensure dead sessions are recovered on next message
+- [x] Update tests
 
 ### Task 4: Add subprocess startup timeout
 

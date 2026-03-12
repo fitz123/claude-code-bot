@@ -297,4 +297,125 @@ describe("SessionManager sendSessionMessage streaming", () => {
 
     await manager.closeAll();
   });
+
+  it("throws when subprocess dies before sending result", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    // Create a mock child that will die mid-stream (stdout closes without result)
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    const stdin = new Writable({ write(_chunk, _enc, cb) { cb(); } });
+    Object.assign(child, {
+      stdout, stderr, stdin,
+      pid: 12347,
+      exitCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = 1;
+          child.emit("exit", 1, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+
+    const session = {
+      child,
+      sessionId: "test-session-dead",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["dead-chat", session]]);
+
+    const gen = manager.sendSessionMessage("dead-chat", "main", "hello");
+
+    // Push a partial line then close stdout (simulating subprocess death)
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({
+          type: "assistant",
+          subtype: "stream_event",
+          event: { delta: { type: "text_delta", text: "partial" } },
+        }) + "\n"
+      );
+      // Close stdout without sending a result — simulates process death
+      stdout.push(null);
+    }, 30);
+
+    // Consuming the generator should yield the partial line then throw
+    await assert.rejects(async () => {
+      for await (const _line of gen) {
+        // consume
+      }
+    }, /subprocess exited before sending a result/);
+
+    await manager.closeAll();
+  });
+
+  it("catches EPIPE on stdin without crashing the process", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    // Create a child that looks alive but whose stdin emits EPIPE on write
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    // stdin that emits EPIPE error asynchronously (simulates dead pipe fd)
+    const stdin = new Writable({
+      write(_chunk, _enc, cb) {
+        const err = new Error("write EPIPE") as NodeJS.ErrnoException;
+        err.code = "EPIPE";
+        cb(err);
+        return false;
+      },
+    });
+    // Attach error handler like getOrCreateSession does
+    stdin.on("error", () => {});
+
+    Object.assign(child, {
+      stdout, stderr, stdin,
+      pid: 12348,
+      exitCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = 1;
+          child.emit("exit", 1, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+
+    const session = {
+      child,
+      sessionId: "test-session-epipe",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["epipe-chat", session]]);
+
+    const gen = manager.sendSessionMessage("epipe-chat", "main", "hello");
+
+    // Close stdout shortly after — subprocess died, no result
+    setTimeout(() => { stdout.push(null); }, 30);
+
+    // The EPIPE write error is caught, and stream ends without result
+    await assert.rejects(async () => {
+      for await (const _line of gen) {
+        // consume
+      }
+    }, /subprocess exited before sending a result/);
+
+    await manager.closeAll();
+  });
 });

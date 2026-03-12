@@ -120,10 +120,11 @@ export function buildUserMessage(text: string, sessionId: string): StreamMessage
 
 /**
  * Send a user message to the Claude CLI subprocess stdin.
+ * Throws if the child process is dead or stdin is unavailable.
  */
 export function sendMessage(child: ChildProcess, text: string, sessionId: string): void {
-  if (!child.stdin || child.stdin.destroyed) {
-    throw new Error("Child process stdin is not available");
+  if (!child.stdin || child.stdin.destroyed || child.exitCode !== null || child.killed) {
+    throw new Error("Child process is not available");
   }
   const msg = buildUserMessage(text, sessionId);
   child.stdin.write(JSON.stringify(msg) + "\n");
