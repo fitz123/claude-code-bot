@@ -3,6 +3,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
 import type { SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
+import { MessageQueue } from "./message-queue.js";
 
 /**
  * Resolve a Telegram chatId to its binding config.
@@ -34,6 +35,14 @@ export function createTelegramBot(
   // Auto-retry on rate limits
   bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
+  // Message queue: debounce rapid messages and collect mid-turn messages
+  const messageQueue = new MessageQueue(
+    async (chatId, agentId, text, ctx) => {
+      const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
+      await relayStream(stream, ctx);
+    },
+  );
+
   // Auth middleware: reject unauthorized chats
   bot.use(async (ctx, next) => {
     const chatId = ctx.chat?.id;
@@ -61,6 +70,7 @@ export function createTelegramBot(
   // /reset command — close current session, next message creates fresh
   bot.command("reset", async (ctx) => {
     const chatId = String(ctx.chat.id);
+    messageQueue.clear(chatId);
     await sessionManager.closeSession(chatId);
     await ctx.reply("Session reset. Next message starts a fresh conversation.");
   });
@@ -117,18 +127,9 @@ export function createTelegramBot(
     const chatIdStr = String(chatId);
     const messageText = ctx.message.text;
 
-    try {
-      const stream = sessionManager.sendSessionMessage(
-        chatIdStr,
-        binding.agentId,
-        messageText,
-      );
-
-      await relayStream(stream, ctx);
-    } catch (err) {
-      console.error(`[telegram-bot] Error processing message for chat ${chatId}:`, err);
-      await ctx.reply("Something went wrong. Try again or /reset the session.").catch(() => {});
-    }
+    // Enqueue: debounce rapid messages, collect mid-turn messages.
+    // Processing happens in the background after debounce timer expires.
+    messageQueue.enqueue(chatIdStr, binding.agentId, messageText, ctx);
   });
 
   // Global error handler
