@@ -14,13 +14,20 @@ export type ProcessFn = (
   ctx: Context,
 ) => Promise<void>;
 
+/** Fire-and-forget cleanup callback (e.g. delete a temp file after processing). */
+export type CleanupFn = () => void;
+
 interface ChatQueueState {
   /** Messages pending debounce timer (pre-send) */
   pendingTexts: string[];
+  /** Cleanup callbacks for pending messages */
+  pendingCleanups: CleanupFn[];
   debounceTimer: ReturnType<typeof setTimeout> | null;
 
   /** Messages collected during active processing (mid-turn) */
   collectBuffer: string[];
+  /** Cleanup callbacks for collected messages */
+  collectCleanups: CleanupFn[];
 
   /** Whether a message is currently being processed */
   busy: boolean;
@@ -77,8 +84,10 @@ export class MessageQueue {
     if (!state) {
       state = {
         pendingTexts: [],
+        pendingCleanups: [],
         debounceTimer: null,
         collectBuffer: [],
+        collectCleanups: [],
         busy: false,
         latestCtx: null,
         agentId,
@@ -93,7 +102,7 @@ export class MessageQueue {
    * Enqueue a message for a chat. Handles debouncing and mid-turn collect.
    * Fire-and-forget: returns immediately, processing happens in background.
    */
-  enqueue(chatId: string, agentId: string, text: string, ctx: Context): void {
+  enqueue(chatId: string, agentId: string, text: string, ctx: Context, cleanup?: CleanupFn): void {
     const state = this.getState(chatId, agentId);
     state.latestCtx = ctx;
 
@@ -101,10 +110,12 @@ export class MessageQueue {
       // Mid-turn collect: buffer the message
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
+        if (cleanup) state.collectCleanups.push(cleanup);
         console.log(
           `[message-queue] Queued mid-turn message for ${chatId} (${state.collectBuffer.length} in buffer)`,
         );
       } else {
+        if (cleanup) cleanup();
         console.warn(
           `[message-queue] Collect buffer full for ${chatId}, dropping message`,
         );
@@ -114,12 +125,14 @@ export class MessageQueue {
 
     // Pre-send debounce: add to pending and reset timer
     if (state.pendingTexts.length >= this.queueCap) {
+      if (cleanup) cleanup();
       console.warn(
         `[message-queue] Debounce buffer full for ${chatId}, dropping message`,
       );
       return;
     }
     state.pendingTexts.push(text);
+    if (cleanup) state.pendingCleanups.push(cleanup);
 
     if (state.debounceTimer) {
       clearTimeout(state.debounceTimer);
@@ -137,6 +150,7 @@ export class MessageQueue {
     if (!state || state.pendingTexts.length === 0) return;
 
     const texts = state.pendingTexts.splice(0);
+    const cleanups = state.pendingCleanups.splice(0);
     state.debounceTimer = null;
     state.busy = true;
 
@@ -153,6 +167,8 @@ export class MessageQueue {
           .reply("Something went wrong. Try again or /reset the session.")
           .catch(() => {});
       }
+    } finally {
+      for (const fn of cleanups) fn();
     }
 
     // If queue was cleared during processing (e.g., /reset), stop here
@@ -174,6 +190,7 @@ export class MessageQueue {
     // Loop to drain messages that arrive during processing (avoids recursion)
     while (state.collectBuffer.length > 0) {
       const collected = state.collectBuffer.splice(0);
+      const cleanups = state.collectCleanups.splice(0);
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
@@ -192,6 +209,8 @@ export class MessageQueue {
             .reply("Something went wrong processing queued messages. Try again or /reset the session.")
             .catch(() => {});
         }
+      } finally {
+        for (const fn of cleanups) fn();
       }
 
       // If queue was cleared during processing, stop draining
@@ -223,6 +242,8 @@ export class MessageQueue {
       if (state.debounceTimer) {
         clearTimeout(state.debounceTimer);
       }
+      for (const fn of state.pendingCleanups) fn();
+      for (const fn of state.collectCleanups) fn();
       this.queues.delete(chatId);
     }
   }
@@ -233,6 +254,8 @@ export class MessageQueue {
       if (state.debounceTimer) {
         clearTimeout(state.debounceTimer);
       }
+      for (const fn of state.pendingCleanups) fn();
+      for (const fn of state.collectCleanups) fn();
     }
     this.queues.clear();
   }

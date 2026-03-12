@@ -8,6 +8,7 @@ export interface AgentConfig {
   systemPrompt?: string;
   allowedTools?: string[];
   maxTurns?: number;
+  effort?: "low" | "medium" | "high";
 }
 
 export interface TelegramBinding {

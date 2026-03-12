@@ -89,12 +89,12 @@ No conversion step needed — whisper-cli handles OGG natively.
 
 Error handling: if transcription fails, reply with error message, don't send to Claude.
 
-- [ ] Add voice message handler
-- [ ] Implement file download
-- [ ] Implement whisper-cli transcription
-- [ ] Add echo transcript reply
-- [ ] Clean up temp files
-- [ ] Update tests
+- [x] Add voice message handler
+- [x] Implement file download
+- [x] Implement whisper-cli transcription
+- [x] Add echo transcript reply
+- [x] Clean up temp files
+- [x] Update tests
 
 ### Task 2: Image support — pass photos to Claude (bot-hxe, P1)
 
@@ -110,27 +110,27 @@ Pipeline:
 7. Also handle `message:document` with image MIME types (image/png, image/jpeg, etc.)
 8. Clean up temp files after response
 
-- [ ] Add photo message handler
-- [ ] Implement file download to temp file
-- [ ] Append image path to message text
-- [ ] Handle documents with image MIME types
-- [ ] Support photo + caption
-- [ ] Clean up temp files
-- [ ] Update tests
+- [x] Add photo message handler
+- [x] Implement file download to temp file
+- [x] Append image path to message text
+- [x] Handle documents with image MIME types
+- [x] Support photo + caption
+- [x] Clean up temp files
+- [x] Update tests
 
 ### Task 3: Verify subprocess crash logging (bot-ai2, P1)
 
 Previous ralphex round fixed empty session stderr logs by removing premature `logStream.end()`. Verify the fix works — when a subprocess crashes, `~/.openclaw/logs/session-<chatId>.log` should contain actual error output. Write a test that simulates subprocess crash and verifies stderr is captured.
 
-- [ ] Write test that verifies stderr capture on crash
-- [ ] Fix if still broken
+- [x] Write test that verifies stderr capture on crash
+- [x] Fix if still broken
 
 ### Task 4: Register bot commands with Telegram API (bot-413, P2)
 
 Bot doesn't call `setMyCommands` — Telegram menu shows stale commands from old OpenClaw gateway. On startup after bot.start(), call `bot.api.setMyCommands()` with the commands that actually exist: /start, /reset, /status. This clears old commands and registers current ones.
 
-- [ ] Add setMyCommands call on startup
-- [ ] Update tests
+- [x] Add setMyCommands call on startup
+- [x] Update tests
 
 ### Task 5: Agent effort level config (bot-86s, P2)
 
@@ -139,7 +139,7 @@ Bot doesn't call `setMyCommands` — Telegram menu shows stale commands from old
 2. Parse it in config.ts
 3. Pass `--effort <level>` in buildSpawnArgs in cli-protocol.ts when set
 
-- [ ] Add effort to AgentConfig type
-- [ ] Parse in config
-- [ ] Pass --effort flag in buildSpawnArgs
-- [ ] Update tests
+- [x] Add effort to AgentConfig type
+- [x] Parse in config
+- [x] Pass --effort flag in buildSpawnArgs
+- [x] Update tests
