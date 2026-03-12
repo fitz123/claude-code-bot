@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { Writable } from "node:stream";
+import { Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import {
   buildSpawnArgs,
@@ -10,8 +10,9 @@ import {
   sendMessage,
   parseStreamLine,
   extractTextDelta,
+  readStream,
 } from "../cli-protocol.js";
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, StreamLine } from "../types.js";
 
 const testAgent: AgentConfig = {
   id: "main",
@@ -239,5 +240,70 @@ describe("sendMessage", () => {
     assert.strictEqual(parsed.type, "user");
     assert.strictEqual(parsed.message.content, "hello");
     assert.strictEqual(parsed.session_id, "sess-1");
+  });
+});
+
+describe("readStream", () => {
+  function createMockChildWithStdout(stdout: PassThrough): ChildProcess {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { stdout, stdin: null, stderr: null, pid: 1234, exitCode: null, killed: false });
+    return child;
+  }
+
+  it("yields parsed stream lines", async () => {
+    const stdout = new PassThrough();
+    const child = createMockChildWithStdout(stdout);
+
+    const lines: StreamLine[] = [];
+    const gen = readStream(child);
+
+    setTimeout(() => {
+      stdout.push('{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"hi"}}}\n');
+      stdout.push('{"type":"result","result":"hi","session_id":"s1"}\n');
+      stdout.push(null);
+    }, 10);
+
+    for await (const line of gen) {
+      lines.push(line);
+    }
+
+    assert.strictEqual(lines.length, 2);
+    assert.strictEqual(lines[0]!.type, "stream_event");
+    assert.strictEqual(lines[1]!.type, "result");
+  });
+
+  it("does not leak listeners on stdout after multiple calls", async () => {
+    const stdout = new PassThrough();
+    const child = createMockChildWithStdout(stdout);
+
+    const listenersBefore = stdout.listenerCount("end");
+
+    // Simulate multiple readStream calls (as happens per-message)
+    for (let i = 0; i < 15; i++) {
+      const gen = readStream(child);
+      stdout.push(`{"type":"result","result":"msg${i}","session_id":"s1"}\n`);
+      // Consume one line then break (simulates breaking on result)
+      const first = await gen.next();
+      assert.ok(!first.done);
+      // Return the generator (simulates consumer breaking out of for-await)
+      await gen.return(undefined as never);
+    }
+
+    const listenersAfter = stdout.listenerCount("end");
+    // Listener count should not grow unbounded. Allow small constant overhead
+    // (e.g. 1-2 from the stream itself) but not 15+ from leaked readlines.
+    assert.ok(
+      listenersAfter - listenersBefore <= 2,
+      `Listener leak detected: before=${listenersBefore} after=${listenersAfter} (delta=${listenersAfter - listenersBefore})`
+    );
+  });
+
+  it("throws when stdout is null", () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { stdout: null, pid: 1234 });
+    assert.rejects(async () => {
+      const gen = readStream(child);
+      await gen.next();
+    }, /stdout is not available/);
   });
 });

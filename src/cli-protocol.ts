@@ -155,11 +155,19 @@ export async function* readStream(child: ChildProcess): AsyncGenerator<StreamLin
 
   const rl = createInterface({ input: child.stdout });
 
-  for await (const line of rl) {
-    const parsed = parseStreamLine(line);
-    if (parsed) {
-      yield parsed;
+  try {
+    for await (const line of rl) {
+      const parsed = parseStreamLine(line);
+      if (parsed) {
+        yield parsed;
+      }
     }
+  } finally {
+    // Explicitly close the readline interface to remove its listeners from
+    // child.stdout. Without this, each call to readStream leaks end/data
+    // listeners on the underlying socket because generator.return() does not
+    // always propagate to the inner for-await-of in all Node.js versions.
+    rl.close();
   }
 }
 

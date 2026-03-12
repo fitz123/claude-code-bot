@@ -32,8 +32,8 @@ npm test
 
 `readStream()` in `cli-protocol.ts` creates a new `readline.createInterface()` on `child.stdout` each time it's called (once per message in `sendSessionMessage`). Previous readline instances are not closed, leaking `end`/`error`/`data` listeners on the underlying socket. After ~10 messages: `MaxListenersExceededWarning: 11 end listeners added to [Socket]`.
 
-- [ ] Fix the readline lifecycle to avoid leaking listeners
-- [ ] Update tests
+- [x] Fix the readline lifecycle to avoid leaking listeners
+- [x] Update tests
 
 ### Task 3: Fix empty session stderr logs (bot-ai2, P1)
 
