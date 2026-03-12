@@ -13,9 +13,12 @@ export const BOT_COMMANDS = [
   { command: "status", description: "Show bot status" },
 ] as const;
 
-/** Check if a MIME type is an image type */
+/** Image MIME types supported by Claude vision */
+const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
+
+/** Check if a MIME type is a supported image type */
 export function isImageMimeType(mimeType: string | undefined): boolean {
-  return mimeType?.startsWith("image/") ?? false;
+  return mimeType !== undefined && SUPPORTED_IMAGE_MIMES.has(mimeType);
 }
 
 /** Map image MIME type to file extension */
