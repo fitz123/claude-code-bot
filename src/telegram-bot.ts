@@ -207,7 +207,11 @@ export function createTelegramBot(
   config: BotConfig,
   sessionManager: SessionManager,
 ): TelegramBotResult {
-  const bot = new Bot(config.telegramToken);
+  if (!config.telegramToken) {
+    throw new Error("telegramToken is required for Telegram bot");
+  }
+  const token = config.telegramToken;
+  const bot = new Bot(token);
 
 // Log Telegram API errors, especially 429 rate limits (inner transformer —
   // sees each individual attempt before autoRetry decides whether to retry)
@@ -359,7 +363,7 @@ export function createTelegramBot(
       const fileId = ctx.msg.voice.file_id;
       const file = await ctx.api.getFile(fileId);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
-      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       tempPath = tempFilePath("voice", ".oga");
       await downloadFile(url, tempPath);
 
@@ -409,7 +413,7 @@ export function createTelegramBot(
       const largest = photos[photos.length - 1];
       const file = await ctx.api.getFile(largest.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
-      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       tempPath = tempFilePath("photo", ".jpg");
       await downloadFile(url, tempPath);
 
@@ -454,7 +458,7 @@ export function createTelegramBot(
     try {
       const file = await ctx.api.getFile(doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
-      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       const ext = imageExtensionForMime(doc.mime_type);
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);

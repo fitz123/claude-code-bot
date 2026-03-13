@@ -32,6 +32,22 @@ export interface TelegramBinding {
   typingIndicator?: boolean;
 }
 
+export interface DiscordBinding {
+  channelId: string;
+  guildId: string;
+  agentId: string;
+  kind: "dm" | "channel";
+  label?: string;
+  requireMention?: boolean;
+  streamingUpdates?: boolean;
+  typingIndicator?: boolean;
+}
+
+export interface DiscordConfig {
+  token: string;
+  bindings: DiscordBinding[];
+}
+
 export interface CronJob {
   name: string;
   schedule: string;
@@ -55,12 +71,13 @@ export interface SessionDefaults {
 }
 
 export interface BotConfig {
-  telegramToken: string;
+  telegramToken?: string;
   agents: Record<string, AgentConfig>;
   bindings: TelegramBinding[];
   sessionDefaults: SessionDefaults;
   logLevel?: LogLevel;
   metricsPort?: number;
+  discord?: DiscordConfig;
 }
 
 /**

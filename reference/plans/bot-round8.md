@@ -240,19 +240,19 @@ function buildSourcePrefix(binding: TelegramBinding, from: { first_name: string;
 
 **What we want:** A `discord-bot.ts` module that connects to Discord, receives messages in configured channels and threads, streams responses using the platform interface from Task 1, handles voice/image attachments, supports slash commands (/start, /reset, /status), and integrates with the same SessionManager and MessageQueue. Discord threads get independent sessions keyed by `discord:${channelId}:${threadId}` — just a fresh session, no context injection from parent. Discord token stored in macOS Keychain (same pattern as `telegramTokenService`). Config supports `discord` section with `tokenService` and `bindings` array. Both platforms run simultaneously sharing one SessionManager. `main.ts` starts Discord bot alongside Telegram if discord config is present.
 
-- [ ] `discord.js` added to package.json dependencies
-- [ ] Discord binding types added (channelId, guildId, agentId, kind, label, requireMention)
-- [ ] Config parsing for `discord.tokenService` and `discord.bindings` in config.ts
-- [ ] `telegramTokenService` made optional (bot can run Discord-only)
-- [ ] Discord bot module with client setup, required intents, login, message handler
-- [ ] Discord adapter implementing the platform interface (2000 char limit, 9s typing resend, message.edit())
-- [ ] Thread support: bot joins threads on creation, threads get independent sessions
-- [ ] Binding resolution for Discord channels (thread inherits parent channel binding)
-- [ ] Mention gating (requireMention support)
-- [ ] Source prefix building for Discord context
-- [ ] Voice message handling (download attachment, transcribe, enqueue)
-- [ ] Image/document attachment handling
-- [ ] Slash commands: /start, /reset, /status
-- [ ] `main.ts` starts Discord bot alongside Telegram when discord config present
-- [ ] Tests for Discord binding resolution, mention detection, session keys, thread handling
-- [ ] All existing tests pass
+- [x] `discord.js` added to package.json dependencies
+- [x] Discord binding types added (channelId, guildId, agentId, kind, label, requireMention)
+- [x] Config parsing for `discord.tokenService` and `discord.bindings` in config.ts
+- [x] `telegramTokenService` made optional (bot can run Discord-only)
+- [x] Discord bot module with client setup, required intents, login, message handler
+- [x] Discord adapter implementing the platform interface (2000 char limit, 9s typing resend, message.edit())
+- [x] Thread support: bot joins threads on creation, threads get independent sessions
+- [x] Binding resolution for Discord channels (thread inherits parent channel binding)
+- [x] Mention gating (requireMention support)
+- [x] Source prefix building for Discord context
+- [x] Voice message handling (download attachment, transcribe, enqueue)
+- [x] Image/document attachment handling
+- [x] Slash commands: /start, /reset, /status
+- [x] `main.ts` starts Discord bot alongside Telegram when discord config present
+- [x] Tests for Discord binding resolution, mention detection, session keys, thread handling
+- [x] All existing tests pass
