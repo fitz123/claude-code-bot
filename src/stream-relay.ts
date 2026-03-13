@@ -1,24 +1,14 @@
 import { realpathSync } from "node:fs";
-import { type Context, InputFile } from "grammy";
-import type { StreamLine } from "./types.js";
+import type { StreamLine, PlatformContext } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
 import { log } from "./logger.js";
 import { messagesSent } from "./metrics.js";
 
-/** Maximum Telegram message length. */
-const MAX_MSG_LENGTH = 4096;
-
-/** Minimum interval between editMessageText calls (ms). */
-const EDIT_DEBOUNCE_MS = 2000;
-
-/** Typing action resend interval (ms). */
-const TYPING_INTERVAL_MS = 4000;
-
 /**
- * Split text into chunks that fit Telegram's message limit.
+ * Split text into chunks that fit a platform's message limit.
  * Splits at paragraph boundaries (\n\n) when possible, otherwise at newlines, otherwise hard-cut.
  */
-export function splitMessage(text: string, maxLen: number = MAX_MSG_LENGTH): string[] {
+export function splitMessage(text: string, maxLen: number): string[] {
   if (text.length <= maxLen) return [text];
 
   const chunks: string[] = [];
@@ -73,10 +63,10 @@ export function extractText(msg: StreamLine): { text: string | null; isFinal: bo
   return { text: null, isFinal: false };
 }
 
-/** Image extensions that Telegram can display inline via replyWithPhoto. */
+/** Image extensions that can be displayed inline. */
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 
-/** Check if a file path has an image extension suitable for replyWithPhoto. */
+/** Check if a file path has an image extension suitable for inline display. */
 export function isImageExtension(filePath: string): boolean {
   const dotIdx = filePath.lastIndexOf(".");
   if (dotIdx === -1) return false;
@@ -109,52 +99,53 @@ export function collectWritePaths(msg: StreamLine, paths: Set<string>): void {
 }
 
 /**
- * Relay Claude CLI stream output to a Telegram chat.
+ * Relay Claude CLI stream output to a chat using the platform-agnostic interface.
  *
- * Strategy (since @grammyjs/stream is unavailable):
+ * Strategy:
  * 1. Send initial message with first text chunk
  * 2. Accumulate streaming deltas
- * 3. editMessageText every EDIT_DEBOUNCE_MS with accumulated text
+ * 3. editMessage every editDebounceMs with accumulated text (if streamingUpdates enabled)
  * 4. On completion, send final version
- * 5. If text exceeds 4096 chars, finish current message and send continuation
+ * 5. If text exceeds maxMessageLength, finish current message and send continuation
+ *
+ * When streamingUpdates is false, no intermediate edits are sent — only the final message.
+ * When typingIndicator is false, no typing actions are sent.
  */
 export async function relayStream(
   stream: AsyncGenerator<StreamLine>,
-  ctx: Context,
+  platform: PlatformContext,
   workspaceCwd?: string,
 ): Promise<void> {
   let accumulated = "";
-  let sentMessageId: number | null = null;
+  let sentMessageId: string | null = null;
   let lastEditTime = 0;
   let editPending = false;
   let editTimer: ReturnType<typeof setTimeout> | null = null;
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let finalSent = false;
-  const chatId = ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
   const writtenFiles = new Set<string>();
 
-  if (!chatId) return;
+  // Send typing indicator periodically (if enabled)
+  if (platform.typingIndicator) {
+    typingTimer = setInterval(() => {
+      platform.sendTyping().catch(() => {});
+    }, platform.typingIntervalMs);
 
-  // Send typing indicator periodically
-  typingTimer = setInterval(() => {
-    ctx.api.sendChatAction(chatId, "typing", threadId ? { message_thread_id: threadId } : undefined).catch(() => {});
-  }, TYPING_INTERVAL_MS);
-
-  // Send initial typing
-  await ctx.api.sendChatAction(chatId, "typing", threadId ? { message_thread_id: threadId } : undefined).catch(() => {});
+    // Send initial typing
+    await platform.sendTyping().catch(() => {});
+  }
 
   const doEdit = async () => {
     if (!sentMessageId || !accumulated || finalSent) return;
     editPending = false;
 
-    // Truncate to Telegram limit for in-progress updates
-    const displayText = accumulated.length > MAX_MSG_LENGTH
-      ? accumulated.slice(0, MAX_MSG_LENGTH - 3) + "..."
+    // Truncate to platform limit for in-progress updates
+    const displayText = accumulated.length > platform.maxMessageLength
+      ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
       : accumulated;
 
     try {
-      await ctx.api.editMessageText(chatId, sentMessageId, displayText);
+      await platform.editMessage(sentMessageId, displayText);
       lastEditTime = Date.now();
     } catch (err) {
       // Streaming edit failure is cosmetic — next edit or final edit will update
@@ -163,15 +154,15 @@ export async function relayStream(
   };
 
   const scheduleEdit = () => {
-    if (editPending || finalSent) return;
+    if (editPending || finalSent || !platform.streamingUpdates) return;
     const elapsed = Date.now() - lastEditTime;
-    if (elapsed >= EDIT_DEBOUNCE_MS) {
+    if (elapsed >= platform.editDebounceMs) {
       editPending = true;
-      doEdit();
+      doEdit().catch(() => {});
     } else {
       editPending = true;
       if (editTimer) clearTimeout(editTimer);
-      editTimer = setTimeout(doEdit, EDIT_DEBOUNCE_MS - elapsed);
+      editTimer = setTimeout(doEdit, platform.editDebounceMs - elapsed);
     }
   };
 
@@ -195,15 +186,12 @@ export async function relayStream(
         resultText = msg.result;
       }
 
-      // Send initial message once we have text
-      if (accumulated && sentMessageId === null) {
-        const displayText = accumulated.length > MAX_MSG_LENGTH
-          ? accumulated.slice(0, MAX_MSG_LENGTH - 3) + "..."
+      // Send initial message once we have text (only if streaming is enabled)
+      if (accumulated && sentMessageId === null && platform.streamingUpdates) {
+        const displayText = accumulated.length > platform.maxMessageLength
+          ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
           : accumulated;
-        const sent = await ctx.reply(displayText, {
-          ...(threadId ? { message_thread_id: threadId } : {}),
-        });
-        sentMessageId = sent.message_id;
+        sentMessageId = await platform.sendMessage(displayText);
         lastEditTime = Date.now();
         messagesSent.inc();
         continue;
@@ -236,12 +224,12 @@ export async function relayStream(
 
     // Send final text version
     if (accumulated) {
-      const chunks = splitMessage(accumulated);
+      const chunks = splitMessage(accumulated, platform.maxMessageLength);
 
       if (sentMessageId !== null && chunks.length >= 1) {
         // Edit the first message to final text
         try {
-          await ctx.api.editMessageText(chatId, sentMessageId, chunks[0]);
+          await platform.editMessage(sentMessageId, chunks[0]);
         } catch (err) {
           // "Message is not modified" means text already matches — safe to ignore.
           // Any other error (429, network, etc.) means the user may see truncated text.
@@ -250,9 +238,7 @@ export async function relayStream(
           if (!msg.includes("not modified")) {
             log.warn("stream-relay", `Final edit failed, sending as new message: ${msg}`);
             try {
-              await ctx.reply(chunks[0], {
-                ...(threadId ? { message_thread_id: threadId } : {}),
-              });
+              sentMessageId = await platform.sendMessage(chunks[0]);
               messagesSent.inc();
             } catch (fallbackErr) {
               log.error("stream-relay", `Fallback reply also failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
@@ -266,17 +252,13 @@ export async function relayStream(
 
         // Send remaining chunks as new messages
         for (let i = 1; i < chunks.length; i++) {
-          await ctx.reply(chunks[i], {
-            ...(threadId ? { message_thread_id: threadId } : {}),
-          });
+          await platform.sendMessage(chunks[i]);
           messagesSent.inc();
         }
       } else if (sentMessageId === null) {
-        // Never sent an initial message (shouldn't happen, but handle it)
+        // No initial message was sent (streaming disabled or no text during streaming)
         for (const chunk of chunks) {
-          await ctx.reply(chunk, {
-            ...(threadId ? { message_thread_id: threadId } : {}),
-          });
+          await platform.sendMessage(chunk);
           messagesSent.inc();
         }
       }
@@ -296,12 +278,7 @@ export async function relayStream(
         if (!realPath.startsWith(workspaceCwd + "/") && !realPath.startsWith("/tmp/") && !realPath.startsWith("/private/tmp/")) continue;
 
         try {
-          const opts = threadId ? { message_thread_id: threadId } : {};
-          if (isImageExtension(realPath)) {
-            await ctx.replyWithPhoto(new InputFile(realPath), opts);
-          } else {
-            await ctx.replyWithDocument(new InputFile(realPath), opts);
-          }
+          await platform.sendFile(realPath, isImageExtension(realPath));
         } catch (err) {
           log.error("stream-relay", `Failed to send file ${filePath}:`, err);
         }

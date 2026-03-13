@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults } from "./types.js";
+import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults, DiscordBinding, DiscordConfig } from "./types.js";
 import { log, parseLogLevel } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,10 @@ interface RawConfig {
   sessionDefaults?: unknown;
   logLevel?: string;
   metricsPort?: number;
+  discord?: {
+    tokenService?: string;
+    bindings?: unknown[];
+  };
 }
 
 function resolveKeychainSecret(service: string): string {
@@ -85,6 +89,8 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
     requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
     topics: validateTopics(obj.topics, index),
     voiceTranscriptEcho: typeof obj.voiceTranscriptEcho === "boolean" ? obj.voiceTranscriptEcho : undefined,
+    streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
+    typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
   };
 }
 
@@ -109,6 +115,54 @@ function validateTopics(raw: unknown, bindingIndex: number): TopicOverride[] | u
   });
 }
 
+function validateDiscordBinding(raw: unknown, index: number): DiscordBinding {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error(`discord.bindings[${index}] must be an object`);
+  }
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.channelId !== "string") {
+    throw new Error(`discord.bindings[${index}] missing channelId (string)`);
+  }
+  if (typeof obj.guildId !== "string") {
+    throw new Error(`discord.bindings[${index}] missing guildId (string)`);
+  }
+  if (typeof obj.agentId !== "string") {
+    throw new Error(`discord.bindings[${index}] missing agentId`);
+  }
+  if (obj.kind !== "dm" && obj.kind !== "channel") {
+    throw new Error(`discord.bindings[${index}] has invalid kind "${String(obj.kind)}" (must be "dm" or "channel")`);
+  }
+  return {
+    channelId: obj.channelId,
+    guildId: obj.guildId,
+    agentId: obj.agentId,
+    kind: obj.kind,
+    label: typeof obj.label === "string" ? obj.label : undefined,
+    requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
+    streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
+    typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
+  };
+}
+
+function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string, AgentConfig>): DiscordConfig | undefined {
+  if (!raw) return undefined;
+  if (typeof raw.tokenService !== "string") {
+    throw new Error("discord.tokenService must be a string");
+  }
+  const token = resolveKeychainSecret(raw.tokenService);
+  if (!Array.isArray(raw.bindings) || raw.bindings.length === 0) {
+    throw new Error("discord.bindings must be a non-empty array");
+  }
+  const bindings = raw.bindings.map((b, i) => {
+    const binding = validateDiscordBinding(b, i);
+    if (!agents[binding.agentId]) {
+      throw new Error(`discord.bindings[${i}] references unknown agent "${binding.agentId}"`);
+    }
+    return binding;
+  });
+  return { token, bindings };
+}
+
 function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
     return { idleTimeoutMs: 900000, maxConcurrentSessions: 3 };
@@ -128,14 +182,7 @@ export function loadConfig(configPath?: string): BotConfig {
     throw new Error("Config file is empty or invalid");
   }
 
-  // Resolve Telegram token from Keychain
-  const tokenService = raw.telegramTokenService;
-  if (typeof tokenService !== "string") {
-    throw new Error("Missing telegramTokenService in config");
-  }
-  const telegramToken = resolveKeychainSecret(tokenService);
-
-  // Validate agents
+  // Validate agents (needed before validating bindings)
   if (!raw.agents || typeof raw.agents !== "object") {
     throw new Error("Missing agents in config");
   }
@@ -144,24 +191,41 @@ export function loadConfig(configPath?: string): BotConfig {
     agents[id] = validateAgent(agentRaw, id);
   }
 
-  // Validate bindings
-  if (!Array.isArray(raw.bindings) || raw.bindings.length === 0) {
-    throw new Error("Missing or empty bindings in config");
+  // Resolve Telegram token from Keychain (optional — not needed for Discord-only setups)
+  let telegramToken: string | undefined;
+  if (typeof raw.telegramTokenService === "string") {
+    telegramToken = resolveKeychainSecret(raw.telegramTokenService);
   }
-  const bindings = raw.bindings.map((b, i) => {
-    const binding = validateBinding(b, i);
-    if (!agents[binding.agentId]) {
-      throw new Error(`Binding[${i}] references unknown agent "${binding.agentId}"`);
+
+  // Validate Telegram bindings (optional if Discord is configured)
+  let bindings: TelegramBinding[] = [];
+  if (Array.isArray(raw.bindings) && raw.bindings.length > 0) {
+    if (!telegramToken) {
+      throw new Error("Telegram bindings require telegramTokenService");
     }
-    if (binding.topics) {
-      for (const [j, topic] of binding.topics.entries()) {
-        if (topic.agentId && !agents[topic.agentId]) {
-          throw new Error(`Binding[${i}].topics[${j}] references unknown agent "${topic.agentId}"`);
+    bindings = raw.bindings.map((b, i) => {
+      const binding = validateBinding(b, i);
+      if (!agents[binding.agentId]) {
+        throw new Error(`Binding[${i}] references unknown agent "${binding.agentId}"`);
+      }
+      if (binding.topics) {
+        for (const [j, topic] of binding.topics.entries()) {
+          if (topic.agentId && !agents[topic.agentId]) {
+            throw new Error(`Binding[${i}].topics[${j}] references unknown agent "${topic.agentId}"`);
+          }
         }
       }
-    }
-    return binding;
-  });
+      return binding;
+    });
+  }
+
+  // Validate Discord config (optional)
+  const discord = validateDiscordConfig(raw.discord, agents);
+
+  // At least one platform must be configured
+  if (bindings.length === 0 && !discord) {
+    throw new Error("At least one platform must be configured (Telegram bindings or discord section)");
+  }
 
   const sessionDefaults = validateSessionDefaults(raw.sessionDefaults);
 
@@ -177,7 +241,7 @@ export function loadConfig(configPath?: string): BotConfig {
     metricsPort = raw.metricsPort;
   }
 
-  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort };
+  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, discord };
 }
 
 // CLI: validate config
@@ -186,8 +250,14 @@ if (process.argv.includes("--validate")) {
     const config = loadConfig();
     log.info("config", "Config valid.");
     log.info("config", `  Agents: ${Object.keys(config.agents).join(", ")}`);
-    log.info("config", `  Bindings: ${config.bindings.length}`);
-    log.info("config", `  Token: ${config.telegramToken.slice(0, 10)}...`);
+    log.info("config", `  Telegram bindings: ${config.bindings.length}`);
+    if (config.telegramToken) {
+      log.info("config", `  Telegram token: ${config.telegramToken.slice(0, 10)}...`);
+    }
+    if (config.discord) {
+      log.info("config", `  Discord bindings: ${config.discord.bindings.length}`);
+      log.info("config", `  Discord token: ${config.discord.token.slice(0, 10)}...`);
+    }
     log.info("config", `  Idle timeout: ${config.sessionDefaults.idleTimeoutMs}ms`);
     log.info("config", `  Max sessions: ${config.sessionDefaults.maxConcurrentSessions}`);
   } catch (e) {

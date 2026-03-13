@@ -6,7 +6,7 @@ import { tempFilePath, downloadFile, cleanupTempFile, transcribeAudio, convertTo
 describe("tempFilePath", () => {
   it("generates path with correct prefix and extension", () => {
     const path = tempFilePath("voice", ".oga");
-    assert.ok(path.includes("/tg-voice-"), `Expected path to contain /tg-voice-, got: ${path}`);
+    assert.ok(path.includes("/bot-voice-"), `Expected path to contain /bot-voice-, got: ${path}`);
     assert.ok(path.endsWith(".oga"), `Expected path to end with .oga, got: ${path}`);
   });
 
@@ -18,7 +18,7 @@ describe("tempFilePath", () => {
 
   it("uses the given prefix", () => {
     const path = tempFilePath("photo", ".jpg");
-    assert.ok(path.includes("/tg-photo-"));
+    assert.ok(path.includes("/bot-photo-"));
     assert.ok(path.endsWith(".jpg"));
   });
 });
@@ -114,7 +114,7 @@ describe("convertToWav", () => {
       const outputPath = await convertToWav(inputPath);
       try {
         assert.ok(existsSync(outputPath), "Output WAV file should exist");
-        assert.ok(outputPath.includes("/tg-voice-wav-"), "Output path should use voice-wav prefix");
+        assert.ok(outputPath.includes("/bot-voice-wav-"), "Output path should use voice-wav prefix");
         assert.ok(outputPath.endsWith(".wav"), "Output should have .wav extension");
         const content = readFileSync(outputPath);
         assert.strictEqual(content.toString("ascii", 0, 4), "RIFF", "Output should have RIFF header");
