@@ -44,18 +44,6 @@ Discord is decommissioned per ADR-038/039. Error handlers were added in bot-roun
 
 bot-round10 added `Events.Error`, `Events.ShardError`, `Events.Warn` handlers and `process.on("uncaughtException"/"unhandledRejection")` — so the crash is mitigated, but the code should be removed entirely.
 
-## Reference: Stale message handling
-
-Current stale check in `telegram-bot.ts`:
-```typescript
-isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)
-// maxMessageAgeMs = 600000 (10 minutes) from config.yaml line 42
-```
-
-Applied at lines 347-350 (text), 372-375 (voice). On restart, `messageQueue.clearAll()` is called (main.ts line 37) but Telegram's `getUpdates` still delivers ALL unprocessed messages from downtime. Each spawns a session, fails, sends error reply — cascade.
-
-No max retry count per chat. No exponential backoff on repeated session crashes for the same chatId.
-
 ## Reference: Cron delivery routing
 
 `cron-runner.ts` lines 55-56: delivery uses `deliveryChatId`, defaults to `NINJA_CHAT_ID = <redacted-user-id>`.
