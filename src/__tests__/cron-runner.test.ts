@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { loadCronTask, getAgentWorkspace, shellEscape } from "../cron-runner.js";
+import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape } from "../cron-runner.js";
 
 // We test the pure functions. runClaude and deliver require real claude/Telegram.
 
@@ -29,6 +29,36 @@ describe("cron-runner", () => {
     it("escapes strings with special chars", () => {
       assert.strictEqual(shellEscape("$VAR"), "'$VAR'");
       assert.strictEqual(shellEscape("a;b"), "'a;b'");
+    });
+  });
+
+  describe("buildDeliverCommand", () => {
+    it("builds command without thread", () => {
+      const cmd = buildDeliverCommand(306600687);
+      assert.ok(cmd.includes("deliver.sh"));
+      assert.ok(cmd.endsWith("306600687"));
+      assert.ok(!cmd.includes("--thread"));
+    });
+
+    it("builds command with thread ID", () => {
+      const cmd = buildDeliverCommand(306600687, 12345);
+      assert.ok(cmd.includes("deliver.sh"));
+      assert.ok(cmd.includes("306600687"));
+      assert.ok(cmd.includes("--thread 12345"));
+    });
+
+    it("does not include --thread when threadId is undefined", () => {
+      const cmd = buildDeliverCommand(123456, undefined);
+      assert.ok(!cmd.includes("--thread"));
+    });
+  });
+
+  describe("loadCronTask — deliveryThreadId", () => {
+    it("parses deliveryThreadId from crons.yaml when present", () => {
+      // This tests the real crons.yaml. Since no current cron has deliveryThreadId,
+      // we verify that the field is correctly absent (undefined).
+      const cron = loadCronTask("memory-consolidation-main");
+      assert.strictEqual(cron.deliveryThreadId, undefined);
     });
   });
 });

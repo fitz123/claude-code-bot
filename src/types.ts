@@ -64,6 +64,7 @@ export interface CronJob {
   prompt: string;
   agentId: string;
   deliveryChatId: number;
+  deliveryThreadId?: number;
   timeout?: number;
   maxBudget?: number;
 }
