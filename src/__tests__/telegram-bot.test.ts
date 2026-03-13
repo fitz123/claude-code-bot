@@ -556,6 +556,22 @@ describe("buildReplyContext", () => {
     );
   });
 
+  it("returns empty string for forum_topic_closed service message", () => {
+    assert.strictEqual(buildReplyContext({ forum_topic_closed: {} }), "");
+  });
+
+  it("returns empty string for forum_topic_reopened service message", () => {
+    assert.strictEqual(buildReplyContext({ forum_topic_reopened: {} }), "");
+  });
+
+  it("returns empty string for general_forum_topic_hidden service message", () => {
+    assert.strictEqual(buildReplyContext({ general_forum_topic_hidden: {} }), "");
+  });
+
+  it("returns empty string for general_forum_topic_unhidden service message", () => {
+    assert.strictEqual(buildReplyContext({ general_forum_topic_unhidden: {} }), "");
+  });
+
   it("includes sender name and username", () => {
     const result = buildReplyContext({
       from: { first_name: "Alice", username: "alice42" },
@@ -596,8 +612,7 @@ describe("buildReplyContext", () => {
       from: { first_name: "Zoe" },
       text: longText,
     });
-    assert.ok(result.includes("A".repeat(200) + "..."));
-    assert.ok(!result.includes("A".repeat(201)));
+    assert.strictEqual(result, `[Reply to Zoe]\n> ${"A".repeat(200)}...\n`);
   });
 
   it("does not truncate text at exactly 200 chars", () => {
@@ -606,8 +621,7 @@ describe("buildReplyContext", () => {
       from: { first_name: "Max" },
       text: exactText,
     });
-    assert.ok(result.includes("B".repeat(200)));
-    assert.ok(!result.includes("..."));
+    assert.strictEqual(result, `[Reply to Max]\n> ${"B".repeat(200)}\n`);
   });
 
   it("collapses newlines in reply text to spaces", () => {
@@ -676,6 +690,21 @@ describe("buildForwardContext", () => {
       chat: { title: "Updates" },
     });
     assert.strictEqual(result, "[Forwarded from Updates]\n");
+  });
+
+  it("formats user forward with missing sender_user", () => {
+    const result = buildForwardContext({ type: "user" });
+    assert.strictEqual(result, "[Forwarded from Unknown]\n");
+  });
+
+  it("formats chat forward with missing sender_chat", () => {
+    const result = buildForwardContext({ type: "chat" });
+    assert.strictEqual(result, "[Forwarded from Unknown chat]\n");
+  });
+
+  it("formats channel forward with missing chat", () => {
+    const result = buildForwardContext({ type: "channel" });
+    assert.strictEqual(result, "[Forwarded from Unknown channel]\n");
   });
 
   it("handles unknown forward type", () => {

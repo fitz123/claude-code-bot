@@ -97,7 +97,7 @@ export function buildSourcePrefix(
  * Telegram sets reply_to_message on every message in a forum topic, pointing to the
  * topic's creation service message. This is NOT a real user reply.
  */
-export function isForumServiceMessage(
+function isForumServiceMessage(
   msg: {
     forum_topic_created?: unknown;
     forum_topic_edited?: unknown;
@@ -140,19 +140,18 @@ export function buildReplyContext(
   if (!replyTo) return "";
   if (isForumServiceMessage(replyTo)) return "";
 
-  const parts: string[] = [];
-
+  let header = "[Reply]";
   if (replyTo.from) {
     const name = replyTo.from.first_name.replace(/[\n\r]/g, " ");
-    parts.push(replyTo.from.username ? `${name} (@${replyTo.from.username})` : name);
+    const uname = replyTo.from.username?.replace(/[\n\r]/g, "") ?? "";
+    const sender = uname ? `${name} (@${uname})` : name;
+    header = `[Reply to ${sender}]`;
   }
-
-  const header = parts.length > 0 ? `[Reply to ${parts.join("")}]` : "[Reply]";
 
   const replyText = replyTo.text ?? replyTo.caption ?? "";
   if (!replyText) return header + "\n";
 
-  const cleaned = replyText.replace(/\n/g, " ").trim();
+  const cleaned = replyText.replace(/[\n\r]/g, " ").trim();
   const truncated = cleaned.length > REPLY_TRUNCATE_LIMIT
     ? cleaned.slice(0, REPLY_TRUNCATE_LIMIT) + "..."
     : cleaned;
@@ -181,20 +180,24 @@ export function buildForwardContext(
     case "user": {
       const u = forwardOrigin.sender_user;
       if (u) {
-        origin = u.username ? `${u.first_name} (@${u.username})` : u.first_name;
+        const name = u.first_name.replace(/[\n\r]/g, " ");
+        const uname = u.username?.replace(/[\n\r]/g, "") ?? "";
+        origin = uname ? `${name} (@${uname})` : name;
+      } else {
+        origin = "Unknown";
       }
       break;
     }
     case "hidden_user":
-      origin = forwardOrigin.sender_user_name ?? "Unknown";
+      origin = (forwardOrigin.sender_user_name ?? "Unknown").replace(/[\n\r]/g, " ");
       break;
     case "chat":
-      origin = forwardOrigin.sender_chat?.title ?? "Unknown chat";
+      origin = (forwardOrigin.sender_chat?.title ?? "Unknown chat").replace(/[\n\r]/g, " ");
       break;
     case "channel":
-      origin = forwardOrigin.chat?.title ?? "Unknown channel";
+      origin = (forwardOrigin.chat?.title ?? "Unknown channel").replace(/[\n\r]/g, " ");
       if (forwardOrigin.author_signature) {
-        origin += ` (${forwardOrigin.author_signature})`;
+        origin += ` (${forwardOrigin.author_signature.replace(/[\n\r]/g, " ")})`;
       }
       break;
     default:
