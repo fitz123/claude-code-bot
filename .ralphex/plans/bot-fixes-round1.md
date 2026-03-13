@@ -1,8 +1,8 @@
-# Bot Stability & Message Context — Round 1
+# Bot Cleanup & Features — Round 1
 
 ## Goal
 
-Fix process crash caused by dead Discord code, add missing Telegram message context (reply/forward metadata), and improve cron delivery routing — making the bot more stable and context-aware.
+Remove dead Discord code (decommissioned per ADR-038/039, error handlers added in round10), add missing Telegram reply/forward context, and wire cron delivery to forum topics.
 
 ## Validation Commands
 
