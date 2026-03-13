@@ -193,6 +193,10 @@ export class SessionManager {
       if (!hasExited(child) && !child.killed) {
         child.kill("SIGKILL");
       }
+      // Increment crash count so startup failures contribute to backoff
+      const count = (this.restartCounts.get(chatId) ?? 0) + 1;
+      this.restartCounts.set(chatId, count);
+      log.error("session-manager", `Startup failure for chat ${chatId} (crash #${count}): ${(err as Error).message}`);
       throw err;
     }
 
@@ -476,7 +480,7 @@ export class SessionManager {
       idleMs: now - session.lastActivity,
       processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
       lastSuccessAt: session.lastSuccessAt,
-      restartCount: session.restartCount,
+      restartCount: this.restartCounts.get(chatId) ?? 0,
     };
   }
 

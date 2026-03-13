@@ -927,6 +927,8 @@ describe("SessionManager.getSessionHealth", () => {
       outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["health-chat", session]]);
+    // restartCount now reads from the restartCounts map (not the frozen session field)
+    (manager as unknown as Record<string, Map<string, number>>).restartCounts = new Map([["health-chat", 2]]);
 
     const health = manager.getSessionHealth("health-chat");
     assert.ok(health);

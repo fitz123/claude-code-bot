@@ -259,6 +259,10 @@ export function createTelegramBot(
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /start for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
     const agent = config.agents[binding.agentId];
     await ctx.reply(
       `Connected to agent "${binding.agentId}" (${agent?.model ?? "unknown"}). Send a message to start.`,
@@ -270,6 +274,10 @@ export function createTelegramBot(
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /reset for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
     const key = sessionKey(ctx.chat.id, topicId);
     messageQueue.clear(key);
     await sessionManager.closeSession(key);
@@ -281,6 +289,10 @@ export function createTelegramBot(
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /status for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
     const activeCount = sessionManager.getActiveCount();
     const memUsage = process.memoryUsage();
     const uptimeSeconds = Math.floor(process.uptime());
