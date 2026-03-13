@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import type { Context } from "grammy";
+import type { PlatformContext } from "../types.js";
 import {
   MessageQueue,
   buildCollectPrompt,
@@ -8,11 +8,20 @@ import {
   DEFAULT_QUEUE_CAP,
 } from "../message-queue.js";
 
-/** Minimal mock context — the queue never inspects it, only passes it through. */
-function mockCtx(): Context {
+/** Minimal mock PlatformContext — the queue never inspects it deeply, only passes it through. */
+function mockPlatform(): PlatformContext {
   return {
-    reply: async () => ({ message_id: 1 }),
-  } as unknown as Context;
+    maxMessageLength: 4096,
+    editDebounceMs: 2000,
+    typingIntervalMs: 4000,
+    streamingUpdates: true,
+    typingIndicator: true,
+    async sendMessage() { return "1"; },
+    async editMessage() {},
+    async sendTyping() {},
+    async sendFile() {},
+    async replyError() {},
+  };
 }
 
 /**
@@ -28,7 +37,7 @@ function createMockProcess() {
     chatId: string,
     agentId: string,
     text: string,
-    _ctx: Context,
+    _platform: PlatformContext,
   ) => {
     calls.push({ chatId, agentId, text });
     if (shouldBlock) {
@@ -111,11 +120,11 @@ describe("MessageQueue debounce", () => {
   it("debounces rapid messages into a single send", async () => {
     const { processFn, calls } = createMockProcess();
     const queue = new MessageQueue(processFn, { debounceMs: 50 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
-    queue.enqueue("chat1", "main", "hello", ctx);
-    queue.enqueue("chat1", "main", "world", ctx);
-    queue.enqueue("chat1", "main", "foo", ctx);
+    queue.enqueue("chat1", "main", "hello", platform);
+    queue.enqueue("chat1", "main", "world", platform);
+    queue.enqueue("chat1", "main", "foo", platform);
 
     // Before debounce fires, nothing sent
     assert.strictEqual(calls.length, 0);
@@ -136,9 +145,9 @@ describe("MessageQueue debounce", () => {
   it("sends single message without joining", async () => {
     const { processFn, calls } = createMockProcess();
     const queue = new MessageQueue(processFn, { debounceMs: 30 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
-    queue.enqueue("chat1", "main", "solo message", ctx);
+    queue.enqueue("chat1", "main", "solo message", platform);
 
     await wait(80);
 
@@ -151,10 +160,10 @@ describe("MessageQueue debounce", () => {
   it("treats separate chats independently", async () => {
     const { processFn, calls } = createMockProcess();
     const queue = new MessageQueue(processFn, { debounceMs: 30 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
-    queue.enqueue("chat1", "main", "msg1", ctx);
-    queue.enqueue("chat2", "yulia", "msg2", ctx);
+    queue.enqueue("chat1", "main", "msg1", platform);
+    queue.enqueue("chat2", "yulia", "msg2", platform);
 
     await wait(80);
 
@@ -178,12 +187,12 @@ describe("MessageQueue mid-turn collect", () => {
   it("buffers messages arriving while busy and drains them after", async () => {
     const mock = createMockProcess();
     const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
     // First call will block to simulate processing
     mock.setBlocking(true);
 
-    queue.enqueue("chat1", "main", "initial message", ctx);
+    queue.enqueue("chat1", "main", "initial message", platform);
 
     // Wait for debounce to fire (flush starts, processFn blocks)
     await wait(60);
@@ -193,8 +202,8 @@ describe("MessageQueue mid-turn collect", () => {
     assert.ok(queue.isBusy("chat1"));
 
     // Enqueue messages while busy — should go to collect buffer
-    queue.enqueue("chat1", "main", "queued msg 1", ctx);
-    queue.enqueue("chat1", "main", "queued msg 2", ctx);
+    queue.enqueue("chat1", "main", "queued msg 1", platform);
+    queue.enqueue("chat1", "main", "queued msg 2", platform);
 
     assert.strictEqual(queue.getCollectCount("chat1"), 2);
     assert.strictEqual(queue.getPendingCount("chat1"), 0);
@@ -224,14 +233,14 @@ describe("MessageQueue mid-turn collect", () => {
   it("drains single collected message without header", async () => {
     const mock = createMockProcess();
     const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
     mock.setBlocking(true);
-    queue.enqueue("chat1", "main", "first", ctx);
+    queue.enqueue("chat1", "main", "first", platform);
     await wait(60);
 
     // Enqueue single message while busy
-    queue.enqueue("chat1", "main", "followup", ctx);
+    queue.enqueue("chat1", "main", "followup", platform);
 
     mock.setBlocking(false);
     mock.unblock();
@@ -253,20 +262,20 @@ describe("MessageQueue queue cap", () => {
   it("drops messages beyond queue cap", async () => {
     const mock = createMockProcess();
     const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 3 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
     mock.setBlocking(true);
-    queue.enqueue("chat1", "main", "first", ctx);
+    queue.enqueue("chat1", "main", "first", platform);
     await wait(60);
 
     // Fill collect buffer to cap
-    queue.enqueue("chat1", "main", "c1", ctx);
-    queue.enqueue("chat1", "main", "c2", ctx);
-    queue.enqueue("chat1", "main", "c3", ctx);
+    queue.enqueue("chat1", "main", "c1", platform);
+    queue.enqueue("chat1", "main", "c2", platform);
+    queue.enqueue("chat1", "main", "c3", platform);
     assert.strictEqual(queue.getCollectCount("chat1"), 3);
 
     // This should be dropped
-    queue.enqueue("chat1", "main", "c4-dropped", ctx);
+    queue.enqueue("chat1", "main", "c4-dropped", platform);
     assert.strictEqual(queue.getCollectCount("chat1"), 3);
 
     mock.setBlocking(false);
@@ -286,16 +295,16 @@ describe("MessageQueue queue cap", () => {
   it("drops messages beyond queue cap during debounce", async () => {
     const { processFn, calls } = createMockProcess();
     const queue = new MessageQueue(processFn, { debounceMs: 50, queueCap: 3 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
     // Fill debounce buffer to cap
-    queue.enqueue("chat1", "main", "d1", ctx);
-    queue.enqueue("chat1", "main", "d2", ctx);
-    queue.enqueue("chat1", "main", "d3", ctx);
+    queue.enqueue("chat1", "main", "d1", platform);
+    queue.enqueue("chat1", "main", "d2", platform);
+    queue.enqueue("chat1", "main", "d3", platform);
     assert.strictEqual(queue.getPendingCount("chat1"), 3);
 
     // This should be dropped
-    queue.enqueue("chat1", "main", "d4-dropped", ctx);
+    queue.enqueue("chat1", "main", "d4-dropped", platform);
     assert.strictEqual(queue.getPendingCount("chat1"), 3);
 
     await wait(100);
@@ -317,9 +326,9 @@ describe("MessageQueue clear", () => {
   it("clears pending messages and cancels debounce timer", async () => {
     const { processFn, calls } = createMockProcess();
     const queue = new MessageQueue(processFn, { debounceMs: 100 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
-    queue.enqueue("chat1", "main", "will be cleared", ctx);
+    queue.enqueue("chat1", "main", "will be cleared", platform);
     assert.strictEqual(queue.getPendingCount("chat1"), 1);
 
     queue.clear("chat1");
@@ -340,10 +349,10 @@ describe("MessageQueue clear", () => {
   it("clearAll clears all chats", async () => {
     const { processFn, calls } = createMockProcess();
     const queue = new MessageQueue(processFn, { debounceMs: 100 });
-    const ctx = mockCtx();
+    const platform = mockPlatform();
 
-    queue.enqueue("chat1", "main", "msg1", ctx);
-    queue.enqueue("chat2", "yulia", "msg2", ctx);
+    queue.enqueue("chat1", "main", "msg1", platform);
+    queue.enqueue("chat2", "yulia", "msg2", platform);
 
     queue.clearAll();
 
@@ -371,21 +380,21 @@ describe("MessageQueue status", () => {
 // -------------------------------------------------------------------
 
 describe("MessageQueue error handling", () => {
-  it("catches processFn errors and sends error reply via ctx", async () => {
+  it("catches processFn errors and sends error reply via platform", async () => {
     let repliedText = "";
-    const errorCtx = {
-      reply: async (text: string) => {
+    const errorPlatform: PlatformContext = {
+      ...mockPlatform(),
+      async replyError(text: string) {
         repliedText = text;
-        return { message_id: 1 };
       },
-    } as unknown as Context;
+    };
 
     const failProcess = async () => {
       throw new Error("Claude exploded");
     };
 
     const queue = new MessageQueue(failProcess, { debounceMs: 30 });
-    queue.enqueue("chat1", "main", "trigger error", errorCtx);
+    queue.enqueue("chat1", "main", "trigger error", errorPlatform);
 
     await wait(80);
 
@@ -398,12 +407,12 @@ describe("MessageQueue error handling", () => {
   it("catches errors during collect buffer drain and sends error reply", async () => {
     let callCount = 0;
     let repliedText = "";
-    const errorCtx = {
-      reply: async (text: string) => {
+    const errorPlatform: PlatformContext = {
+      ...mockPlatform(),
+      async replyError(text: string) {
         repliedText = text;
-        return { message_id: 1 };
       },
-    } as unknown as Context;
+    };
 
     const failOnDrain = async () => {
       callCount++;
@@ -419,12 +428,12 @@ describe("MessageQueue error handling", () => {
     };
 
     const queue = new MessageQueue(failOnDrain, { debounceMs: 20 });
-    queue.enqueue("chat1", "main", "initial", errorCtx);
+    queue.enqueue("chat1", "main", "initial", errorPlatform);
 
     await wait(40);
 
     // Now enqueue a mid-turn message while busy
-    queue.enqueue("chat1", "main", "queued msg", errorCtx);
+    queue.enqueue("chat1", "main", "queued msg", errorPlatform);
 
     // Wait for flush + drain to complete
     await wait(100);

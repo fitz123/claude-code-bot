@@ -28,6 +28,24 @@ export interface TelegramBinding {
   requireMention?: boolean;
   topics?: TopicOverride[];
   voiceTranscriptEcho?: boolean;
+  streamingUpdates?: boolean;
+  typingIndicator?: boolean;
+}
+
+export interface DiscordBinding {
+  channelId: string;
+  guildId: string;
+  agentId: string;
+  kind: "dm" | "channel";
+  label?: string;
+  requireMention?: boolean;
+  streamingUpdates?: boolean;
+  typingIndicator?: boolean;
+}
+
+export interface DiscordConfig {
+  token: string;
+  bindings: DiscordBinding[];
 }
 
 export interface CronJob {
@@ -53,12 +71,50 @@ export interface SessionDefaults {
 }
 
 export interface BotConfig {
-  telegramToken: string;
+  telegramToken?: string;
   agents: Record<string, AgentConfig>;
   bindings: TelegramBinding[];
   sessionDefaults: SessionDefaults;
   logLevel?: LogLevel;
   metricsPort?: number;
+  discord?: DiscordConfig;
+}
+
+/**
+ * Platform-agnostic message I/O interface.
+ * Each platform (Telegram, Discord) provides an adapter implementing this interface.
+ * stream-relay and message-queue depend only on this — no platform-specific imports.
+ */
+export interface PlatformContext {
+  /** Send a new message, returns a platform-specific message ID for later editing. */
+  sendMessage(text: string): Promise<string>;
+
+  /** Edit a previously sent message by its ID. */
+  editMessage(messageId: string, text: string): Promise<void>;
+
+  /** Send a typing/action indicator. */
+  sendTyping(): Promise<void>;
+
+  /** Send a file (image or document). */
+  sendFile(filePath: string, isImage: boolean): Promise<void>;
+
+  /** Send an error reply to the user. */
+  replyError(text: string): Promise<void>;
+
+  /** Maximum message length for this platform. */
+  readonly maxMessageLength: number;
+
+  /** Minimum interval between message edits (ms). */
+  readonly editDebounceMs: number;
+
+  /** Interval between typing indicator resends (ms). */
+  readonly typingIntervalMs: number;
+
+  /** Whether to send progressive streaming edits (default true). */
+  readonly streamingUpdates: boolean;
+
+  /** Whether to send typing indicators (default true). */
+  readonly typingIndicator: boolean;
 }
 
 // CLI Protocol types

@@ -4,9 +4,14 @@ import type { BotConfig, TelegramBinding } from "./types.js";
 import type { SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
+import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
+import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
+
+// Re-export for backward compatibility (tests import from here)
+export { isImageMimeType, imageExtensionForMime };
 
 /** Commands to register with the Telegram Bot API via setMyCommands */
 export const BOT_COMMANDS = [
@@ -14,25 +19,6 @@ export const BOT_COMMANDS = [
   { command: "reset", description: "Reset current session" },
   { command: "status", description: "Show bot status" },
 ] as const;
-
-/** Image MIME types supported by Claude vision */
-const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
-
-/** Check if a MIME type is a supported image type */
-export function isImageMimeType(mimeType: string | undefined): boolean {
-  return mimeType !== undefined && SUPPORTED_IMAGE_MIMES.has(mimeType);
-}
-
-/** Map image MIME type to file extension */
-export function imageExtensionForMime(mimeType: string | undefined): string {
-  switch (mimeType) {
-    case "image/png": return ".png";
-    case "image/gif": return ".gif";
-    case "image/webp": return ".webp";
-    case "image/bmp": return ".bmp";
-    default: return ".jpg";
-  }
-}
 
 /**
  * Build a session key from chatId and optional topicId.
@@ -206,7 +192,11 @@ export function createTelegramBot(
   config: BotConfig,
   sessionManager: SessionManager,
 ): TelegramBotResult {
-  const bot = new Bot(config.telegramToken);
+  if (!config.telegramToken) {
+    throw new Error("telegramToken is required for Telegram bot");
+  }
+  const token = config.telegramToken;
+  const bot = new Bot(token);
 
 // Log Telegram API errors, especially 429 rate limits (inner transformer —
   // sees each individual attempt before autoRetry decides whether to retry)
@@ -232,10 +222,10 @@ export function createTelegramBot(
 
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
-    async (chatId, agentId, text, ctx) => {
+    async (chatId, agentId, text, platform) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
       const agent = config.agents[agentId];
-      await relayStream(stream, ctx, agent?.workspaceCwd);
+      await relayStream(stream, platform, agent?.workspaceCwd);
     },
   );
 
@@ -337,7 +327,7 @@ export function createTelegramBot(
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
-    messageQueue.enqueue(key, binding.agentId, messageText, ctx);
+    messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
   });
 
   // Handle voice messages — transcribe with whisper-cli and send to Claude
@@ -358,7 +348,7 @@ export function createTelegramBot(
       const fileId = ctx.msg.voice.file_id;
       const file = await ctx.api.getFile(fileId);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
-      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       tempPath = tempFilePath("voice", ".oga");
       await downloadFile(url, tempPath);
 
@@ -371,7 +361,7 @@ export function createTelegramBot(
 
       // Send transcript text to Claude session
       const prefix = buildSourcePrefix(binding, ctx.from);
-      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, ctx);
+      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
 
       // Echo transcript back to user (non-critical — don't block enqueue)
       if (binding.voiceTranscriptEcho !== false) {
@@ -408,7 +398,7 @@ export function createTelegramBot(
       const largest = photos[photos.length - 1];
       const file = await ctx.api.getFile(largest.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
-      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       tempPath = tempFilePath("photo", ".jpg");
       await downloadFile(url, tempPath);
 
@@ -422,7 +412,7 @@ export function createTelegramBot(
       // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, ctx, () => {
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding), () => {
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
@@ -453,7 +443,7 @@ export function createTelegramBot(
     try {
       const file = await ctx.api.getFile(doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
-      const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       const ext = imageExtensionForMime(doc.mime_type);
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);
@@ -466,7 +456,7 @@ export function createTelegramBot(
 
       const pathToClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, ctx, () => {
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding), () => {
         cleanupTempFile(pathToClean);
       });
     } catch (err) {

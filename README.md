@@ -1,45 +1,64 @@
-# OpenClaw Telegram Bot
+# OpenClaw Bot
 
-grammY-based Telegram bot that routes messages to Claude Code CLI subprocesses. Each Telegram chat gets its own persistent Claude Code session. Runs on Max subscription (no API keys).
+Multi-platform bot (Telegram + Discord) that routes messages to Claude Code CLI subprocesses. Each chat/channel gets its own persistent Claude Code session. Runs on Max subscription (no API keys).
 
 ## Architecture
 
 ```
-Telegram Cloud
-    │
-    ▼ (long polling)
-┌──────────────────────────┐
-│  grammY Bot (main.ts)    │
-│  - loads config.yaml     │
-│  - routes by chatId      │
-└──────────┬───────────────┘
-           │
-           ▼
-┌──────────────────────────┐
-│  Session Manager         │
-│  - 1 session per chatId  │
-│  - LRU eviction (max 6)  │
-│  - 4 hour idle timeout   │
-│  - resume on respawn     │
-└──────────┬───────────────┘
-           │ spawns claude -p (stream-json)
-           ▼
-┌──────────────────────────┐
-│  Claude Code CLI         │
-│  - per-agent workspace   │
-│  - model from config     │
-│  - Max subscription auth │
-└──────────┬───────────────┘
-           │
-           ▼
-      Anthropic API
+Telegram Cloud          Discord Gateway
+    │                        │
+    ▼ (long polling)         ▼ (websocket)
+┌────────────────┐    ┌────────────────┐
+│  grammY Bot    │    │  Discord.js    │
+│  telegram-bot  │    │  discord-bot   │
+└───────┬────────┘    └───────┬────────┘
+        │                     │
+        ▼                     ▼
+   ┌─────────────────────────────────┐
+   │  Platform Context (interface)   │
+   │  - sendMessage, editMessage     │
+   │  - sendTyping, sendFile         │
+   │  - per-binding streaming flags  │
+   └───────────────┬─────────────────┘
+                   │
+                   ▼
+         ┌──────────────────┐
+         │  Message Queue   │
+         │  - 3s debounce   │
+         │  - mid-turn      │
+         │    collect (20)  │
+         └────────┬─────────┘
+                  │
+                  ▼
+         ┌──────────────────┐
+         │  Session Manager │
+         │  - 1 per chat    │
+         │  - LRU eviction  │
+         │  - idle timeout  │
+         │  - resume on     │
+         │    respawn       │
+         └────────┬─────────┘
+                  │ spawns claude -p (stream-json)
+                  ▼
+         ┌──────────────────┐
+         │  Claude Code CLI │
+         │  - per-agent     │
+         │    workspace     │
+         │  - model from    │
+         │    config        │
+         └────────┬─────────┘
+                  │
+                  ▼
+            Anthropic API
 ```
 
-**Message queue** sits between grammY and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while Claude is processing are collected (up to 20) and delivered as a combined followup after the current turn completes.
+Both platforms share one Session Manager and use the same stream-relay logic via the `PlatformContext` interface. Each platform provides an adapter that handles platform-specific message I/O (Telegram: grammY Context, Discord: discord.js Channel).
+
+**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while Claude is processing are collected (up to 20) and delivered as a combined followup after the current turn completes.
 
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
 
-**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId -> agentId). Telegram token is read from macOS Keychain at runtime.
+**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
 
 ## Start / Stop
 
@@ -59,7 +78,7 @@ launchctl bootout gui/$(id -u)/ai.openclaw.telegram-bot
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot.plist
 ```
 
-**Warning:** Restarting kills all active Claude Code sessions, drops in-flight messages, and interrupts running sub-agents. Always confirm with Ninja first.
+**Warning:** Restarting kills all active Claude Code sessions (both Telegram and Discord), drops in-flight messages, and interrupts running sub-agents. Always confirm with Ninja first.
 
 ## Add a Cron
 
@@ -147,6 +166,8 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    Additional binding options:
    - `requireMention` (boolean): Whether the bot requires an @mention or reply-to-bot to respond in groups. Defaults to `true` for groups. Can be overridden per topic.
    - `voiceTranscriptEcho` (boolean): Whether to echo the voice transcript back to the chat. Defaults to `true`. Set `false` to suppress.
+   - `streamingUpdates` (boolean): Whether to send progressive streaming edits during response generation. Defaults to `true`. Set `false` to send only the final complete message (reduces API rate limit usage).
+   - `typingIndicator` (boolean): Whether to send typing indicators while processing. Defaults to `true`. Set `false` to suppress.
    - `topics` (array): Per-topic overrides within a forum supergroup. Each entry has a required `topicId` and optional `agentId` and `requireMention` that override the parent binding's values.
 
 3. Validate and restart:
@@ -155,6 +176,36 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    # Then ask Ninja to confirm restart
    launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
    ```
+
+## Add a Discord Binding
+
+1. Store the Discord bot token in macOS Keychain:
+   ```bash
+   security add-generic-password -s 'discord-bot-token' -a 'openclaw' -w 'YOUR_TOKEN_HERE'
+   ```
+
+2. Add the `discord` section to `config.yaml`:
+   ```yaml
+   discord:
+     tokenService: discord-bot-token
+     bindings:
+       - channelId: "1234567890"
+         guildId: "9876543210"
+         agentId: main
+         kind: channel          # or "dm"
+         label: Dev Channel
+         requireMention: true   # default true for channels
+         streamingUpdates: true  # default true; false sends only final message
+         typingIndicator: true   # default true; false suppresses typing indicator
+   ```
+
+3. Discord threads automatically inherit the parent channel's binding and get independent sessions (keyed as `discord:channelId:threadId`).
+
+4. Required Discord bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged — must enable in Discord Developer Portal), DirectMessages.
+
+5. Discord slash commands (`/start`, `/reset`, `/status`) are registered per-guild on startup (instant propagation).
+
+`telegramTokenService` is optional — the bot can run Discord-only without any Telegram configuration.
 
 ## Supported Message Types
 
@@ -176,7 +227,7 @@ In group chats, the bot only responds to messages that @mention the bot or reply
 | `/reset` | Close current session and clear message queue; next message starts fresh |
 | `/status` | Show active sessions, memory, uptime, and subprocess health (PID, alive/dead, processing duration, last success, restart count) |
 
-Commands are auto-registered with the Telegram Bot API via `setMyCommands` on startup. To add or change commands, update the `BOT_COMMANDS` array in `telegram-bot.ts`.
+On Telegram, commands are auto-registered via `setMyCommands` on startup. On Discord, the same commands are available as slash commands, registered per-guild on startup (instant propagation).
 
 ## Configuration
 
@@ -238,7 +289,7 @@ Voice transcription requires:
 Claude Code sets `CLAUDECODE` in its environment. If a subprocess inherits it, spawning another `claude` CLI fails silently. Both `start-bot.sh` and `run-cron.sh` explicitly `unset CLAUDECODE`. If you see sessions failing to spawn, check that this env var is not leaking through.
 
 **Keychain access denied**
-The bot reads the Telegram token via `security find-generic-password -s 'telegram-bot-token' -w`. If this fails, macOS may be prompting for Keychain access in a non-interactive context. Fix: unlock Keychain before starting, or grant "Always Allow" to `security` for this item.
+The bot reads platform tokens from macOS Keychain via `security find-generic-password -s '<service>' -w` (e.g., `telegram-bot-token` or `discord-bot-token`). If this fails, macOS may be prompting for Keychain access in a non-interactive context. Fix: unlock Keychain before starting, or grant "Always Allow" to `security` for this item.
 
 **Session stuck / not responding**
 Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a session is stuck:

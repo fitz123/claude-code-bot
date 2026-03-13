@@ -220,19 +220,19 @@ function buildSourcePrefix(binding: TelegramBinding, from: { first_name: string;
 
 **What we want:** A platform-agnostic interface that captures the message I/O operations both Telegram and Discord need — send message (returns an ID), edit message by ID, send typing indicator, send file (image vs document), reply with error. Each platform provides its own constants (max message length, edit debounce interval, typing interval). The interface also respects per-binding `streamingUpdates` (boolean, default true) and `typingIndicator` (boolean, default true) flags — when streaming is off, `relayStream` skips all intermediate edits and sends only the final message; when typing is off, no typing indicators are sent. `relayStream()` and `MessageQueue` use this interface instead of grammy `Context`. After this task, `import ... from "grammy"` appears only in `telegram-bot.ts`, its adapter, and Telegram-specific tests — nowhere else. Tests for `stream-relay` and `message-queue` should also be updated to use the platform interface instead of grammy mocks.
 
-- [ ] Platform-agnostic message I/O interface defined with all operations (send, edit, typing, sendFile, replyError) and platform constants (maxMessageLength, editDebounceMs, typingIntervalMs)
-- [ ] Interface includes `streamingUpdates` and `typingIndicator` boolean flags (from binding config)
-- [ ] `relayStream()` refactored to use the interface — no grammy imports in stream-relay.ts
-- [ ] When `streamingUpdates` is false, `relayStream` accumulates text without intermediate edits, sends only the final complete message
-- [ ] When `typingIndicator` is false, no typing actions are sent
-- [ ] `MessageQueue` refactored to use the interface — no grammy imports in message-queue.ts
-- [ ] Telegram adapter implementing the interface by wrapping grammy Context
-- [ ] `telegram-bot.ts` updated to create adapter and pass to relayStream/MessageQueue
-- [ ] `streamingUpdates` and `typingIndicator` added to binding config types (default true for backward compatibility)
-- [ ] Binding types generalized to support platform prefix in session keys
-- [ ] All existing tests pass
-- [ ] Tests for the platform interface adapter
-- [ ] Tests for streamingUpdates=false (no edits, only final message) and typingIndicator=false (no typing sent)
+- [x] Platform-agnostic message I/O interface defined with all operations (send, edit, typing, sendFile, replyError) and platform constants (maxMessageLength, editDebounceMs, typingIntervalMs)
+- [x] Interface includes `streamingUpdates` and `typingIndicator` boolean flags (from binding config)
+- [x] `relayStream()` refactored to use the interface — no grammy imports in stream-relay.ts
+- [x] When `streamingUpdates` is false, `relayStream` accumulates text without intermediate edits, sends only the final complete message
+- [x] When `typingIndicator` is false, no typing actions are sent
+- [x] `MessageQueue` refactored to use the interface — no grammy imports in message-queue.ts
+- [x] Telegram adapter implementing the interface by wrapping grammy Context
+- [x] `telegram-bot.ts` updated to create adapter and pass to relayStream/MessageQueue
+- [x] `streamingUpdates` and `typingIndicator` added to binding config types (default true for backward compatibility)
+- [x] Binding types generalized to support platform prefix in session keys
+- [x] All existing tests pass
+- [x] Tests for the platform interface adapter
+- [x] Tests for streamingUpdates=false (no edits, only final message) and typingIndicator=false (no typing sent)
 
 ### Task 2: Discord bot with streaming (bot-discord-2, P1)
 
@@ -240,19 +240,19 @@ function buildSourcePrefix(binding: TelegramBinding, from: { first_name: string;
 
 **What we want:** A `discord-bot.ts` module that connects to Discord, receives messages in configured channels and threads, streams responses using the platform interface from Task 1, handles voice/image attachments, supports slash commands (/start, /reset, /status), and integrates with the same SessionManager and MessageQueue. Discord threads get independent sessions keyed by `discord:${channelId}:${threadId}` — just a fresh session, no context injection from parent. Discord token stored in macOS Keychain (same pattern as `telegramTokenService`). Config supports `discord` section with `tokenService` and `bindings` array. Both platforms run simultaneously sharing one SessionManager. `main.ts` starts Discord bot alongside Telegram if discord config is present.
 
-- [ ] `discord.js` added to package.json dependencies
-- [ ] Discord binding types added (channelId, guildId, agentId, kind, label, requireMention)
-- [ ] Config parsing for `discord.tokenService` and `discord.bindings` in config.ts
-- [ ] `telegramTokenService` made optional (bot can run Discord-only)
-- [ ] Discord bot module with client setup, required intents, login, message handler
-- [ ] Discord adapter implementing the platform interface (2000 char limit, 9s typing resend, message.edit())
-- [ ] Thread support: bot joins threads on creation, threads get independent sessions
-- [ ] Binding resolution for Discord channels (thread inherits parent channel binding)
-- [ ] Mention gating (requireMention support)
-- [ ] Source prefix building for Discord context
-- [ ] Voice message handling (download attachment, transcribe, enqueue)
-- [ ] Image/document attachment handling
-- [ ] Slash commands: /start, /reset, /status
-- [ ] `main.ts` starts Discord bot alongside Telegram when discord config present
-- [ ] Tests for Discord binding resolution, mention detection, session keys, thread handling
-- [ ] All existing tests pass
+- [x] `discord.js` added to package.json dependencies
+- [x] Discord binding types added (channelId, guildId, agentId, kind, label, requireMention)
+- [x] Config parsing for `discord.tokenService` and `discord.bindings` in config.ts
+- [x] `telegramTokenService` made optional (bot can run Discord-only)
+- [x] Discord bot module with client setup, required intents, login, message handler
+- [x] Discord adapter implementing the platform interface (2000 char limit, 9s typing resend, message.edit())
+- [x] Thread support: bot joins threads on creation, threads get independent sessions
+- [x] Binding resolution for Discord channels (thread inherits parent channel binding)
+- [x] Mention gating (requireMention support)
+- [x] Source prefix building for Discord context
+- [x] Voice message handling (download attachment, transcribe, enqueue)
+- [x] Image/document attachment handling
+- [x] Slash commands: /start, /reset, /status
+- [x] `main.ts` starts Discord bot alongside Telegram when discord config present
+- [x] Tests for Discord binding resolution, mention detection, session keys, thread handling
+- [x] All existing tests pass

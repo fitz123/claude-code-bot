@@ -14,7 +14,7 @@ export const WHISPER_MODEL = "/opt/homebrew/share/whisper-cpp/ggml-medium.bin";
  * Generate a unique temp file path with given prefix and extension.
  */
 export function tempFilePath(prefix: string, extension: string): string {
-  return `${tmpdir()}/tg-${prefix}-${randomUUID()}${extension}`;
+  return `${tmpdir()}/bot-${prefix}-${randomUUID()}${extension}`;
 }
 
 /**
