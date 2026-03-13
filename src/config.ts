@@ -15,6 +15,7 @@ interface RawConfig {
   bindings?: unknown[];
   sessionDefaults?: unknown;
   logLevel?: string;
+  metricsPort?: number;
 }
 
 function resolveKeychainSecret(service: string): string {
@@ -167,7 +168,10 @@ export function loadConfig(configPath?: string): BotConfig {
   // Log level: env var overrides config file
   const logLevel = parseLogLevel(process.env.LOG_LEVEL) ?? parseLogLevel(raw.logLevel);
 
-  return { telegramToken, agents, bindings, sessionDefaults, logLevel };
+  // Metrics port (optional — if not set, metrics endpoint is disabled)
+  const metricsPort = typeof raw.metricsPort === "number" ? raw.metricsPort : undefined;
+
+  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort };
 }
 
 // CLI: validate config

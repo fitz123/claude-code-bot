@@ -2,6 +2,7 @@ import { loadConfig } from "./config.js";
 import { SessionManager } from "./session-manager.js";
 import { createTelegramBot, BOT_COMMANDS } from "./telegram-bot.js";
 import { log, setLogLevel } from "./logger.js";
+import { startMetricsServer, stopMetricsServer } from "./metrics.js";
 
 async function main(): Promise<void> {
   log.info("main", "Loading config...");
@@ -10,6 +11,11 @@ async function main(): Promise<void> {
     setLogLevel(config.logLevel);
   }
   log.info("main", `Config loaded: ${Object.keys(config.agents).length} agents, ${config.bindings.length} bindings`);
+
+  // Start Prometheus metrics server if configured
+  if (config.metricsPort) {
+    startMetricsServer(config.metricsPort);
+  }
 
   const sessionManager = new SessionManager(config);
   log.info("main", "Session manager initialized");
@@ -31,6 +37,7 @@ async function main(): Promise<void> {
     clearTimeout(startupTimeout);
     bot.stop();
     messageQueue.clearAll();
+    await stopMetricsServer();
     await sessionManager.closeAll();
     log.info("main", "All sessions closed. Exiting.");
     process.exit(0);

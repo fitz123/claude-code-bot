@@ -6,6 +6,7 @@ import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.j
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
+import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 
 const LOG_DIR = "/Users/user/.openclaw/logs";
 const STARTUP_TIMEOUT_MS = 10_000;
@@ -192,6 +193,7 @@ export class SessionManager {
     };
 
     this.active.set(chatId, session);
+    sessionsActive.inc();
 
     // Persist to store
     this.store.setSession(chatId, {
@@ -306,6 +308,7 @@ export class SessionManager {
           if (line.type === "result") {
             gotResult = true;
             session.lastSuccessAt = Date.now();
+            recordResultMetrics(session.agentId, line);
             break;
           }
         }
@@ -373,6 +376,7 @@ export class SessionManager {
 
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
+    sessionsActive.dec();
 
     // Clean up restart count — session lifecycle is complete
     this.restartCounts.delete(chatId);
@@ -465,8 +469,10 @@ export class SessionManager {
 
       // Remove from active map (not from store — session can be resumed)
       this.active.delete(chatId);
+      sessionsActive.dec();
 
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
+        sessionCrashes.inc();
         log.error(
           "session-manager",
           `Session for chat ${chatId} crashed: code=${code} signal=${signal}`,

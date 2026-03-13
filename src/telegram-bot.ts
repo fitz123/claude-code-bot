@@ -6,6 +6,7 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { log } from "./logger.js";
+import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
 
 /** Commands to register with the Telegram Bot API via setMyCommands */
 export const BOT_COMMANDS = [
@@ -217,10 +218,14 @@ export function createTelegramBot(
       const res = await prev(method, payload, signal);
       if (!res.ok && res.error_code === 429) {
         log.warn("telegram-api", `Rate limited: method=${String(method)} retry_after=${res.parameters?.retry_after ?? "unknown"}`);
+        recordTelegramApiError(String(method), 429);
+      } else if (!res.ok && res.error_code) {
+        recordTelegramApiError(String(method), res.error_code);
       }
       return res;
     } catch (err) {
       log.warn("telegram-api", `HTTP error: method=${String(method)} ${err instanceof Error ? err.message : err}`);
+      recordTelegramApiError(String(method), "http_error");
       throw err;
     }
   });
@@ -324,6 +329,7 @@ export function createTelegramBot(
     if (!binding) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    messagesReceived.inc({ type: "text" });
 
     const key = sessionKey(chatId, topicId);
     const prefix = buildSourcePrefix(binding, ctx.from);
@@ -342,6 +348,7 @@ export function createTelegramBot(
     if (!binding) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    messagesReceived.inc({ type: "voice" });
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -390,6 +397,7 @@ export function createTelegramBot(
     if (!binding) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    messagesReceived.inc({ type: "photo" });
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -437,6 +445,7 @@ export function createTelegramBot(
     if (!isImageMimeType(doc.mime_type)) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    messagesReceived.inc({ type: "document" });
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;

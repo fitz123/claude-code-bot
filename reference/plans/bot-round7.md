@@ -124,12 +124,12 @@ We want: if the final edit fails, the complete text must still be delivered to t
 - Standard Prometheus text format on `/metrics`
 - Hook into existing code at natural points (result events in session-manager, message handlers in telegram-bot, error handlers)
 - Tests for metric recording
-- [ ] prom-client dependency added
-- [ ] Metrics module with counters, gauges, and histograms for the data above
-- [ ] Result event data (tokens, cost, duration) recorded from session-manager
-- [ ] Telegram API error counts recorded
-- [ ] Session lifecycle metrics (active gauge, crash counter)
-- [ ] Message flow counters in telegram-bot handlers
-- [ ] HTTP server on configurable port serving /metrics
-- [ ] Tests for metric recording
-- [ ] Verify existing tests pass
+- [x] prom-client dependency added
+- [x] Metrics module with counters, gauges, and histograms for the data above
+- [x] Result event data (tokens, cost, duration) recorded from session-manager
+- [x] Telegram API error counts recorded
+- [x] Session lifecycle metrics (active gauge, crash counter)
+- [x] Message flow counters in telegram-bot handlers
+- [x] HTTP server on configurable port serving /metrics
+- [x] Tests for metric recording
+- [x] Verify existing tests pass
