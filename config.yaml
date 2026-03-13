@@ -20,7 +20,7 @@ agents:
 
 bindings:
   - chatId: 306600687
-    agentId: coder
+    agentId: main
     kind: dm
     label: Ninja DM
 
@@ -46,7 +46,7 @@ discord:
   bindings:
     - channelId: '1479772128298664007'
       guildId: '1470077196537168007'
-      agentId: coder
+      agentId: main
       kind: channel
       label: Main
       requireMention: false
