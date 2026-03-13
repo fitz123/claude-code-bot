@@ -29,6 +29,8 @@ bindings:
     kind: group
     label: Minime HQ
     requireMention: false
+    streamingUpdates: false
+    typingIndicator: false
 
 sessionDefaults:
   idleTimeoutMs: 14400000 # 4hrs
