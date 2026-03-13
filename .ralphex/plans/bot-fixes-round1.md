@@ -83,21 +83,7 @@ What we want: Reply-to message text and forward metadata included in the message
 - [ ] Add tests for forward metadata formatting
 - [ ] Verify existing tests pass
 
-### Task 3: Harden message queue against restart cascades (bot-kjc, P2)
-
-After prolonged downtime, Telegram delivers all unprocessed messages on restart. Each stale message spawns a session, which may fail, causing error replies and resource exhaustion. No backoff exists for repeated failures on the same chat.
-
-What we want: Stale messages discarded on restart, repeated session failures throttled with backoff, and a cap on concurrent session spawns to prevent resource exhaustion.
-
-- [ ] Messages older than maxMessageAgeMs are discarded before enqueueing (verify the existing check covers all code paths including restart)
-- [ ] Exponential backoff on repeated session crashes for the same chatId (e.g. 30s, 60s, 120s, max 10min)
-- [ ] Backoff state resets on successful session completion
-- [ ] Max concurrent sessions capped (configurable, prevents resource exhaustion)
-- [ ] Add tests for stale message discard on restart scenario
-- [ ] Add tests for backoff behavior
-- [ ] Verify existing tests pass
-
-### Task 4: Cron delivery thread routing (bot-yri, P2)
+### Task 3: Cron delivery thread routing (bot-yri, P2)
 
 Cron jobs can only deliver to a chat ID. Forum topics (threads) require a `message_thread_id` parameter. deliver.sh already supports `--thread` but cron-runner.ts never passes it and crons.yaml has no field for it.
 
