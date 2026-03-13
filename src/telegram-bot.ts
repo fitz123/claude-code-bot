@@ -118,6 +118,16 @@ function isForumServiceMessage(
 }
 
 /**
+ * Check if a message is too old to process.
+ * Used to discard stale messages that accumulated during bot downtime.
+ * @param messageTimestampMs Message timestamp in milliseconds
+ * @param maxAgeMs Maximum allowed age in milliseconds
+ */
+export function isStaleMessage(messageTimestampMs: number, maxAgeMs: number): boolean {
+  return Date.now() - messageTimestampMs > maxAgeMs;
+}
+
+/**
  * Check whether the bot should respond to a message in a group chat.
  * Returns true if the binding is a DM, requireMention is false,
  * or the message is a reply to the bot / @mentions the bot.
@@ -220,6 +230,8 @@ export function createTelegramBot(
   // Auto-retry on rate limits (outermost transformer — retries after inner errors)
   bot.api.config.use(autoRetry({ maxRetryAttempts: 5, maxDelaySeconds: 60 }));
 
+  const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
+
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform) => {
@@ -247,6 +259,10 @@ export function createTelegramBot(
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /start for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
     const agent = config.agents[binding.agentId];
     await ctx.reply(
       `Connected to agent "${binding.agentId}" (${agent?.model ?? "unknown"}). Send a message to start.`,
@@ -258,6 +274,10 @@ export function createTelegramBot(
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /reset for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
     const key = sessionKey(ctx.chat.id, topicId);
     messageQueue.clear(key);
     await sessionManager.closeSession(key);
@@ -269,6 +289,10 @@ export function createTelegramBot(
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /status for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
     const activeCount = sessionManager.getActiveCount();
     const memUsage = process.memoryUsage();
     const uptimeSeconds = Math.floor(process.uptime());
@@ -318,6 +342,13 @@ export function createTelegramBot(
     if (!binding) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+
+    // Discard stale messages accumulated during bot downtime
+    if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+
     messagesReceived.inc({ type: "text" });
 
     const key = sessionKey(chatId, topicId);
@@ -337,6 +368,12 @@ export function createTelegramBot(
     if (!binding) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+
+    if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale voice message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+
     messagesReceived.inc({ type: "voice" });
 
     const key = sessionKey(chatId, topicId);
@@ -386,6 +423,12 @@ export function createTelegramBot(
     if (!binding) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+
+    if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale photo message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+
     messagesReceived.inc({ type: "photo" });
 
     const key = sessionKey(chatId, topicId);
@@ -434,6 +477,12 @@ export function createTelegramBot(
     if (!isImageMimeType(doc.mime_type)) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+
+    if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale document message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+
     messagesReceived.inc({ type: "document" });
 
     const key = sessionKey(chatId, topicId);

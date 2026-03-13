@@ -1,10 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import {
   discordSessionKey,
   resolveDiscordBinding,
   shouldRespondInDiscord,
   buildDiscordSourcePrefix,
+  installDiscordErrorHandlers,
 } from "../discord-bot.js";
 import { validateDiscordBinding } from "../config.js";
 import type { DiscordBinding } from "../types.js";
@@ -412,6 +414,75 @@ describe("validateDiscordBinding", () => {
       () => validateDiscordBinding({ guildId: "g1", agentId: "main", kind: "dm" }, 0),
       /kind "dm" requires channelId/,
     );
+  });
+});
+
+// --- installDiscordErrorHandlers ---
+
+describe("installDiscordErrorHandlers", () => {
+  // Use a plain EventEmitter as a stand-in for the Discord Client.
+  // installDiscordErrorHandlers only calls client.on(), which is
+  // inherited from EventEmitter — no other Client methods are needed.
+
+  it("registers handlers for Error, ShardError, Warn, ShardReconnecting, ShardResume", () => {
+    const emitter = new EventEmitter() as any;
+    installDiscordErrorHandlers(emitter);
+
+    // discord.js Events enum values — these are the actual event name strings
+    const expectedEvents = ["error", "shardError", "warn", "shardReconnecting", "shardResume"];
+    for (const event of expectedEvents) {
+      assert.ok(
+        emitter.listenerCount(event) > 0,
+        `Expected at least one listener for '${event}'`,
+      );
+    }
+  });
+
+  it("error handler does not throw (prevents process crash)", () => {
+    const emitter = new EventEmitter() as any;
+    installDiscordErrorHandlers(emitter);
+
+    // Without the handler, emitting 'error' on an EventEmitter throws.
+    // With the handler, it should be silently caught and logged.
+    assert.doesNotThrow(() => {
+      emitter.emit("error", new Error("Opening handshake has timed out"));
+    });
+  });
+
+  it("shardError handler does not throw", () => {
+    const emitter = new EventEmitter() as any;
+    installDiscordErrorHandlers(emitter);
+
+    assert.doesNotThrow(() => {
+      emitter.emit("shardError", new Error("WebSocket connection failed"), 0);
+    });
+  });
+
+  it("warn handler does not throw", () => {
+    const emitter = new EventEmitter() as any;
+    installDiscordErrorHandlers(emitter);
+
+    assert.doesNotThrow(() => {
+      emitter.emit("warn", "Rate limit hit");
+    });
+  });
+
+  it("shardReconnecting handler does not throw", () => {
+    const emitter = new EventEmitter() as any;
+    installDiscordErrorHandlers(emitter);
+
+    assert.doesNotThrow(() => {
+      emitter.emit("shardReconnecting", 0);
+    });
+  });
+
+  it("shardResume handler does not throw", () => {
+    const emitter = new EventEmitter() as any;
+    installDiscordErrorHandlers(emitter);
+
+    assert.doesNotThrow(() => {
+      emitter.emit("shardResume", 0, 42);
+    });
   });
 });
 

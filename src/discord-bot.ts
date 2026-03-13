@@ -9,6 +9,10 @@ import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./
 import { log } from "./logger.js";
 import { messagesReceived } from "./metrics.js";
 import { isImageMimeType } from "./mime.js";
+/** Check if a message is too old to process (same logic as telegram-bot.ts). */
+function isStaleMessage(messageTimestampMs: number, maxAgeMs: number): boolean {
+  return Date.now() - messageTimestampMs > maxAgeMs;
+}
 
 /**
  * Build a session key for Discord channels and threads.
@@ -111,6 +115,35 @@ export interface DiscordBotResult {
 }
 
 /**
+ * Install error and lifecycle event handlers on the Discord client.
+ * Prevents unhandled WebSocket errors from crashing the Node.js process.
+ * Discord.js automatically reconnects after WebSocket failures if the
+ * error event is caught — without these handlers, Node.js treats the
+ * unhandled 'error' event as fatal and terminates.
+ */
+export function installDiscordErrorHandlers(client: Client): void {
+  client.on(Events.Error, (error) => {
+    log.error("discord-bot", "Client error:", error);
+  });
+
+  client.on(Events.ShardError, (error, shardId) => {
+    log.error("discord-bot", `Shard ${shardId} error:`, error);
+  });
+
+  client.on(Events.Warn, (message) => {
+    log.warn("discord-bot", `Warning: ${message}`);
+  });
+
+  client.on(Events.ShardReconnecting, (shardId) => {
+    log.info("discord-bot", `Shard ${shardId} reconnecting...`);
+  });
+
+  client.on(Events.ShardResume, (shardId, replayedEvents) => {
+    log.info("discord-bot", `Shard ${shardId} resumed (replayed ${replayedEvents} events)`);
+  });
+}
+
+/**
  * Create and configure the Discord bot.
  * Returns a Client (already logged in) and a MessageQueue.
  */
@@ -128,6 +161,12 @@ export async function createDiscordBot(
     ],
     partials: [Partials.Channel],
   });
+
+  // Install error handlers before anything else so WebSocket errors
+  // during login or event handling don't crash the process
+  installDiscordErrorHandlers(client);
+
+  const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform) => {
@@ -169,6 +208,12 @@ export async function createDiscordBot(
 
       // Mention gating for channel bindings
       if (!shouldRespondInDiscord(binding, client.user!.id, message)) return;
+
+      // Discard stale messages accumulated during bot downtime
+      if (isStaleMessage(message.createdTimestamp, maxMessageAgeMs)) {
+        log.debug("discord-bot", `Discarding stale message in ${channelId} (age: ${Math.round((Date.now() - message.createdTimestamp) / 1000)}s)`);
+        return;
+      }
 
       const key = discordSessionKey(channelId, threadId);
       const prefix = buildDiscordSourcePrefix(binding, message.author);

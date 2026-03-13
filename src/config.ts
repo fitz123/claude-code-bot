@@ -203,12 +203,22 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
 
 function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 900000, maxConcurrentSessions: 3 };
+    return { idleTimeoutMs: 900000, maxConcurrentSessions: 3, maxMessageAgeMs: 300000 };
   }
   const obj = raw as Record<string, unknown>;
+
+  let maxMessageAgeMs = 300000;
+  if (typeof obj.maxMessageAgeMs === "number") {
+    if (!Number.isFinite(obj.maxMessageAgeMs) || obj.maxMessageAgeMs <= 0) {
+      throw new Error(`Invalid maxMessageAgeMs: ${obj.maxMessageAgeMs} (must be a finite positive number)`);
+    }
+    maxMessageAgeMs = obj.maxMessageAgeMs;
+  }
+
   return {
     idleTimeoutMs: typeof obj.idleTimeoutMs === "number" ? obj.idleTimeoutMs : 900000,
     maxConcurrentSessions: typeof obj.maxConcurrentSessions === "number" ? obj.maxConcurrentSessions : 3,
+    maxMessageAgeMs,
   };
 }
 

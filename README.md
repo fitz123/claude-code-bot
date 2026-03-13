@@ -306,6 +306,12 @@ Claude Code sets `CLAUDECODE` in its environment. If a subprocess inherits it, s
 **Keychain access denied**
 The bot reads platform tokens from macOS Keychain via `security find-generic-password -s '<service>' -w` (e.g., `telegram-bot-token` or `discord-bot-token`). If this fails, macOS may be prompting for Keychain access in a non-interactive context. Fix: unlock Keychain before starting, or grant "Always Allow" to `security` for this item.
 
+**Messages sent during downtime are discarded**
+After a restart, messages older than 5 minutes (configurable via `sessionDefaults.maxMessageAgeMs` in `config.yaml`) are silently dropped. This prevents stale message floods from triggering unnecessary session spawns. If you sent a message during downtime, resend it after the bot comes back.
+
+**Session blocked after repeated crashes**
+If a session crashes 5 times in a row, it is circuit-broken — the bot refuses to spawn new sessions for that chat. Send `/reset` to clear the crash counter and unblock. Crash backoff starts at 5s and doubles on each crash (capped at 60s) before the circuit fully opens.
+
 **Session stuck / not responding**
 Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a session is stuck:
 - Check per-session stderr logs for subprocess crash details: `~/.openclaw/logs/session-<chatId>.log`
