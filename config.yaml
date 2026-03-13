@@ -48,4 +48,4 @@ discord:
       agentId: main
       kind: channel
       label: Ninja Server
-      requireMention: true
+      requireMention: false
