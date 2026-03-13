@@ -406,6 +406,13 @@ describe("validateDiscordBinding", () => {
       /channels must be an array/,
     );
   });
+
+  it("rejects DM binding without channelId", () => {
+    assert.throws(
+      () => validateDiscordBinding({ guildId: "g1", agentId: "main", kind: "dm" }, 0),
+      /kind "dm" requires channelId/,
+    );
+  });
 });
 
 // Streaming control flag tests are in discord-adapter.test.ts
