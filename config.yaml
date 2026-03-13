@@ -37,7 +37,7 @@ bindings:
         agentId: coder
 
 sessionDefaults:
-  idleTimeoutMs: 14400000 # 4hrs
+  idleTimeoutMs: 3600000 # 1hr
   maxConcurrentSessions: 6
   maxMessageAgeMs: 600000 # 10 min — discard messages older than this on restart
 
