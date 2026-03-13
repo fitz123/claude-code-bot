@@ -1,13 +1,20 @@
 #!/bin/bash
 # deliver.sh — Send a message to Telegram via Bot API
 # Usage: deliver.sh <chat_id> [message]
-# Or:    echo "message" | deliver.sh <chat_id>
+# Or:    deliver.sh <chat_id> --thread <thread_id> [message]
+# Or:    echo "message" | deliver.sh <chat_id> [--thread <thread_id>]
 # Handles >4096 char messages by splitting at paragraph boundaries.
 
 set -euo pipefail
 
-CHAT_ID="${1:?Usage: deliver.sh <chat_id> [message]}"
+CHAT_ID="${1:?Usage: deliver.sh <chat_id> [--thread <thread_id>] [message]}"
 shift
+
+THREAD_ID=""
+if [ "${1:-}" = "--thread" ]; then
+  THREAD_ID="${2:-}"
+  shift 2
+fi
 
 # Get message from args or stdin
 if [ $# -gt 0 ]; then
