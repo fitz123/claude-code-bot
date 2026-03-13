@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { type Context, InputFile } from "grammy";
 import type { StreamLine } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
+import { log } from "./logger.js";
 
 /** Maximum Telegram message length. */
 const MAX_MSG_LENGTH = 4096;
@@ -154,8 +155,9 @@ export async function relayStream(
     try {
       await ctx.api.editMessageText(chatId, sentMessageId, displayText);
       lastEditTime = Date.now();
-    } catch {
-      // Edit can fail if text hasn't changed - ignore
+    } catch (err) {
+      // Streaming edit failure is cosmetic — next edit or final edit will update
+      log.debug("stream-relay", `Streaming edit failed: ${err instanceof Error ? err.message : err}`);
     }
   };
 
@@ -238,8 +240,17 @@ export async function relayStream(
         // Edit the first message to final text
         try {
           await ctx.api.editMessageText(chatId, sentMessageId, chunks[0]);
-        } catch {
-          // May fail if text unchanged
+        } catch (err) {
+          // "Message is not modified" means text already matches — safe to ignore.
+          // Any other error (429, network, etc.) means the user may see truncated text.
+          // Fall back to sending the complete text as a new message.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes("not modified")) {
+            log.warn("stream-relay", `Final edit failed, sending as new message: ${msg}`);
+            await ctx.reply(chunks[0], {
+              ...(threadId ? { message_thread_id: threadId } : {}),
+            });
+          }
         }
 
         // Send remaining chunks as new messages
@@ -279,7 +290,7 @@ export async function relayStream(
             await ctx.replyWithDocument(new InputFile(realPath), opts);
           }
         } catch (err) {
-          console.error(`[stream-relay] Failed to send file ${filePath}:`, err);
+          log.error("stream-relay", `Failed to send file ${filePath}:`, err);
         }
       }
     }
