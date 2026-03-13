@@ -54,6 +54,8 @@ function loadCronTask(taskName: string): CronJob {
     agentId: String(c.agentId ?? "main"),
     deliveryChatId:
       typeof c.deliveryChatId === "number" ? c.deliveryChatId : NINJA_CHAT_ID,
+    deliveryThreadId:
+      typeof c.deliveryThreadId === "number" ? c.deliveryThreadId : undefined,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
     maxBudget: typeof c.maxBudget === "number" ? c.maxBudget : undefined,
   };
@@ -70,9 +72,21 @@ function getAgentWorkspace(agentId: string): string {
   return agent.workspaceCwd;
 }
 
-function deliver(chatId: number, message: string): void {
+function buildDeliverCommand(
+  chatId: number,
+  threadId?: number,
+): string {
+  const threadArg = threadId ? ` --thread ${threadId}` : "";
+  return `${DELIVER_SCRIPT} ${chatId}${threadArg}`;
+}
+
+function deliver(
+  chatId: number,
+  message: string,
+  threadId?: number,
+): void {
   try {
-    execSync(`${DELIVER_SCRIPT} ${chatId}`, {
+    execSync(buildDeliverCommand(chatId, threadId), {
       input: message,
       encoding: "utf8",
       timeout: 30000,
@@ -155,7 +169,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  log(taskName, `Loaded: agent=${cron.agentId}, deliver=${cron.deliveryChatId}`);
+  log(taskName, `Loaded: agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
 
   let workspaceCwd: string;
   try {
@@ -190,8 +204,8 @@ async function main(): Promise<void> {
 
   // Deliver output to target chat
   try {
-    deliver(cron.deliveryChatId, output);
-    log(taskName, `Delivered to chat ${cron.deliveryChatId}`);
+    deliver(cron.deliveryChatId, output, cron.deliveryThreadId);
+    log(taskName, `Delivered to chat ${cron.deliveryChatId}${cron.deliveryThreadId ? ` thread ${cron.deliveryThreadId}` : ""}`);
   } catch (err) {
     log(taskName, `FAIL delivery: ${(err as Error).message}`);
 
@@ -220,4 +234,4 @@ if (isMain) {
   main();
 }
 
-export { loadCronTask, getAgentWorkspace, deliver, runClaude, shellEscape };
+export { loadCronTask, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, shellEscape };
