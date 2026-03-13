@@ -1,4 +1,4 @@
-import type { Context } from "grammy";
+import type { PlatformContext } from "./types.js";
 import { log } from "./logger.js";
 
 export const DEFAULT_DEBOUNCE_MS = 3000;
@@ -12,7 +12,7 @@ export type ProcessFn = (
   chatId: string,
   agentId: string,
   text: string,
-  ctx: Context,
+  platform: PlatformContext,
 ) => Promise<void>;
 
 /** Fire-and-forget cleanup callback (e.g. delete a temp file after processing). */
@@ -33,8 +33,8 @@ interface ChatQueueState {
   /** Whether a message is currently being processed */
   busy: boolean;
 
-  /** Latest context for sending responses */
-  latestCtx: Context | null;
+  /** Latest platform context for sending responses */
+  latestPlatform: PlatformContext | null;
 
   /** Agent ID for this chat */
   agentId: string;
@@ -90,7 +90,7 @@ export class MessageQueue {
         collectBuffer: [],
         collectCleanups: [],
         busy: false,
-        latestCtx: null,
+        latestPlatform: null,
         agentId,
       };
       this.queues.set(chatId, state);
@@ -103,9 +103,9 @@ export class MessageQueue {
    * Enqueue a message for a chat. Handles debouncing and mid-turn collect.
    * Fire-and-forget: returns immediately, processing happens in background.
    */
-  enqueue(chatId: string, agentId: string, text: string, ctx: Context, cleanup?: CleanupFn): void {
+  enqueue(chatId: string, agentId: string, text: string, platform: PlatformContext, cleanup?: CleanupFn): void {
     const state = this.getState(chatId, agentId);
-    state.latestCtx = ctx;
+    state.latestPlatform = platform;
 
     if (state.busy) {
       // Mid-turn collect: buffer the message
@@ -161,14 +161,14 @@ export class MessageQueue {
     const combinedText = texts.length === 1 ? texts[0] : texts.join("\n\n");
 
     try {
-      if (state.latestCtx) {
-        await this.processFn(chatId, state.agentId, combinedText, state.latestCtx);
+      if (state.latestPlatform) {
+        await this.processFn(chatId, state.agentId, combinedText, state.latestPlatform);
       }
     } catch (err) {
       log.error("message-queue", `Send error for ${chatId}:`, err);
-      if (state.latestCtx) {
-        await state.latestCtx
-          .reply("Something went wrong. Try again or /reset the session.")
+      if (state.latestPlatform) {
+        await state.latestPlatform
+          .replyError("Something went wrong. Try again or /reset the session.")
           .catch(() => {});
       }
     } finally {
@@ -204,14 +204,14 @@ export class MessageQueue {
       );
 
       try {
-        if (state.latestCtx) {
-          await this.processFn(chatId, state.agentId, prompt, state.latestCtx);
+        if (state.latestPlatform) {
+          await this.processFn(chatId, state.agentId, prompt, state.latestPlatform);
         }
       } catch (err) {
         log.error("message-queue", `Collect drain error for ${chatId}:`, err);
-        if (state.latestCtx) {
-          await state.latestCtx
-            .reply("Something went wrong processing queued messages. Try again or /reset the session.")
+        if (state.latestPlatform) {
+          await state.latestPlatform
+            .replyError("Something went wrong processing queued messages. Try again or /reset the session.")
             .catch(() => {});
         }
       } finally {

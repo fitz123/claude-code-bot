@@ -4,6 +4,7 @@ import type { BotConfig, TelegramBinding } from "./types.js";
 import type { SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
+import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
@@ -232,10 +233,10 @@ export function createTelegramBot(
 
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
-    async (chatId, agentId, text, ctx) => {
+    async (chatId, agentId, text, platform) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
       const agent = config.agents[agentId];
-      await relayStream(stream, ctx, agent?.workspaceCwd);
+      await relayStream(stream, platform, agent?.workspaceCwd);
     },
   );
 
@@ -337,7 +338,7 @@ export function createTelegramBot(
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
-    messageQueue.enqueue(key, binding.agentId, messageText, ctx);
+    messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
   });
 
   // Handle voice messages — transcribe with whisper-cli and send to Claude
@@ -371,7 +372,7 @@ export function createTelegramBot(
 
       // Send transcript text to Claude session
       const prefix = buildSourcePrefix(binding, ctx.from);
-      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, ctx);
+      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
 
       // Echo transcript back to user (non-critical — don't block enqueue)
       if (binding.voiceTranscriptEcho !== false) {
@@ -422,7 +423,7 @@ export function createTelegramBot(
       // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, ctx, () => {
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding), () => {
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
@@ -466,7 +467,7 @@ export function createTelegramBot(
 
       const pathToClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, ctx, () => {
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding), () => {
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
