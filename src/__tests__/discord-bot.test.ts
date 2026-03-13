@@ -222,21 +222,5 @@ describe("thread session isolation", () => {
   });
 });
 
-// --- Streaming control flags ---
-
-describe("Discord binding streaming control", () => {
-  it("streamingUpdates defaults to undefined (treated as true by adapter)", () => {
-    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel" };
-    assert.strictEqual(binding.streamingUpdates, undefined);
-  });
-
-  it("streamingUpdates can be set to false", () => {
-    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", streamingUpdates: false };
-    assert.strictEqual(binding.streamingUpdates, false);
-  });
-
-  it("typingIndicator can be set to false", () => {
-    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", typingIndicator: false };
-    assert.strictEqual(binding.typingIndicator, false);
-  });
-});
+// Streaming control flag tests are in discord-adapter.test.ts
+// where they verify actual adapter behavior, not just type shapes.

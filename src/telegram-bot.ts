@@ -6,8 +6,12 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
+import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
+
+// Re-export for backward compatibility (tests import from here)
+export { isImageMimeType, imageExtensionForMime };
 
 /** Commands to register with the Telegram Bot API via setMyCommands */
 export const BOT_COMMANDS = [
@@ -15,25 +19,6 @@ export const BOT_COMMANDS = [
   { command: "reset", description: "Reset current session" },
   { command: "status", description: "Show bot status" },
 ] as const;
-
-/** Image MIME types supported by Claude vision */
-const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
-
-/** Check if a MIME type is a supported image type */
-export function isImageMimeType(mimeType: string | undefined): boolean {
-  return mimeType !== undefined && SUPPORTED_IMAGE_MIMES.has(mimeType);
-}
-
-/** Map image MIME type to file extension */
-export function imageExtensionForMime(mimeType: string | undefined): string {
-  switch (mimeType) {
-    case "image/png": return ".png";
-    case "image/gif": return ".gif";
-    case "image/webp": return ".webp";
-    case "image/bmp": return ".bmp";
-    default: return ".jpg";
-  }
-}
 
 /**
  * Build a session key from chatId and optional topicId.
