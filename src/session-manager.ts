@@ -538,7 +538,7 @@ export class SessionManager {
       sessionsActive.dec();
 
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
-        sessionCrashes.inc();
+        sessionCrashes.inc({ agent_id: session.agentId });
         // Increment crash count for backoff (survives active.delete)
         const count = (this.restartCounts.get(chatId) ?? 0) + 1;
         this.restartCounts.set(chatId, count);

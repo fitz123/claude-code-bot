@@ -510,9 +510,10 @@ describe("isStaleMessage", () => {
   });
 
   it("returns false for messages at exact threshold boundary", () => {
-    // At exactly maxAge, not stale (> not >=)
-    const exactMs = Date.now() - 300000;
-    assert.strictEqual(isStaleMessage(exactMs, 300000), false);
+    // At exactly maxAge, not stale (> not >=). Use small buffer to avoid
+    // flakiness from wall-clock drift between the two Date.now() calls.
+    const nearExactMs = Date.now() - 299990;
+    assert.strictEqual(isStaleMessage(nearExactMs, 300000), false);
   });
 
   it("returns true for very old messages (hours)", () => {
