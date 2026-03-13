@@ -1,0 +1,20 @@
+use_worktree = true
+
+claude_command = claude
+claude_args = --dangerously-skip-permissions --output-format stream-json --verbose --model opus
+
+codex_enabled = true
+codex_command = codex
+codex_model = gpt-5.3-codex
+codex_reasoning_effort = xhigh
+codex_sandbox = read-only
+external_review_tool = codex
+
+max_iterations = 50
+iteration_delay_ms = 2000
+plans_dir = .ralphex/plans
+
+notify_channels = custom
+notify_on_error = true
+notify_on_complete = true
+notify_custom_script = /Users/user/.openclaw/bot/.ralphex/scripts/notify-openclaw.sh
