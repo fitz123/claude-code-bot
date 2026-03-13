@@ -214,9 +214,11 @@ export async function createDiscordBot(
         }
       } else if (message.content) {
         // Plain text message (no relevant attachments)
-        messagesReceived.inc({ type: "text" });
         const cleanContent = message.content.replace(botMentionRe, "").trim();
-        messageQueue.enqueue(key, binding.agentId, prefix + cleanContent, adapter);
+        if (cleanContent) {
+          messagesReceived.inc({ type: "text" });
+          messageQueue.enqueue(key, binding.agentId, prefix + cleanContent, adapter);
+        }
       }
     } catch (err) {
       log.error("discord-bot", `Message handler error in ${message.channelId}:`, err);
