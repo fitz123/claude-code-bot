@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   log.info("main", `Config loaded: ${Object.keys(config.agents).length} agents, ${config.bindings.length} bindings`);
 
   // Start Prometheus metrics server if configured
-  if (config.metricsPort) {
+  if (config.metricsPort !== undefined) {
     startMetricsServer(config.metricsPort);
   }
 

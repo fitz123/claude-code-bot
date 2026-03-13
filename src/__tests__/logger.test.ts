@@ -47,6 +47,13 @@ describe("parseLogLevel", () => {
     assert.strictEqual(parseLogLevel(null), undefined);
     assert.strictEqual(parseLogLevel(undefined), undefined);
   });
+
+  it("rejects Object.prototype property names", () => {
+    assert.strictEqual(parseLogLevel("toString"), undefined);
+    assert.strictEqual(parseLogLevel("constructor"), undefined);
+    assert.strictEqual(parseLogLevel("hasOwnProperty"), undefined);
+    assert.strictEqual(parseLogLevel("valueOf"), undefined);
+  });
 });
 
 describe("setLogLevel / getLogLevel", () => {
