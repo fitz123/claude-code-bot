@@ -31,19 +31,6 @@ The `ctx.message.reply_to_message` IS available in grammY but currently only use
 
 Forward metadata (`ctx.message.forward_origin`, `ctx.message.forward_date`) is completely ignored — never read or used.
 
-## Reference: Discord code status
-
-Discord is decommissioned per ADR-038/039. Error handlers were added in bot-round10 (crash no longer kills the process), but the code is still present and active — dead weight:
-
-- `src/discord-bot.ts` — full Discord.js implementation (~200 lines)
-- `src/discord-adapter.ts` — platform adapter
-- `src/__tests__/discord-bot.test.ts` — tests
-- `src/main.ts` lines 4, 93-102 — imports and initializes Discord bot
-- `config.yaml` lines 46-54 — Discord config section with token/guild/bindings
-- `discord.js` in package.json dependencies
-
-bot-round10 added `Events.Error`, `Events.ShardError`, `Events.Warn` handlers and `process.on("uncaughtException"/"unhandledRejection")` — so the crash is mitigated, but the code should be removed entirely.
-
 ## Reference: Cron delivery routing
 
 `cron-runner.ts` lines 55-56: delivery uses `deliveryChatId`, defaults to `NINJA_CHAT_ID = <redacted-user-id>`.
