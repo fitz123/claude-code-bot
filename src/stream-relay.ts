@@ -249,10 +249,14 @@ export async function relayStream(
           const msg = err instanceof Error ? err.message : String(err);
           if (!msg.includes("not modified")) {
             log.warn("stream-relay", `Final edit failed, sending as new message: ${msg}`);
-            await ctx.reply(chunks[0], {
-              ...(threadId ? { message_thread_id: threadId } : {}),
-            });
-            messagesSent.inc();
+            try {
+              await ctx.reply(chunks[0], {
+                ...(threadId ? { message_thread_id: threadId } : {}),
+              });
+              messagesSent.inc();
+            } catch (fallbackErr) {
+              log.error("stream-relay", `Fallback reply also failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
+            }
           }
         }
 

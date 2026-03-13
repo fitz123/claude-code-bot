@@ -150,8 +150,12 @@ export function startMetricsServer(port: number): Server {
     }
   });
 
-  server.listen(port, () => {
-    log.info("metrics", `Prometheus metrics server listening on port ${port}`);
+  server.on("error", (err) => {
+    log.error("metrics", `Metrics server error: ${err.message}`);
+  });
+
+  server.listen(port, "127.0.0.1", () => {
+    log.info("metrics", `Prometheus metrics server listening on 127.0.0.1:${port}`);
   });
 
   metricsServer = server;

@@ -208,9 +208,6 @@ export function createTelegramBot(
 ): TelegramBotResult {
   const bot = new Bot(config.telegramToken);
 
-  // Auto-retry on rate limits (outermost transformer — retries after inner errors)
-  bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
-
   // Log Telegram API errors, especially 429 rate limits (inner transformer —
   // sees each individual attempt before autoRetry decides whether to retry)
   bot.api.config.use(async (prev, method, payload, signal) => {
@@ -229,6 +226,9 @@ export function createTelegramBot(
       throw err;
     }
   });
+
+  // Auto-retry on rate limits (outermost transformer — retries after inner errors)
+  bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(

@@ -178,6 +178,41 @@ In group chats, the bot only responds to messages that @mention the bot or reply
 
 Commands are auto-registered with the Telegram Bot API via `setMyCommands` on startup. To add or change commands, update the `BOT_COMMANDS` array in `telegram-bot.ts`.
 
+## Configuration
+
+### Logging
+
+All log output uses structured format: `TIMESTAMP LEVEL [tag] message`.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `logLevel` (config.yaml) | string | `"info"` | Log verbosity: `debug`, `info`, `warn`, `error` |
+| `LOG_LEVEL` (env var) | string | — | Overrides `logLevel` from config when set |
+
+### Monitoring
+
+When `metricsPort` is set in `config.yaml`, the bot exposes a Prometheus-compatible `/metrics` endpoint on `127.0.0.1` at that port.
+
+```yaml
+metricsPort: 9090
+```
+
+Available metrics:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `bot_claude_tokens_input_total` | counter | Input tokens consumed (by agent) |
+| `bot_claude_tokens_output_total` | counter | Output tokens consumed (by agent) |
+| `bot_claude_tokens_cache_read_total` | counter | Cache read tokens (by agent) |
+| `bot_claude_tokens_cache_creation_total` | counter | Cache creation tokens (by agent) |
+| `bot_claude_cost_usd_total` | counter | USD cost from Claude API (by agent) |
+| `bot_claude_turn_duration_seconds` | histogram | Turn duration (by agent) |
+| `bot_telegram_api_errors_total` | counter | Telegram API errors (by method, error_code) |
+| `bot_sessions_active` | gauge | Currently active sessions |
+| `bot_session_crashes_total` | counter | Session subprocess crashes |
+| `bot_telegram_messages_received_total` | counter | Messages received (by type) |
+| `bot_telegram_messages_sent_total` | counter | Messages sent by the bot |
+
 ## Troubleshooting
 
 ### Log locations

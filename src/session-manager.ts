@@ -132,6 +132,7 @@ export class SessionManager {
         existing.child.kill("SIGKILL");
       }
       this.active.delete(chatId);
+      sessionsActive.dec();
     }
 
     const agent = this.agents[agentId];
