@@ -78,6 +78,7 @@ export interface SessionState {
 export interface SessionDefaults {
   idleTimeoutMs: number;
   maxConcurrentSessions: number;
+  maxMessageAgeMs: number;
 }
 
 export interface BotConfig {

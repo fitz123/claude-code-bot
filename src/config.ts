@@ -203,12 +203,13 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
 
 function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 900000, maxConcurrentSessions: 3 };
+    return { idleTimeoutMs: 900000, maxConcurrentSessions: 3, maxMessageAgeMs: 300000 };
   }
   const obj = raw as Record<string, unknown>;
   return {
     idleTimeoutMs: typeof obj.idleTimeoutMs === "number" ? obj.idleTimeoutMs : 900000,
     maxConcurrentSessions: typeof obj.maxConcurrentSessions === "number" ? obj.maxConcurrentSessions : 3,
+    maxMessageAgeMs: typeof obj.maxMessageAgeMs === "number" ? obj.maxMessageAgeMs : 300000,
   };
 }
 

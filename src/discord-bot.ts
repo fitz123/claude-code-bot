@@ -9,6 +9,7 @@ import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./
 import { log } from "./logger.js";
 import { messagesReceived } from "./metrics.js";
 import { isImageMimeType } from "./mime.js";
+import { isStaleMessage } from "./telegram-bot.js";
 
 /**
  * Build a session key for Discord channels and threads.
@@ -162,6 +163,8 @@ export async function createDiscordBot(
   // during login or event handling don't crash the process
   installDiscordErrorHandlers(client);
 
+  const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
+
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
@@ -202,6 +205,12 @@ export async function createDiscordBot(
 
       // Mention gating for channel bindings
       if (!shouldRespondInDiscord(binding, client.user!.id, message)) return;
+
+      // Discard stale messages accumulated during bot downtime
+      if (isStaleMessage(message.createdTimestamp, maxMessageAgeMs)) {
+        log.debug("discord-bot", `Discarding stale message in ${channelId} (age: ${Math.round((Date.now() - message.createdTimestamp) / 1000)}s)`);
+        return;
+      }
 
       const key = discordSessionKey(channelId, threadId);
       const prefix = buildDiscordSourcePrefix(binding, message.author);

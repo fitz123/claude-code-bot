@@ -37,6 +37,7 @@ const testConfig: BotConfig = {
   sessionDefaults: {
     idleTimeoutMs: 100, // Short for testing
     maxConcurrentSessions: 2,
+    maxMessageAgeMs: 300000,
   },
 };
 
@@ -1153,5 +1154,239 @@ describe("ActiveSession health fields tracked in sendSessionMessage", () => {
     // After completion, processingStartedAt should be cleared and lastSuccessAt set
     assert.strictEqual(session.processingStartedAt, null, "processingStartedAt should be null after completion");
     assert.ok(session.lastSuccessAt !== null, "lastSuccessAt should be set after success");
+  });
+});
+
+describe("SessionManager crash backoff", () => {
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("blocks session after MAX_CRASH_RESTARTS consecutive crashes", async () => {
+    const { SessionManager, MAX_CRASH_RESTARTS } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    // Simulate crash count reaching the limit by injecting restartCounts directly
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    restartCounts.set("crash-chat", MAX_CRASH_RESTARTS);
+
+    await assert.rejects(
+      () => manager.getOrCreateSession("crash-chat", "main"),
+      /Session blocked.*consecutive crashes/,
+    );
+  });
+
+  it("does not block session below MAX_CRASH_RESTARTS", async () => {
+    const { SessionManager, MAX_CRASH_RESTARTS } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    restartCounts.set("ok-chat", MAX_CRASH_RESTARTS - 1);
+
+    // This should not throw from backoff — it will throw from spawnClaudeSession
+    // because we're not mocking it, but we verify the error is NOT "Session blocked"
+    try {
+      await manager.getOrCreateSession("ok-chat", "main");
+    } catch (err) {
+      // Should fail for some other reason (e.g. spawn), not backoff blocking
+      assert.ok(
+        !(err instanceof Error && /Session blocked/.test(err.message)),
+        "should not be blocked by crash backoff",
+      );
+    }
+  });
+
+  it("crash count increments in setupCrashRecovery on abnormal exit", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 90001,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+    });
+
+    const session = {
+      child,
+      sessionId: "crash-count-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
+    };
+    (manager as unknown as Record<string, Map<string, unknown>>).active.set("crash-count-chat", session);
+
+    // Set up crash recovery
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupCrashRecovery("crash-count-chat", child);
+
+    // Simulate crash (code=1, not SIGTERM/SIGKILL)
+    (child as unknown as Record<string, unknown>).exitCode = 1;
+    child.emit("exit", 1, null);
+
+    // Check crash count was incremented
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    assert.strictEqual(restartCounts.get("crash-count-chat"), 1, "crash count should be 1 after first crash");
+
+    // Simulate another crash on a new child
+    const child2 = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child2, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 90002,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+    });
+    const session2 = { ...session, child: child2 };
+    (manager as unknown as Record<string, Map<string, unknown>>).active.set("crash-count-chat", session2);
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupCrashRecovery("crash-count-chat", child2);
+
+    (child2 as unknown as Record<string, unknown>).exitCode = 1;
+    child2.emit("exit", 1, null);
+
+    assert.strictEqual(restartCounts.get("crash-count-chat"), 2, "crash count should be 2 after second crash");
+  });
+
+  it("does not increment crash count for SIGTERM exits", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } }),
+      pid: 90003,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+    });
+
+    const session = {
+      child,
+      sessionId: "sigterm-test",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
+    };
+    (manager as unknown as Record<string, Map<string, unknown>>).active.set("sigterm-chat", session);
+    (manager as unknown as Record<string, (...args: unknown[]) => void>)
+      .setupCrashRecovery("sigterm-chat", child);
+
+    // SIGTERM exit (graceful) should NOT increment crash count
+    (child as unknown as Record<string, unknown>).exitCode = 0;
+    child.emit("exit", 0, "SIGTERM");
+
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    assert.strictEqual(restartCounts.get("sigterm-chat") ?? 0, 0, "SIGTERM should not increment crash count");
+  });
+
+  it("resets crash count on successful result", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const PQueue = (await import("p-queue")).default;
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    // Set up a session with accumulated crash count
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    restartCounts.set("success-chat", 3);
+
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    const stdin = new Writable({ write(_chunk: unknown, _enc: unknown, cb: () => void) { cb(); } });
+    Object.assign(child, {
+      stdout, stderr, stdin,
+      pid: 90010,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = 0;
+          child.emit("exit", 0, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+
+    const session = {
+      child,
+      sessionId: "success-session",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 3,
+      outboxPath: "/tmp/bot-outbox/test",
+    };
+    (manager as unknown as Record<string, unknown>).active = new Map([["success-chat", session]]);
+
+    const gen = manager.sendSessionMessage("success-chat", "main", "hello");
+
+    // Push a result
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({
+          type: "result",
+          result: "Success",
+          session_id: "success-session",
+        }) + "\n"
+      );
+    }, 30);
+
+    for await (const _line of gen) {
+      // consume
+    }
+
+    // Crash count should be reset to 0
+    assert.strictEqual(restartCounts.get("success-chat"), 0, "crash count should reset to 0 after success");
+
+    await manager.closeAll();
+  });
+
+  it("closeSession clears crash count", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    restartCounts.set("close-chat", 4);
+
+    // closeSession on unknown chatId is safe (no active session to close)
+    // but it deletes restartCounts
+    await manager.closeSession("close-chat");
+
+    assert.strictEqual(restartCounts.get("close-chat"), undefined, "crash count should be deleted after closeSession");
+  });
+
+  it("MAX_CRASH_RESTARTS is exported and equals 5", async () => {
+    const { MAX_CRASH_RESTARTS } = await import("../session-manager.js");
+    assert.strictEqual(MAX_CRASH_RESTARTS, 5);
   });
 });
