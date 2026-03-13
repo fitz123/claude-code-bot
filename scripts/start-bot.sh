@@ -15,7 +15,6 @@ unset CLAUDECODE
 export CLAUDE_CODE_OAUTH_TOKEN=$(security find-generic-password -s claude-code-oauth-token -w)
 
 # Claude Code subprocess environment
-export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export CLAUDE_CODE_DISABLE_CRON=1
 export CLAUDE_CODE_EXIT_AFTER_STOP_DELAY=900000

@@ -73,17 +73,8 @@ export function buildSpawnEnv(): Record<string, string> {
     }
   }
 
-  // Critical: CLAUDECODE must NOT be set
+  // Critical: CLAUDECODE must NOT be set (prevents nested session detection)
   delete env.CLAUDECODE;
-
-  // Required env
-  env.HOME = "/Users/user";
-  env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
-  env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
-  env.CLAUDE_CODE_DISABLE_CRON = "1";
-  env.CLAUDE_CODE_EXIT_AFTER_STOP_DELAY = "900000"; // 15min idle auto-exit
-  env.CLAUDE_CODE_SUBAGENT_MODEL = "sonnet";
-  env.CLAUDE_CODE_ENABLE_TELEMETRY = "1";
 
   // Ensure claude binary is in PATH
   if (!env.PATH?.includes("/opt/homebrew/bin")) {

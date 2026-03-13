@@ -105,15 +105,11 @@ describe("buildSpawnEnv", () => {
     delete process.env.CLAUDECODE;
   });
 
-  it("sets required env vars", () => {
+  it("deletes CLAUDECODE and preserves process.env", () => {
+    process.env.CLAUDECODE = "1";
     const env = buildSpawnEnv();
-    assert.strictEqual(env.HOME, "/Users/user");
-    assert.strictEqual(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, "1");
-    assert.strictEqual(env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, "1");
-    assert.strictEqual(env.CLAUDE_CODE_DISABLE_CRON, "1");
-    assert.strictEqual(env.CLAUDE_CODE_EXIT_AFTER_STOP_DELAY, "900000");
-    assert.strictEqual(env.CLAUDE_CODE_SUBAGENT_MODEL, "sonnet");
-    assert.strictEqual(env.CLAUDE_CODE_ENABLE_TELEMETRY, "1");
+    assert.strictEqual(env.CLAUDECODE, undefined);
+    delete process.env.CLAUDECODE;
   });
 
   it("includes /opt/homebrew/bin in PATH", () => {
