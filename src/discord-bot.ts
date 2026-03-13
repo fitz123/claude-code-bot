@@ -294,6 +294,9 @@ export async function createDiscordBot(
       }
     } catch (err) {
       log.error("discord-bot", `Interaction handler error:`, err);
+      if (interaction.isChatInputCommand() && !interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: "An internal error occurred.", ephemeral: true }).catch(() => {});
+      }
     }
   });
 
