@@ -18,7 +18,6 @@ export CLAUDE_CODE_OAUTH_TOKEN=$(security find-generic-password -s claude-code-o
 export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export CLAUDE_CODE_DISABLE_CRON=1
 export CLAUDE_CODE_EXIT_AFTER_STOP_DELAY=900000
-export CLAUDE_CODE_SUBAGENT_MODEL=sonnet
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
 
 BOT_DIR="/Users/ninja/.openclaw/bot"
