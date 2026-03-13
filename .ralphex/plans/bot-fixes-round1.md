@@ -1,8 +1,8 @@
-# Bot Cleanup & Features — Round 1
+# Bot Features — Round 1
 
 ## Goal
 
-Remove dead Discord code (decommissioned per ADR-038/039, error handlers added in round10), add missing Telegram reply/forward context, and wire cron delivery to forum topics.
+Add missing Telegram reply/forward context for Claude sessions, and wire cron delivery to forum topics.
 
 ## Validation Commands
 
