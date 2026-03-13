@@ -33,7 +33,7 @@ bindings:
     streamingUpdates: false
     typingIndicator: false
     topics:
-      - topicId: 7
+      - topicId: 591
         agentId: coder
 
 sessionDefaults:
