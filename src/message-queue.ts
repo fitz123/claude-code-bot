@@ -1,4 +1,5 @@
 import type { Context } from "grammy";
+import { log } from "./logger.js";
 
 export const DEFAULT_DEBOUNCE_MS = 3000;
 export const DEFAULT_QUEUE_CAP = 20;
@@ -111,13 +112,15 @@ export class MessageQueue {
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
         if (cleanup) state.collectCleanups.push(cleanup);
-        console.log(
-          `[message-queue] Queued mid-turn message for ${chatId} (${state.collectBuffer.length} in buffer)`,
+        log.debug(
+          "message-queue",
+          `Queued mid-turn message for ${chatId} (${state.collectBuffer.length} in buffer)`,
         );
       } else {
         if (cleanup) cleanup();
-        console.warn(
-          `[message-queue] Collect buffer full for ${chatId}, dropping message`,
+        log.warn(
+          "message-queue",
+          `Collect buffer full for ${chatId}, dropping message`,
         );
       }
       return;
@@ -126,8 +129,9 @@ export class MessageQueue {
     // Pre-send debounce: add to pending and reset timer
     if (state.pendingTexts.length >= this.queueCap) {
       if (cleanup) cleanup();
-      console.warn(
-        `[message-queue] Debounce buffer full for ${chatId}, dropping message`,
+      log.warn(
+        "message-queue",
+        `Debounce buffer full for ${chatId}, dropping message`,
       );
       return;
     }
@@ -140,7 +144,7 @@ export class MessageQueue {
 
     state.debounceTimer = setTimeout(() => {
       this.flush(chatId).catch((err) => {
-        console.error(`[message-queue] Flush error for ${chatId}:`, err);
+        log.error("message-queue", `Flush error for ${chatId}:`, err);
       });
     }, this.debounceMs);
   }
@@ -161,7 +165,7 @@ export class MessageQueue {
         await this.processFn(chatId, state.agentId, combinedText, state.latestCtx);
       }
     } catch (err) {
-      console.error(`[message-queue] Send error for ${chatId}:`, err);
+      log.error("message-queue", `Send error for ${chatId}:`, err);
       if (state.latestCtx) {
         await state.latestCtx
           .reply("Something went wrong. Try again or /reset the session.")
@@ -194,8 +198,9 @@ export class MessageQueue {
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
-      console.log(
-        `[message-queue] Draining ${collected.length} collected message(s) for ${chatId}`,
+      log.debug(
+        "message-queue",
+        `Draining ${collected.length} collected message(s) for ${chatId}`,
       );
 
       try {
@@ -203,7 +208,7 @@ export class MessageQueue {
           await this.processFn(chatId, state.agentId, prompt, state.latestCtx);
         }
       } catch (err) {
-        console.error(`[message-queue] Collect drain error for ${chatId}:`, err);
+        log.error("message-queue", `Collect drain error for ${chatId}:`, err);
         if (state.latestCtx) {
           await state.latestCtx
             .reply("Something went wrong processing queued messages. Try again or /reset the session.")

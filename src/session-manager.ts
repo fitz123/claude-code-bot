@@ -5,6 +5,8 @@ import PQueue from "p-queue";
 import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
+import { log } from "./logger.js";
+import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 
 const LOG_DIR = "/Users/user/.openclaw/logs";
 const STARTUP_TIMEOUT_MS = 10_000;
@@ -130,6 +132,7 @@ export class SessionManager {
         existing.child.kill("SIGKILL");
       }
       this.active.delete(chatId);
+      sessionsActive.dec();
     }
 
     const agent = this.agents[agentId];
@@ -166,7 +169,7 @@ export class SessionManager {
 
     // Prevent EPIPE from becoming uncaughtException when subprocess dies
     child.stdin?.on("error", (err) => {
-      console.error(`[session-manager] stdin error for chat ${chatId}: ${err.message}`);
+      log.error("session-manager", `stdin error for chat ${chatId}: ${err.message}`);
     });
 
     // Pipe stderr to log file
@@ -191,6 +194,7 @@ export class SessionManager {
     };
 
     this.active.set(chatId, session);
+    sessionsActive.inc();
 
     // Persist to store
     this.store.setSession(chatId, {
@@ -281,7 +285,7 @@ export class SessionManager {
           if (activityTimer) { clearTimeout(activityTimer); activityTimer = null; }
           activityTimer = setTimeout(() => {
             if (!hasExited(session.child)) {
-              console.error(`[session-manager] Response activity timeout for chat ${chatId} — killing subprocess`);
+              log.error("session-manager", `Response activity timeout for chat ${chatId} — killing subprocess`);
               if (!session.child.killed) {
                 session.child.kill("SIGTERM");
               }
@@ -289,7 +293,7 @@ export class SessionManager {
               if (!killEscalationTimer) {
                 killEscalationTimer = setTimeout(() => {
                   if (!hasExited(session.child)) {
-                    console.error(`[session-manager] Subprocess ignored SIGTERM for chat ${chatId} — sending SIGKILL`);
+                    log.error("session-manager", `Subprocess ignored SIGTERM for chat ${chatId} — sending SIGKILL`);
                     session.child.kill("SIGKILL");
                   }
                 }, 5000);
@@ -305,6 +309,7 @@ export class SessionManager {
           if (line.type === "result") {
             gotResult = true;
             session.lastSuccessAt = Date.now();
+            recordResultMetrics(session.agentId, line);
             break;
           }
         }
@@ -372,6 +377,7 @@ export class SessionManager {
 
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
+    sessionsActive.dec();
 
     // Clean up restart count — session lifecycle is complete
     this.restartCounts.delete(chatId);
@@ -464,10 +470,13 @@ export class SessionManager {
 
       // Remove from active map (not from store — session can be resumed)
       this.active.delete(chatId);
+      sessionsActive.dec();
 
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
-        console.error(
-          `[session-manager] Session for chat ${chatId} crashed: code=${code} signal=${signal}`
+        sessionCrashes.inc();
+        log.error(
+          "session-manager",
+          `Session for chat ${chatId} crashed: code=${code} signal=${signal}`,
         );
       }
     });
@@ -485,7 +494,7 @@ export class SessionManager {
     const logStream = createWriteStream(logPath, { flags: "a" });
 
     logStream.on("error", (err) => {
-      console.error(`[session-manager] Log write error for chat ${chatId}: ${err.message}`);
+      log.error("session-manager", `Log write error for chat ${chatId}: ${err.message}`);
     });
 
     // pipe() auto-ends logStream when stderr emits 'end', which fires after
