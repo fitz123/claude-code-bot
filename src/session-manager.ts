@@ -1,5 +1,5 @@
 import { type ChildProcess } from "node:child_process";
-import { createWriteStream, mkdirSync } from "node:fs";
+import { createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import PQueue from "p-queue";
 import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.js";
@@ -9,8 +9,15 @@ import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 
 const LOG_DIR = "/Users/ninja/.openclaw/logs";
+const OUTBOX_BASE = "/tmp/bot-outbox";
 const STARTUP_TIMEOUT_MS = 10_000;
 const RESPONSE_ACTIVITY_TIMEOUT_MS = 300_000; // 5 minutes with no events = hung
+
+/** Deterministic outbox directory path for a given chat. */
+export function outboxDir(chatId: string): string {
+  const safeChatId = chatId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `${OUTBOX_BASE}/${safeChatId}`;
+}
 
 /** Check whether a child process has exited (by exit code or signal). */
 function hasExited(child: ChildProcess): boolean {
@@ -30,6 +37,8 @@ export interface ActiveSession {
   lastSuccessAt: number | null;
   /** Number of times this session's subprocess was restarted. */
   restartCount: number;
+  /** Per-session outbox directory for file delivery. */
+  outboxPath: string;
 }
 
 export interface SessionHealth {
@@ -143,10 +152,14 @@ export class SessionManager {
     // Check if we need to evict
     await this.evictIfNeeded();
 
-    // Check if we have a stored session to resume
-    const stored = this.store.getSession(chatId);
-    const resume = stored !== undefined && stored.sessionId !== "";
-    const sessionId = resume ? stored.sessionId : randomUUID();
+    // Check if we have a stored session to resume (discards stale sessions)
+    const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
+
+    // Clean and recreate outbox directory to prevent stale files from
+    // a previous crashed session from leaking into the new session's replies.
+    const outboxPath = outboxDir(chatId);
+    rmSync(outboxPath, { recursive: true, force: true });
+    mkdirSync(outboxPath, { recursive: true });
 
     // Spawn the claude subprocess
     const child = spawnClaudeSession({
@@ -154,6 +167,7 @@ export class SessionManager {
       sessionId,
       resume,
       includePartialMessages: true,
+      outboxPath,
     });
 
     // Verify the subprocess actually started
@@ -191,6 +205,7 @@ export class SessionManager {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount,
+      outboxPath,
     };
 
     this.active.set(chatId, session);
@@ -382,6 +397,13 @@ export class SessionManager {
     // Clean up restart count — session lifecycle is complete
     this.restartCounts.delete(chatId);
 
+    // Clean up outbox directory
+    try {
+      rmSync(session.outboxPath, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+
     // Gracefully terminate (even if SIGTERM was already sent elsewhere)
     if (!hasExited(session.child)) {
       if (!session.child.killed) {
@@ -438,6 +460,31 @@ export class SessionManager {
       lastSuccessAt: session.lastSuccessAt,
       restartCount: session.restartCount,
     };
+  }
+
+  /**
+   * Determine if a stored session should be resumed or discarded.
+   * Discards and logs if the agentId changed or the stored agent was deleted.
+   */
+  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string } {
+    const stored = this.store.getSession(chatId);
+    if (!stored || stored.sessionId === "") {
+      return { resume: false, sessionId: randomUUID() };
+    }
+
+    const agentDeleted = !(stored.agentId in this.agents);
+    const agentMismatch = stored.agentId !== agentId;
+
+    if (agentMismatch || agentDeleted) {
+      const reason = agentDeleted
+        ? `agent "${stored.agentId}" no longer exists`
+        : `agentId changed from "${stored.agentId}" to "${agentId}"`;
+      log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
+      this.store.deleteSession(chatId);
+      return { resume: false, sessionId: randomUUID() };
+    }
+
+    return { resume: true, sessionId: stored.sessionId };
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */

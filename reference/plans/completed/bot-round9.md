@@ -253,13 +253,13 @@ But `getOrCreateSession` never compares `stored.agentId` with the incoming `agen
 
 **What we want:** Before attempting `--resume`, `getOrCreateSession` should compare the stored session's `agentId` with the current binding's `agentId`. If they differ, discard the stored session and create a fresh one. Log a warning when this happens so it's visible in logs. This should also handle the case where the stored `agentId` references an agent that no longer exists in config.
 
-- [ ] `getOrCreateSession` detects agentId mismatch between stored session and current binding
-- [ ] Mismatched sessions are discarded (not resumed) and a fresh session is created
-- [ ] Warning logged when a stale session is discarded due to agentId mismatch
-- [ ] Sessions with agentId referencing a deleted agent are also discarded
-- [ ] Other sessions in the store are not affected (no full flush)
-- [ ] Tests for agentId mismatch detection and fresh session creation
-- [ ] Verify existing tests pass
+- [x] `getOrCreateSession` detects agentId mismatch between stored session and current binding
+- [x] Mismatched sessions are discarded (not resumed) and a fresh session is created
+- [x] Warning logged when a stale session is discarded due to agentId mismatch
+- [x] Sessions with agentId referencing a deleted agent are also discarded
+- [x] Other sessions in the store are not affected (no full flush)
+- [x] Tests for agentId mismatch detection and fresh session creation
+- [x] Verify existing tests pass
 
 ### Task 2: Guild-wide default Discord binding with per-channel overrides (bot-66d, P2)
 
@@ -267,15 +267,15 @@ But `getOrCreateSession` never compares `stored.agentId` with the incoming `agen
 
 **What we want:** A Discord binding with `guildId` but no `channelId` acts as a guild-wide default — any channel in that guild uses it. Per-channel overrides (via a `channels[]` array on the guild binding, same pattern as Telegram's `topics[]`) can override `agentId`, `label`, `requireMention`, `streamingUpdates`, and `typingIndicator` for specific channels. Resolution priority: exact channelId match → per-channel override from `channels[]` → guild-wide fallback. `channelId` becomes optional in the binding type. Config validation updated accordingly. `resolveDiscordBinding` needs `guildId` as an additional parameter (available from the Discord message).
 
-- [ ] `channelId` is optional in `DiscordBinding` — a binding with only `guildId` is valid
-- [ ] `channels` array support on guild-wide bindings (same pattern as Telegram `topics[]`)
-- [ ] `resolveDiscordBinding` accepts `guildId` parameter and resolves: exact channel → channel override → guild default
-- [ ] Config validation allows bindings without `channelId`
-- [ ] Config validation validates `channels[]` entries (channelId required in override, agentId references valid agent)
-- [ ] Existing per-channel bindings (with explicit `channelId`) continue to work unchanged
-- [ ] Tests for resolution priority (exact > override > guild default)
-- [ ] Tests for config validation (guild-only binding, channel overrides, invalid entries)
-- [ ] Verify existing tests pass
+- [x] `channelId` is optional in `DiscordBinding` — a binding with only `guildId` is valid
+- [x] `channels` array support on guild-wide bindings (same pattern as Telegram `topics[]`)
+- [x] `resolveDiscordBinding` accepts `guildId` parameter and resolves: exact channel → channel override → guild default
+- [x] Config validation allows bindings without `channelId`
+- [x] Config validation validates `channels[]` entries (channelId required in override, agentId references valid agent)
+- [x] Existing per-channel bindings (with explicit `channelId`) continue to work unchanged
+- [x] Tests for resolution priority (exact > override > guild default)
+- [x] Tests for config validation (guild-only binding, channel overrides, invalid entries)
+- [x] Verify existing tests pass
 
 ### Task 3: Outbox-based file sending from Claude to chat (bot-sdo, P2)
 
@@ -283,13 +283,13 @@ But `getOrCreateSession` never compares `stored.agentId` with the incoming `agen
 
 **What we want:** An explicit outbox mechanism. Each session gets an outbox directory (e.g. `/tmp/bot-outbox/<sessionKey>/`). Claude is told about this directory via a dynamic `--append-system-prompt` injected at session spawn time (not hardcoded in agent config — the outbox path is per-session). This dynamic prompt should be appended alongside any existing `systemPrompt` from the agent config, not replacing it. When Claude wants to send a file to the user, it writes/copies it to the outbox directory. After the stream completes (result received), the bot checks the outbox directory for files, sends each one via `platform.sendFile()`, then cleans up. No automatic scanning of Write tool_use events — only files explicitly placed in the outbox are sent. Works for both Telegram and Discord (both adapters already implement `sendFile`). Remove the old disabled `collectWritePaths` code path.
 
-- [ ] Outbox directory created per session (unique path, e.g. `/tmp/bot-outbox/<sessionKey>/`)
-- [ ] Outbox path communicated to Claude via `--append-system-prompt` when spawning the session
-- [ ] System prompt instruction tells Claude to copy/write files to the outbox dir when user asks for a file
-- [ ] After stream completes, bot scans outbox directory for files
-- [ ] Each file in outbox is sent via `platform.sendFile()` (images via photo, others via document)
-- [ ] Outbox directory cleaned up after files are sent (or on session close)
-- [ ] Old disabled `collectWritePaths` code path removed from stream-relay.ts
-- [ ] Works for both Telegram and Discord
-- [ ] Tests for outbox scanning, file sending, and cleanup
-- [ ] Verify existing tests pass
+- [x] Outbox directory created per session (unique path, e.g. `/tmp/bot-outbox/<sessionKey>/`)
+- [x] Outbox path communicated to Claude via `--append-system-prompt` when spawning the session
+- [x] System prompt instruction tells Claude to copy/write files to the outbox dir when user asks for a file
+- [x] After stream completes, bot scans outbox directory for files
+- [x] Each file in outbox is sent via `platform.sendFile()` (images via photo, others via document)
+- [x] Outbox directory cleaned up after files are sent (or on session close)
+- [x] Old disabled `collectWritePaths` code path removed from stream-relay.ts
+- [x] Works for both Telegram and Discord
+- [x] Tests for outbox scanning, file sending, and cleanup
+- [x] Verify existing tests pass

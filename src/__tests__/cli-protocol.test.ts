@@ -95,6 +95,43 @@ describe("buildSpawnArgs", () => {
     assert.ok(!args.includes("--append-system-prompt"));
     assert.ok(!args.includes("--effort"));
   });
+
+  it("includes outbox path in system prompt when provided", () => {
+    const args = buildSpawnArgs({
+      agent: testAgent,
+      outboxPath: "/tmp/bot-outbox/chat123",
+    });
+    assert.ok(args.includes("--append-system-prompt"));
+    const idx = args.indexOf("--append-system-prompt");
+    const prompt = args[idx + 1];
+    assert.ok(prompt.includes("/tmp/bot-outbox/chat123"));
+    assert.ok(prompt.includes("outbox"));
+  });
+
+  it("combines agent systemPrompt with outbox instruction", () => {
+    const agentWithPrompt: AgentConfig = {
+      ...testAgent,
+      systemPrompt: "You are a helpful bot.",
+    };
+    const args = buildSpawnArgs({
+      agent: agentWithPrompt,
+      outboxPath: "/tmp/bot-outbox/chat456",
+    });
+    const idx = args.indexOf("--append-system-prompt");
+    const prompt = args[idx + 1];
+    assert.ok(prompt.includes("You are a helpful bot."));
+    assert.ok(prompt.includes("/tmp/bot-outbox/chat456"));
+  });
+
+  it("includes only agent systemPrompt when no outbox", () => {
+    const agentWithPrompt: AgentConfig = {
+      ...testAgent,
+      systemPrompt: "You are a helpful bot.",
+    };
+    const args = buildSpawnArgs({ agent: agentWithPrompt });
+    const idx = args.indexOf("--append-system-prompt");
+    assert.strictEqual(args[idx + 1], "You are a helpful bot.");
+  });
 });
 
 describe("buildSpawnEnv", () => {
