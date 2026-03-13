@@ -141,14 +141,16 @@ export async function createDiscordBot(
       const channel = message.channel as unknown as DiscordSendableChannel;
       const adapter = createDiscordAdapter(channel, binding);
 
-      // Collect image attachments
+      // Collect image attachments (fall back to file extension when contentType is missing)
+      const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp)$/i;
       const imageAttachments = [...message.attachments.values()].filter(
-        (a) => isImageMimeType(a.contentType ?? undefined),
+        (a) => isImageMimeType(a.contentType ?? undefined) || (!a.contentType && IMAGE_EXTENSIONS.test(a.name ?? "")),
       );
 
-      // Collect audio attachments (voice messages)
+      // Collect audio attachments (fall back to file extension when contentType is missing)
+      const AUDIO_EXTENSIONS = /\.(ogg|mp3|wav|m4a|aac|opus|oga|flac)$/i;
       const audioAttachments = [...message.attachments.values()].filter(
-        (a) => a.contentType?.startsWith("audio/"),
+        (a) => a.contentType?.startsWith("audio/") || (!a.contentType && AUDIO_EXTENSIONS.test(a.name ?? "")),
       );
 
       // Handle text + image attachments

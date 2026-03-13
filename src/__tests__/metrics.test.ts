@@ -193,7 +193,7 @@ describe("metrics HTTP server", () => {
     assert.ok(contentType.includes("text/plain") || contentType.includes("openmetrics"), `Expected text/plain or openmetrics, got: ${contentType}`);
 
     const body = await res.text();
-    assert.ok(body.includes("bot_telegram_messages_received_total"), "Expected messagesReceived metric");
+    assert.ok(body.includes("bot_messages_received_total"), "Expected messagesReceived metric");
     assert.ok(body.includes("bot_claude_cost_usd_total"), "Expected costUsd metric");
   });
 
