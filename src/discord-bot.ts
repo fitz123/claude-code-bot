@@ -131,7 +131,7 @@ export async function createDiscordBot(
 
       // Look up binding for this channel
       const binding = resolveDiscordBinding(channelId, discordConfig.bindings);
-      if (!binding) return;
+      if (!binding) { log.info("discord-bot", `No binding for channel ${channelId} (thread: ${threadId})`); return; }
 
       // Mention gating for channel bindings
       if (!shouldRespondInDiscord(binding, client.user!.id, message)) return;
