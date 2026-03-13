@@ -138,6 +138,9 @@ export async function createDiscordBot(
 
       const key = discordSessionKey(channelId, threadId);
       const prefix = buildDiscordSourcePrefix(binding, message.author);
+      // Strip bot mention syntax (<@botId>) from message content so Claude
+      // doesn't receive raw snowflake IDs in every requireMention message
+      const botMentionRe = new RegExp(`<@!?${client.user!.id}>\\s*`, "g");
       const channel = message.channel as unknown as DiscordSendableChannel;
       const adapter = createDiscordAdapter(channel, binding);
 
@@ -165,7 +168,7 @@ export async function createDiscordBot(
             await downloadFile(attachment.url, tempPath);
 
             // Only include caption text with the first image to avoid duplication
-            const caption = i === 0 ? (message.content ?? "") : "";
+            const caption = i === 0 ? (message.content ?? "").replace(botMentionRe, "").trim() : "";
             const messageText = caption.trimEnd()
               ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
               : `${prefix}${tempPath}`;
@@ -212,7 +215,8 @@ export async function createDiscordBot(
       } else if (message.content) {
         // Plain text message (no relevant attachments)
         messagesReceived.inc({ type: "text" });
-        messageQueue.enqueue(key, binding.agentId, prefix + message.content, adapter);
+        const cleanContent = message.content.replace(botMentionRe, "").trim();
+        messageQueue.enqueue(key, binding.agentId, prefix + cleanContent, adapter);
       }
     } catch (err) {
       log.error("discord-bot", `Message handler error in ${message.channelId}:`, err);

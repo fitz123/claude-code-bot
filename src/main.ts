@@ -28,6 +28,21 @@ async function main(): Promise<void> {
   const messageQueues: MessageQueue[] = [];
   let discordClient: Client | undefined;
 
+  // Graceful shutdown — registered early so signals during bot startup are handled.
+  // Closure captures mutable variables, so shutdown always sees current state.
+  const shutdown = async (signal: string) => {
+    log.info("main", `Received ${signal}, shutting down...`);
+    if (telegramBot) telegramBot.stop();
+    if (discordClient) discordClient.destroy();
+    for (const mq of messageQueues) mq.clearAll();
+    await stopMetricsServer();
+    await sessionManager.closeAll();
+    log.info("main", "All sessions closed. Exiting.");
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
   // Start Telegram bot if configured
   if (config.telegramToken && config.bindings.length > 0) {
     const { bot, messageQueue } = createTelegramBot(config, sessionManager);
@@ -81,28 +96,6 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Graceful shutdown
-  const shutdown = async (signal: string) => {
-    log.info("main", `Received ${signal}, shutting down...`);
-    if (telegramBot) telegramBot.stop();
-    if (discordClient) discordClient.destroy();
-    for (const mq of messageQueues) mq.clearAll();
-    await stopMetricsServer();
-    await sessionManager.closeAll();
-    log.info("main", "All sessions closed. Exiting.");
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
-
-  // Handle uncaught errors
-  process.on("uncaughtException", (err) => {
-    log.error("main", "Uncaught exception:", err);
-  });
-  process.on("unhandledRejection", (err) => {
-    log.error("main", "Unhandled rejection:", err);
-  });
 }
 
 main().catch((err) => {
