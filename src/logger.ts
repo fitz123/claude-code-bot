@@ -23,7 +23,7 @@ export function getLogLevel(): LogLevel {
 export function parseLogLevel(value: unknown): LogLevel | undefined {
   if (typeof value !== "string") return undefined;
   const lower = value.toLowerCase();
-  if (lower in LEVEL_ORDER) return lower as LogLevel;
+  if (Object.hasOwn(LEVEL_ORDER, lower)) return lower as LogLevel;
   return undefined;
 }
 

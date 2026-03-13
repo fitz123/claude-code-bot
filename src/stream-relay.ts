@@ -256,6 +256,10 @@ export async function relayStream(
               messagesSent.inc();
             } catch (fallbackErr) {
               log.error("stream-relay", `Fallback reply also failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
+              // If we can't send chunks[0] at all, skip remaining chunks —
+              // the API is clearly failing and partial output missing the
+              // beginning would be confusing.
+              return;
             }
           }
         }

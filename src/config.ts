@@ -169,7 +169,13 @@ export function loadConfig(configPath?: string): BotConfig {
   const logLevel = parseLogLevel(process.env.LOG_LEVEL) ?? parseLogLevel(raw.logLevel);
 
   // Metrics port (optional — if not set, metrics endpoint is disabled)
-  const metricsPort = typeof raw.metricsPort === "number" ? raw.metricsPort : undefined;
+  let metricsPort: number | undefined;
+  if (typeof raw.metricsPort === "number") {
+    if (!Number.isInteger(raw.metricsPort) || raw.metricsPort < 1 || raw.metricsPort > 65535) {
+      throw new Error(`Invalid metricsPort: ${raw.metricsPort} (must be an integer between 1 and 65535)`);
+    }
+    metricsPort = raw.metricsPort;
+  }
 
   return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort };
 }
