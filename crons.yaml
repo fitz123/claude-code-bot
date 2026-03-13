@@ -1,75 +1,19 @@
 # Cron job definitions — loaded by cron-runner.ts
-# Migrated from OpenClaw gateway crons (33 total)
 # All times are Europe/Moscow (GMT+3) — machine timezone
 # Prompts adapted for Claude Code CLI runtime (Bash/Read/Edit tools, deliver.sh for messaging)
 
 crons:
   # ══════════════════════════════════════════
-  # MEMORY CONSOLIDATION (5 crons, nightly)
+  # MEMORY CONSOLIDATION (1 cron, nightly)
   # ══════════════════════════════════════════
 
-  - name: memory-consolidation-cyber
-    schedule: "0 2 * * *"
-    prompt: >
-      Запусти skill memory-consolidation. Прочитай SKILL.md:
-      ~/.openclaw/skills/memory-consolidation/SKILL.md и профиль:
-      ~/.openclaw/skills/memory-consolidation/profiles/cyber-architect.yaml.
-      Выполни полный pipeline (preflight -> lock -> fast-path -> gather -> diff -> fix -> report).
-      Safe-edit режим — применяй изменения.
-      По завершении выведи краткий отчёт (Memory consolidation + сегодняшняя дата).
-    agentId: cyber-architect
-    deliveryChatId: 306600687
-    timeout: 600000
-    maxBudget: 1.00
-
   - name: memory-consolidation-main
+    enabled: false
     schedule: "10 2 * * *"
     prompt: >
       Запусти skill memory-consolidation. Прочитай SKILL.md:
-      ~/.openclaw/skills/memory-consolidation/SKILL.md и профиль:
-      ~/.openclaw/skills/memory-consolidation/profiles/main.yaml.
-      Выполни полный pipeline (preflight -> lock -> fast-path -> gather -> diff -> fix -> report).
-      Safe-edit режим — применяй изменения.
-      По завершении выведи краткий отчёт (Memory consolidation + сегодняшняя дата).
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 600000
-    maxBudget: 1.00
-
-  - name: memory-consolidation-anna
-    schedule: "30 2 * * *"
-    prompt: >
-      Запусти skill memory-consolidation. Прочитай SKILL.md:
-      ~/.openclaw/skills/memory-consolidation/SKILL.md и профиль:
-      ~/.openclaw/skills/memory-consolidation/profiles/anna.yaml.
-      Выполни полный pipeline (preflight -> lock -> fast-path -> gather -> diff -> fix -> report).
-      Safe-edit режим — применяй изменения.
-      По завершении выведи краткий отчёт (Memory consolidation + сегодняшняя дата).
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 600000
-    maxBudget: 1.00
-
-  - name: memory-consolidation-yulia
-    schedule: "50 2 * * *"
-    prompt: >
-      Запусти skill memory-consolidation. Прочитай SKILL.md:
-      ~/.openclaw/skills/memory-consolidation/SKILL.md и профиль:
-      ~/.openclaw/skills/memory-consolidation/profiles/yulia.yaml.
-      Выполни полный pipeline (preflight -> lock -> fast-path -> gather -> diff -> fix -> report).
-      Safe-edit режим — применяй изменения.
-      По завершении выведи краткий отчёт (Memory consolidation + сегодняшняя дата).
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 600000
-    maxBudget: 1.00
-
-  - name: memory-consolidation-anima
-    schedule: "10 3 * * *"
-    prompt: >
-      Запусти skill memory-consolidation. Прочитай SKILL.md:
-      ~/.openclaw/skills/memory-consolidation/SKILL.md и профиль:
-      ~/.openclaw/skills/memory-consolidation/profiles/anima.yaml.
+      ~/.minime/workspace/.claude/skills/memory-consolidation/SKILL.md и профиль:
+      ~/.minime/workspace/.claude/skills/memory-consolidation/profiles/main.yaml.
       Выполни полный pipeline (preflight -> lock -> fast-path -> gather -> diff -> fix -> report).
       Safe-edit режим — применяй изменения.
       По завершении выведи краткий отчёт (Memory consolidation + сегодняшняя дата).
@@ -83,6 +27,7 @@ crons:
   # ══════════════════════════════════════════
 
   - name: workspace-health
+    enabled: false
     schedule: "30 3 * * *"
     prompt: >
       Ежедневный прогон skill workspace-health. Прочитай SKILL.md:
@@ -214,32 +159,6 @@ crons:
     timeout: 120000
     maxBudget: 0.20
 
-  - name: int__gdrive-download-window-start
-    schedule: "0 1 * * *"
-    prompt: >
-      Открой окно скачивания Google Drive (01:00-07:00 МСК).
-      Run: /Users/ninja/.openclaw/workspace/scripts/gdrive_download_window_start.sh
-      Then verify process gdrive_video_autopilot.py is running: ps aux | grep gdrive_video_autopilot | grep -v grep
-      If success, respond NO_REPLY.
-      If error, output: '⚠️ GDrive download window start failed: <error>'
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 120000
-    maxBudget: 0.20
-
-  - name: int__gdrive-download-window-stop
-    schedule: "0 7 * * *"
-    prompt: >
-      Закрой окно скачивания Google Drive после 07:00 МСК.
-      Run: /Users/ninja/.openclaw/workspace/scripts/gdrive_download_window_stop.sh
-      Then verify no processes: ps aux | grep -E 'gdrive_video_autopilot|gdrive_ingest_dirs|rclone copy gdrive:' | grep -v grep
-      If success (no processes found), respond NO_REPLY.
-      If error, output: '⚠️ GDrive download window stop failed: <error>'
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 120000
-    maxBudget: 0.20
-
   # ══════════════════════════════════════════
   # DAILY TASK MANAGEMENT (3 crons)
   # ══════════════════════════════════════════
@@ -351,6 +270,7 @@ crons:
   # ══════════════════════════════════════════
 
   - name: int__vitaminka-scheduler-yulia
+    enabled: false
     schedule: "0 10 * * *"
     prompt: |
       ВИТАМИНКА для Юли — combined scheduler + sender.
@@ -374,6 +294,7 @@ crons:
     maxBudget: 0.50
 
   - name: int__vitaminka-scheduler-anna
+    enabled: false
     schedule: "0 10 * * *"
     prompt: |
       ВИТАМИНКА для Анны — combined scheduler + sender.
@@ -396,54 +317,11 @@ crons:
     maxBudget: 0.50
 
   # ══════════════════════════════════════════
-  # MONITORING & SECURITY (5 crons)
+  # MONITORING & SECURITY (2 crons)
   # ══════════════════════════════════════════
 
-  - name: anthropic-block-monitor
-    schedule: "0 11 * * *"
-    prompt: |
-      Мониторинг блокировок Anthropic Max OAuth.
-
-      Контекст: мы используем Claude Max подписку (OAuth) программно через claude CLI.
-      Отслеживаем enforcement/изменения политики.
-
-      Шаг 0: Подготовка
-      - SINCE=$(TZ=Europe/Moscow date -v-1d +%Y-%m-%d)
-      - TODAY=$(TZ=Europe/Moscow date +%Y-%m-%d)
-
-      Шаг 1: Self-check
-      Run: claude --version
-      If fails, this is CRITICAL.
-
-      Шаг 2: Поисковые запросы
-      Search web for recent news about Anthropic Claude Max subscription changes,
-      OAuth enforcement, programmatic usage policy changes.
-
-      Шаг 3: Оценка — CRITICAL / HIGH / LOW
-
-      Шаг 4: Actions
-      If CRITICAL/HIGH: output the alert.
-      If LOW/nothing: respond NO_REPLY.
-
-      Шаг 5: Логирование
-      Append JSON to reference/tasks/workspace-5qb/monitor-log.jsonl
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 300000
-    maxBudget: 0.50
-
-
-  - name: host-healthcheck-weekly
-    schedule: "15 11 * * 6"
-    prompt: >
-      Read skills/host-healthcheck/SKILL.md and follow its instructions.
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 300000
-    maxBudget: 0.50
-
   # ══════════════════════════════════════════
-  # WORK-LIFE REMINDERS (4 crons, Telegram)
+  # WORK-LIFE REMINDERS (2 crons, Telegram)
   # ══════════════════════════════════════════
 
   - name: tg-306600687__work-end-reminder
@@ -454,30 +332,6 @@ crons:
       Если есть активные процессы (>0) — Ninja общается — ответь NO_REPLY.
       Если нет активных — Ninja работает молча — выведи напоминание:
       '20:00, конец рабочего дня. Запиши что осталось, закрой ноут, прогулка в 20:30.'
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 120000
-    maxBudget: 0.20
-
-  - name: tg-306600687__work-escalation-21
-    schedule: "0 21 * * 1-5"
-    prompt: >
-      21:00 — час сверхурочно.
-      Проверь есть ли активные claude процессы: ps aux | grep 'claude.*session' | grep -v grep | wc -l
-      Если есть активные процессы (>0) — Ninja общается — ответь NO_REPLY.
-      Если нет — выведи: 'Час сверхурочно, прогулка пропущена. Закрывай.'
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 120000
-    maxBudget: 0.20
-
-  - name: tg-306600687__work-escalation-22
-    schedule: "0 22 * * 1-5"
-    prompt: >
-      22:00 — два часа сверхурочно.
-      Проверь есть ли активные claude процессы: ps aux | grep 'claude.*session' | grep -v grep | wc -l
-      Если есть активные процессы (>0) — Ninja общается — ответь NO_REPLY.
-      Если нет — выведи: 'ДВА часа сверхурочно, это уже много, закрывай ноут.'
     agentId: main
     deliveryChatId: 306600687
     timeout: 120000
@@ -516,17 +370,6 @@ crons:
   # WEEKLY TASKS (3 crons)
   # ══════════════════════════════════════════
 
-  - name: tg-306600687__weekly-self-improvement
-    schedule: "0 20 * * 5"
-    prompt: >
-      Read the skill file ~/.openclaw/skills/weekly-self-improvement/SKILL.md
-      and execute the full pipeline (Stage 1 -> Stage 2+3).
-      Create memory/weekly-self-improvement/ if needed. Output report.
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 600000
-    maxBudget: 1.00
-
   - name: int__brew-weekly-upgrade
     schedule: "0 4 * * 6"
     prompt: >
@@ -541,6 +384,7 @@ crons:
     maxBudget: 0.50
 
   - name: tg-1003783997959__cyber-weekly-morning-status
+    enabled: false
     schedule: "0 10 * * 1"
     prompt: |
       Собери weekly статус для группы КИБЕР-ГЕНПОДРЯД.
@@ -567,37 +411,8 @@ crons:
     maxBudget: 0.50
 
   # ══════════════════════════════════════════
-  # SYSTEM / CANARY (3 crons)
+  # SYSTEM (1 cron)
   # ══════════════════════════════════════════
-
-  - name: int__openclaw-update-daily
-    schedule: "15 12 * * *"
-    prompt: |
-      Ежедневный чек обновлений Claude CLI.
-
-      1. Запусти: claude --version
-      2. Запусти: claude update check 2>&1 || echo "no update command"
-      3. Check GitHub releases: curl -s https://api.github.com/repos/anthropics/claude-code/releases/latest | head -50
-      4. Compare current version with latest release.
-      5. If no update available: respond NO_REPLY.
-      6. If update exists: output version diff and key changes (2-3 lines).
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 240000
-    maxBudget: 0.50
-
-  - name: acp-canary-check
-    schedule: "every 86400"
-    prompt: >
-      Bot health check. Verify the Telegram bot and cron system are healthy.
-      1. Check bot process: ps aux | grep 'tsx.*main.ts' | grep -v grep
-      2. Check recent cron logs: ls -lt /Users/ninja/.openclaw/logs/cron-*.log | head -5
-      3. Check for orphan claude processes: ps aux | grep claude | grep -v grep | wc -l
-      4. If anomalies, output alert. Otherwise NO_REPLY.
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 120000
-    maxBudget: 0.20
 
   - name: cron-health-monitor
     schedule: "0 8 * * 1"

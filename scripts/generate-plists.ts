@@ -25,6 +25,7 @@ interface CronDef {
   deliveryChatId: number;
   timeout?: number;
   maxBudget?: number;
+  enabled?: boolean;
 }
 
 interface CronsYaml {
@@ -235,6 +236,10 @@ function main(): void {
   let errors = 0;
 
   for (const cron of raw.crons) {
+    if (cron.enabled === false) {
+      console.log(`[SKIP] ${cron.name} (enabled: false)`);
+      continue;
+    }
     try {
       const plistContent = generatePlist(cron);
       const plistPath = resolve(
