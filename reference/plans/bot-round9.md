@@ -253,13 +253,13 @@ But `getOrCreateSession` never compares `stored.agentId` with the incoming `agen
 
 **What we want:** Before attempting `--resume`, `getOrCreateSession` should compare the stored session's `agentId` with the current binding's `agentId`. If they differ, discard the stored session and create a fresh one. Log a warning when this happens so it's visible in logs. This should also handle the case where the stored `agentId` references an agent that no longer exists in config.
 
-- [ ] `getOrCreateSession` detects agentId mismatch between stored session and current binding
-- [ ] Mismatched sessions are discarded (not resumed) and a fresh session is created
-- [ ] Warning logged when a stale session is discarded due to agentId mismatch
-- [ ] Sessions with agentId referencing a deleted agent are also discarded
-- [ ] Other sessions in the store are not affected (no full flush)
-- [ ] Tests for agentId mismatch detection and fresh session creation
-- [ ] Verify existing tests pass
+- [x] `getOrCreateSession` detects agentId mismatch between stored session and current binding
+- [x] Mismatched sessions are discarded (not resumed) and a fresh session is created
+- [x] Warning logged when a stale session is discarded due to agentId mismatch
+- [x] Sessions with agentId referencing a deleted agent are also discarded
+- [x] Other sessions in the store are not affected (no full flush)
+- [x] Tests for agentId mismatch detection and fresh session creation
+- [x] Verify existing tests pass
 
 ### Task 2: Guild-wide default Discord binding with per-channel overrides (bot-66d, P2)
 

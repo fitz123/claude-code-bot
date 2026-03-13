@@ -133,6 +133,118 @@ describe("SessionManager", () => {
   });
 });
 
+describe("SessionManager agentId mismatch detection", () => {
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("resumes session when agentId matches stored session", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate store with a session using "main" agent
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-1", {
+      sessionId: "existing-session-id",
+      chatId: "chat-1",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const result = manager.resolveStoredSession("chat-1", "main");
+    assert.strictEqual(result.resume, true);
+    assert.strictEqual(result.sessionId, "existing-session-id");
+  });
+
+  it("discards stored session when agentId changes", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate store with a session using "main" agent
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-1", {
+      sessionId: "old-session-id",
+      chatId: "chat-1",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+    // Also store a second session that should NOT be affected
+    store.setSession("chat-2", {
+      sessionId: "other-session-id",
+      chatId: "chat-2",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const result = manager.resolveStoredSession("chat-1", "yulia");
+
+    assert.strictEqual(result.resume, false, "should not resume mismatched session");
+    assert.notStrictEqual(result.sessionId, "old-session-id", "should generate a fresh sessionId");
+
+    // Verify store: stale session deleted, other session intact
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("chat-1"), undefined, "stale session should be deleted from store");
+    assert.ok(storeAfter.getSession("chat-2"), "other sessions should be unaffected");
+  });
+
+  it("discards stored session when stored agentId references a deleted agent", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate store with a session referencing a non-existent agent
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-1", {
+      sessionId: "orphan-session-id",
+      chatId: "chat-1",
+      agentId: "deleted-agent",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const result = manager.resolveStoredSession("chat-1", "main");
+
+    assert.strictEqual(result.resume, false, "should not resume session with deleted agent");
+    assert.notStrictEqual(result.sessionId, "orphan-session-id", "should generate a fresh sessionId");
+
+    // Verify store cleanup
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("chat-1"), undefined, "orphan session should be deleted");
+  });
+
+  it("creates fresh session when no stored session exists", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const result = manager.resolveStoredSession("new-chat", "main");
+    assert.strictEqual(result.resume, false, "should not resume non-existent session");
+    assert.ok(result.sessionId, "should generate a sessionId");
+  });
+
+  it("creates fresh session when stored sessionId is empty", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-1", {
+      sessionId: "",
+      chatId: "chat-1",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const result = manager.resolveStoredSession("chat-1", "main");
+    assert.strictEqual(result.resume, false, "should not resume empty sessionId");
+  });
+});
+
 describe("SessionManager idle timer logic", () => {
   it("resetIdleTimer is safe for unknown chatId", async () => {
     const { SessionManager } = await import("../session-manager.js");
