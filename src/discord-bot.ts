@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder } from "discord.js";
 import type { Message as DiscordMessage } from "discord.js";
 import type { BotConfig, DiscordBinding, DiscordConfig } from "./types.js";
-import type { SessionManager } from "./session-manager.js";
+import { outboxDir, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { createDiscordAdapter, type DiscordSendableChannel } from "./discord-adapter.js";
@@ -128,8 +128,7 @@ export async function createDiscordBot(
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
-      const agent = config.agents[agentId];
-      await relayStream(stream, platform, agent?.workspaceCwd);
+      await relayStream(stream, platform, outboxDir(chatId));
     },
   );
 

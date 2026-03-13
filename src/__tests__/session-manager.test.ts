@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { Readable, Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
-import { waitForSpawn } from "../session-manager.js";
+import { waitForSpawn, outboxDir } from "../session-manager.js";
 
 const TEST_DIR = "/tmp/openclaw-test-session-manager";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -278,6 +278,22 @@ describe("ActiveSession shape", () => {
   });
 });
 
+describe("outboxDir", () => {
+  it("returns deterministic path for a chatId", () => {
+    const path = outboxDir("chat123");
+    assert.strictEqual(path, "/tmp/bot-outbox/chat123");
+  });
+
+  it("sanitizes special characters in chatId", () => {
+    const path = outboxDir("tg:12345");
+    assert.strictEqual(path, "/tmp/bot-outbox/tg_12345");
+  });
+
+  it("returns same path for same chatId", () => {
+    assert.strictEqual(outboxDir("abc"), outboxDir("abc"));
+  });
+});
+
 describe("SessionManager sendSessionMessage streaming", () => {
   beforeEach(() => {
     cleanup();
@@ -326,6 +342,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["123", session]]);
 
@@ -404,6 +421,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["err-chat", session]]);
 
@@ -455,6 +473,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["dead-chat", session]]);
 
@@ -529,6 +548,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["epipe-chat", session]]);
 
@@ -797,6 +817,7 @@ describe("setupStderrLogging", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, Map<string, unknown>>).active.set("crash-integration", session);
 
@@ -902,6 +923,7 @@ describe("SessionManager.getSessionHealth", () => {
       processingStartedAt: null,
       lastSuccessAt: now - 10000,
       restartCount: 2,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["health-chat", session]]);
 
@@ -943,6 +965,7 @@ describe("SessionManager.getSessionHealth", () => {
       processingStartedAt: now - 3000,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["proc-chat", session]]);
 
@@ -978,6 +1001,7 @@ describe("SessionManager.getSessionHealth", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["dead-health", session]]);
 
@@ -1012,6 +1036,7 @@ describe("SessionManager.getSessionHealth", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["killed-chat", session]]);
 
@@ -1046,6 +1071,7 @@ describe("SessionManager.getSessionHealth", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["nopid-chat", session]]);
 
@@ -1101,6 +1127,7 @@ describe("ActiveSession health fields tracked in sendSessionMessage", () => {
       processingStartedAt: null,
       lastSuccessAt: null,
       restartCount: 0,
+      outboxPath: "/tmp/bot-outbox/test",
     };
     (manager as unknown as Record<string, unknown>).active = new Map([["proc-track", session]]);
 

@@ -13,6 +13,8 @@ export interface SpawnOptions {
   sessionId?: string;
   resume?: boolean;
   includePartialMessages?: boolean;
+  /** Per-session outbox directory; injected into system prompt so Claude can send files. */
+  outboxPath?: string;
 }
 
 /**
@@ -40,8 +42,19 @@ export function buildSpawnArgs(opts: SpawnOptions): string[] {
     args.push("--max-turns", String(opts.agent.maxTurns));
   }
 
+  // Build combined system prompt: agent's static prompt + dynamic outbox instruction
+  const promptParts: string[] = [];
   if (opts.agent.systemPrompt) {
-    args.push("--append-system-prompt", opts.agent.systemPrompt);
+    promptParts.push(opts.agent.systemPrompt);
+  }
+  if (opts.outboxPath) {
+    promptParts.push(
+      `To share a file with the user, write or copy it to this outbox directory: ${opts.outboxPath}\n` +
+      "Files placed there will be automatically sent to the user after your response completes.",
+    );
+  }
+  if (promptParts.length > 0) {
+    args.push("--append-system-prompt", promptParts.join("\n\n"));
   }
 
   if (opts.agent.effort) {
