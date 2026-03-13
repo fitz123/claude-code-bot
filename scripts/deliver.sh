@@ -40,12 +40,23 @@ LOG_DIR="/Users/ninja/.openclaw/logs"
 LOG_FILE="${LOG_DIR}/cron-delivery.log"
 mkdir -p "$LOG_DIR"
 
+build_payload() {
+  local text_json="$1" parse_mode="${2:-}"
+  local payload
+  payload=$(printf '{"chat_id":%s,"text":%s' "$CHAT_ID" "$text_json")
+  [ -n "$parse_mode" ] && payload="${payload},\"parse_mode\":\"${parse_mode}\""
+  [ -n "$THREAD_ID" ] && payload="${payload},\"message_thread_id\":${THREAD_ID}"
+  printf '%s}' "$payload"
+}
+
 send_message() {
   local text="$1"
+  local text_json
+  text_json=$(echo "$text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
   local response
   response=$(curl -s -X POST "${API}/sendMessage" \
     -H "Content-Type: application/json" \
-    -d "$(printf '{"chat_id":%s,"text":%s,"parse_mode":"Markdown"}' "$CHAT_ID" "$(echo "$text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')")")
+    -d "$(build_payload "$text_json" "Markdown")")
 
   local ok
   ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
@@ -54,7 +65,7 @@ send_message() {
     # Retry without parse_mode in case of markdown errors
     response=$(curl -s -X POST "${API}/sendMessage" \
       -H "Content-Type: application/json" \
-      -d "$(printf '{"chat_id":%s,"text":%s}' "$CHAT_ID" "$(echo "$text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')")")
+      -d "$(build_payload "$text_json")")
 
     ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
     if [ "$ok" != "True" ]; then
