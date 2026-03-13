@@ -43,6 +43,17 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
+  // Safety net: catch uncaught exceptions and unhandled rejections.
+  // These should never fire if errors are properly caught, but they
+  // prevent total process failure if something is missed (e.g. a
+  // Discord WebSocket error that somehow bypasses the client handler).
+  process.on("uncaughtException", (error) => {
+    log.error("main", "FATAL uncaught exception (process NOT exiting):", error);
+  });
+  process.on("unhandledRejection", (reason) => {
+    log.error("main", "FATAL unhandled rejection (process NOT exiting):", reason);
+  });
+
   // Start Telegram bot if configured
   if (config.telegramToken && config.bindings.length > 0) {
     const { bot, messageQueue } = createTelegramBot(config, sessionManager);

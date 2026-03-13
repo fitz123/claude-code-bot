@@ -39,6 +39,7 @@ bindings:
 sessionDefaults:
   idleTimeoutMs: 14400000 # 4hrs
   maxConcurrentSessions: 6
+  maxMessageAgeMs: 300000 # 5 min — discard messages older than this on restart
 
 metricsPort: 9091
 

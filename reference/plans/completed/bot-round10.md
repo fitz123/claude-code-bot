@@ -188,15 +188,15 @@ this.restartCounts.set(chatId, restartCount);
 
 **What we want:** Discord client errors are caught, logged at ERROR level, and discord.js is allowed to reconnect automatically. The bot process must not crash from Discord WebSocket issues. Add handlers for `Events.Error`, `Events.ShardError`, and `Events.Warn` on the Discord client. Also add `process.on("uncaughtException")` and `process.on("unhandledRejection")` in `main.ts` as a safety net — log the error at FATAL level but do NOT crash the process (these should never fire if errors are properly caught, but they prevent total failure if something is missed). Log shard reconnection events at INFO level for visibility.
 
-- [ ] Discord `Events.Error` handled — logged at ERROR, process does not crash
-- [ ] Discord `Events.ShardError` handled — logged at ERROR with shard ID
-- [ ] Discord `Events.Warn` handled — logged at WARN
-- [ ] `Events.ShardReconnecting` and `Events.ShardResume` logged at INFO for visibility
-- [ ] `process.on("uncaughtException")` in main.ts logs at FATAL but does not exit
-- [ ] `process.on("unhandledRejection")` in main.ts logs at FATAL but does not exit
-- [ ] A Discord WebSocket timeout does not kill the Telegram bot
-- [ ] Tests for error handler registration
-- [ ] Verify existing tests pass
+- [x] Discord `Events.Error` handled — logged at ERROR, process does not crash
+- [x] Discord `Events.ShardError` handled — logged at ERROR with shard ID
+- [x] Discord `Events.Warn` handled — logged at WARN
+- [x] `Events.ShardReconnecting` and `Events.ShardResume` logged at INFO for visibility
+- [x] `process.on("uncaughtException")` in main.ts logs at FATAL but does not exit
+- [x] `process.on("unhandledRejection")` in main.ts logs at FATAL but does not exit
+- [x] A Discord WebSocket timeout does not kill the Telegram bot
+- [x] Tests for error handler registration
+- [x] Verify existing tests pass
 
 ### Task 2: Skip stale messages and add session crash backoff (bot-kjc, P2)
 
@@ -209,13 +209,13 @@ this.restartCounts.set(chatId, restartCount);
 - Session spawn has exponential backoff based on `restartCount` — if a session for a chatId has crashed N times recently, delay the next spawn attempt. After a threshold (e.g. 5 crashes), stop spawning for that chatId and log at ERROR level. The backoff should reset when a session completes successfully.
 - Same staleness check for Discord messages (Discord `Message.createdTimestamp` is milliseconds).
 
-- [ ] Telegram messages older than a threshold are silently discarded (never enqueued)
-- [ ] Discord messages older than the same threshold are silently discarded
-- [ ] Threshold is configurable via config.yaml (e.g. `maxMessageAgeMs`, default 300000 = 5 min)
-- [ ] Discarded messages logged at DEBUG level with age
-- [ ] Session spawn backs off exponentially based on recent crash count for the same chatId
-- [ ] After max crashes (e.g. 5), session spawn is blocked for that chatId with ERROR log
-- [ ] Backoff resets when a session completes successfully
-- [ ] Tests for message staleness filtering
-- [ ] Tests for crash backoff and circuit breaking
-- [ ] Verify existing tests pass
+- [x] Telegram messages older than a threshold are silently discarded (never enqueued)
+- [x] Discord messages older than the same threshold are silently discarded
+- [x] Threshold is configurable via config.yaml (e.g. `maxMessageAgeMs`, default 300000 = 5 min)
+- [x] Discarded messages logged at DEBUG level with age
+- [x] Session spawn backs off exponentially based on recent crash count for the same chatId
+- [x] After max crashes (e.g. 5), session spawn is blocked for that chatId with ERROR log
+- [x] Backoff resets when a session completes successfully
+- [x] Tests for message staleness filtering
+- [x] Tests for crash backoff and circuit breaking
+- [x] Verify existing tests pass

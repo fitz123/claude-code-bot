@@ -66,6 +66,7 @@ export const sessionsActive = new client.Gauge({
 export const sessionCrashes = new client.Counter({
   name: "bot_session_crashes_total",
   help: "Total session subprocess crashes",
+  labelNames: ["agent_id"] as const,
 });
 
 // --- Message flow ---

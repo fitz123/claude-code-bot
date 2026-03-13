@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -490,5 +490,49 @@ describe("voiceTranscriptEcho config", () => {
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "finance");
     assert.strictEqual(binding.voiceTranscriptEcho, false);
+  });
+});
+
+describe("isStaleMessage", () => {
+  it("returns true for messages older than threshold", () => {
+    const sixMinAgoMs = Date.now() - 6 * 60 * 1000;
+    assert.strictEqual(isStaleMessage(sixMinAgoMs, 300000), true);
+  });
+
+  it("returns false for recent messages", () => {
+    const tenSecAgoMs = Date.now() - 10000;
+    assert.strictEqual(isStaleMessage(tenSecAgoMs, 300000), false);
+  });
+
+  it("returns true for messages just past threshold", () => {
+    const justPastMs = Date.now() - 300001;
+    assert.strictEqual(isStaleMessage(justPastMs, 300000), true);
+  });
+
+  it("returns false for messages at exact threshold boundary", () => {
+    // At exactly maxAge, not stale (> not >=). Use small buffer to avoid
+    // flakiness from wall-clock drift between the two Date.now() calls.
+    const nearExactMs = Date.now() - 299990;
+    assert.strictEqual(isStaleMessage(nearExactMs, 300000), false);
+  });
+
+  it("returns true for very old messages (hours)", () => {
+    const threeHoursAgoMs = Date.now() - 3 * 60 * 60 * 1000;
+    assert.strictEqual(isStaleMessage(threeHoursAgoMs, 300000), true);
+  });
+
+  it("returns false for messages in the future (clock skew)", () => {
+    const futureMs = Date.now() + 10000;
+    assert.strictEqual(isStaleMessage(futureMs, 300000), false);
+  });
+
+  it("works with Telegram-style timestamps (seconds converted to ms)", () => {
+    const fiveMinAgoSec = Math.floor(Date.now() / 1000) - 301;
+    assert.strictEqual(isStaleMessage(fiveMinAgoSec * 1000, 300000), true);
+  });
+
+  it("works with Discord-style timestamps (already ms)", () => {
+    const fourMinAgoMs = Date.now() - 4 * 60 * 1000;
+    assert.strictEqual(isStaleMessage(fourMinAgoMs, 300000), false);
   });
 });
