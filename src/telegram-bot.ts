@@ -5,6 +5,7 @@ import type { SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
+import { log } from "./logger.js";
 
 /** Commands to register with the Telegram Bot API via setMyCommands */
 export const BOT_COMMANDS = [
@@ -206,8 +207,23 @@ export function createTelegramBot(
 ): TelegramBotResult {
   const bot = new Bot(config.telegramToken);
 
-  // Auto-retry on rate limits
+  // Auto-retry on rate limits (outermost transformer — retries after inner errors)
   bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+
+  // Log Telegram API errors, especially 429 rate limits (inner transformer —
+  // sees each individual attempt before autoRetry decides whether to retry)
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    try {
+      const res = await prev(method, payload, signal);
+      if (!res.ok && res.error_code === 429) {
+        log.warn("telegram-api", `Rate limited: method=${String(method)} retry_after=${res.parameters?.retry_after ?? "unknown"}`);
+      }
+      return res;
+    } catch (err) {
+      log.warn("telegram-api", `HTTP error: method=${String(method)} ${err instanceof Error ? err.message : err}`);
+      throw err;
+    }
+  });
 
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
@@ -224,7 +240,7 @@ export function createTelegramBot(
     if (chatId === undefined) return;
 
     if (!isAuthorized(chatId, config.bindings)) {
-      console.log(`[telegram-bot] Rejected message from unauthorized chat ${chatId}`);
+      log.info("telegram-bot", `Rejected message from unauthorized chat ${chatId}`);
       return; // Silent drop
     }
 
@@ -353,11 +369,11 @@ export function createTelegramBot(
       // Echo transcript back to user (non-critical — don't block enqueue)
       if (binding.voiceTranscriptEcho !== false) {
         await ctx.reply(`\ud83d\udcdd "${transcript}"`).catch((echoErr) => {
-          console.warn(`[telegram-bot] Failed to echo transcript for chat ${chatId}:`, echoErr);
+          log.warn("telegram-bot", `Failed to echo transcript for chat ${chatId}:`, echoErr);
         });
       }
     } catch (err) {
-      console.error(`[telegram-bot] Voice transcription error for chat ${chatId}:`, err);
+      log.error("telegram-bot", `Voice transcription error for chat ${chatId}:`, err);
       await ctx.reply("Failed to transcribe voice message. Please try again or send text.").catch(() => {});
     } finally {
       if (tempPath) {
@@ -402,7 +418,7 @@ export function createTelegramBot(
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
-      console.error(`[telegram-bot] Photo handling error for chat ${chatId}:`, err);
+      log.error("telegram-bot", `Photo handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath);
@@ -445,7 +461,7 @@ export function createTelegramBot(
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
-      console.error(`[telegram-bot] Document image handling error for chat ${chatId}:`, err);
+      log.error("telegram-bot", `Document image handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process image document. Please try again.").catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath);
@@ -455,8 +471,8 @@ export function createTelegramBot(
 
   // Global error handler
   bot.catch((err) => {
-    console.error("[telegram-bot] Unhandled error:", err.error);
-    console.error("[telegram-bot] Update that caused the error:", JSON.stringify(err.ctx.update));
+    log.error("telegram-bot", "Unhandled error:", err.error);
+    log.error("telegram-bot", `Update that caused the error: ${JSON.stringify(err.ctx.update)}`);
   });
 
   return { bot, messageQueue };

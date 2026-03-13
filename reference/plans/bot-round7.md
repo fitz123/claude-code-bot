@@ -99,13 +99,13 @@ We want: if the final edit fails, the complete text must still be delivered to t
 
 **Problem 3: No structured logging.** ~41 `console.*` calls with no timestamps or severity. Replace with a simple logger module (no external deps) adding ISO timestamps and level tags. Log level configurable via `config.yaml` (`logLevel` key) and `LOG_LEVEL` env var (env overrides config).
 
-- [ ] Final editMessageText failure delivers complete text via retry or fallback
-- [ ] Test reproducing truncated message scenario (final edit throws, text still delivered)
-- [ ] 429 rate limit errors are logged at WARN level with method and retry_after
-- [ ] Structured logger with ISO timestamps and severity levels replaces all console.* calls
-- [ ] Log level configurable via config.yaml and LOG_LEVEL env var
-- [ ] Tests for logger
-- [ ] Verify existing tests pass
+- [x] Final editMessageText failure delivers complete text via retry or fallback
+- [x] Test reproducing truncated message scenario (final edit throws, text still delivered)
+- [x] 429 rate limit errors are logged at WARN level with method and retry_after
+- [x] Structured logger with ISO timestamps and severity levels replaces all console.* calls
+- [x] Log level configurable via config.yaml and LOG_LEVEL env var
+- [x] Tests for logger
+- [x] Verify existing tests pass
 
 ### Task 2: Prometheus metrics endpoint (bot-2kp, P2)
 
