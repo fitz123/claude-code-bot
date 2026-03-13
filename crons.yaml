@@ -432,69 +432,11 @@ crons:
     timeout: 300000
     maxBudget: 0.50
 
-  - name: int__security-audit-weekly
-    schedule: "0 11 * * 6"
-    prompt: >
-      Run the security-audit skill. Execute:
-      python3 /Users/ninja/.openclaw/workspace/skills/security-audit/scripts/audit.py
-      Capture JSON stdout. If overall_status == 'critical': format human-readable alert
-      listing each critical check with details. If overall_status is 'ok' or 'warn':
-      respond NO_REPLY. Known baselines (do NOT alert): legacy==6, multi_user_heuristic warn, bak_files warn.
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 300000
-    maxBudget: 0.50
-
-  - name: int__weekly-security-review
-    schedule: "0 11 * * 6"
-    prompt: |
-      Weekly security review. Do ALL work yourself.
-
-      1. Environment detection (FIRST):
-         - sw_vers
-         - node --version && claude --version
-         - sing-box version 2>&1 || echo 'sing-box not in PATH'
-         - brew outdated 2>&1 | head -40
-         - softwareupdate -l 2>&1 | head -20
-         - hostname
-
-      2. Vulnerability scan: search web for recent CVEs affecting the DETECTED versions.
-         Use actual macOS version from sw_vers. Check 3-5 queries.
-
-      3. Report format:
-         - 🔴 Critical (act now)
-         - 🟡 Notable (discuss)
-         - 🟢 All clear
-         - 📋 Recommendations
-
-      Be thorough but concise. Focus on actionable items.
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 600000
-    maxBudget: 1.00
 
   - name: host-healthcheck-weekly
     schedule: "15 11 * * 6"
     prompt: >
       Read skills/host-healthcheck/SKILL.md and follow its instructions.
-    agentId: main
-    deliveryChatId: 306600687
-    timeout: 300000
-    maxBudget: 0.50
-
-  - name: verify__security-audit-first-run
-    schedule: "0 12 14 3 *"
-    prompt: |
-      Verify that the security-audit weekly cron ran successfully.
-
-      Checks:
-      1. Check log: tail -20 /Users/ninja/.openclaw/logs/cron-int__security-audit-weekly.log
-         Verify last run shows "DONE" and finished recently.
-      2. Run the audit script: python3 /Users/ninja/.openclaw/workspace/skills/security-audit/scripts/audit.py
-         Verify it produces valid JSON with 'overall_status' field.
-
-      On SUCCESS (both pass): respond NO_REPLY.
-      On FAILURE: output alert with details. Reopen task: bd reopen workspace-5u4 --reason '<what failed>'
     agentId: main
     deliveryChatId: 306600687
     timeout: 300000
