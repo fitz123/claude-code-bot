@@ -178,18 +178,16 @@ describe("metrics HTTP server", () => {
   });
 
   it("serves /metrics endpoint with Prometheus text format", async () => {
-    // Use a random high port to avoid conflicts
-    const port = 19123;
-    startMetricsServer(port);
-
-    // Give server a moment to start
+    // Use port 0 to let the OS assign an available port
+    const server = startMetricsServer(0);
     await new Promise((r) => setTimeout(r, 100));
+    const addr = server.address() as { port: number };
 
     // Record some data
     messagesReceived.inc({ type: "text" });
     costUsd.inc({ agent_id: "test" }, 0.01);
 
-    const res = await fetch(`http://localhost:${port}/metrics`);
+    const res = await fetch(`http://localhost:${addr.port}/metrics`);
     assert.strictEqual(res.status, 200);
     const contentType = res.headers.get("content-type") ?? "";
     assert.ok(contentType.includes("text/plain") || contentType.includes("openmetrics"), `Expected text/plain or openmetrics, got: ${contentType}`);
@@ -200,11 +198,11 @@ describe("metrics HTTP server", () => {
   });
 
   it("returns 404 for non-metrics paths", async () => {
-    const port = 19124;
-    startMetricsServer(port);
+    const server = startMetricsServer(0);
     await new Promise((r) => setTimeout(r, 100));
+    const addr = server.address() as { port: number };
 
-    const res = await fetch(`http://localhost:${port}/other`);
+    const res = await fetch(`http://localhost:${addr.port}/other`);
     assert.strictEqual(res.status, 404);
   });
 });
