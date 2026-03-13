@@ -41,21 +41,7 @@ Forward metadata (`ctx.message.forward_origin`, `ctx.message.forward_date`) is c
 
 ## Tasks
 
-### Task 1: Remove dead Discord code (bot-nva, P1)
-
-Discord is decommissioned per ADR-038/ADR-039. Error handlers were added in bot-round10 so it no longer crashes the process, but the code is dead weight — ~400 lines of unused code, an unused npm dependency, and config parsing for a platform nobody uses.
-
-What we want: All Discord-related code, imports, config handling, and tests removed. The bot should be Telegram-only. No Discord dependencies in package.json. The `process.on("uncaughtException"/"unhandledRejection")` handlers added in round10 should stay (they're a good safety net regardless of Discord).
-
-- [ ] Discord bot module, adapter, and tests removed
-- [ ] Discord imports and initialization removed from main.ts
-- [ ] Discord config section handling removed (config.yaml can keep the section for reference but code doesn't read it)
-- [ ] discord.js dependency removed from package.json
-- [ ] Bot starts and operates normally with only Telegram
-- [ ] Add tests verifying bot startup without Discord config
-- [ ] Verify existing tests pass
-
-### Task 2: Pass reply and forward context to Claude sessions (bot-bsx, P2)
+### Task 1: Pass reply and forward context to Claude sessions (bot-bsx, P2)
 
 When a user replies to a message in Telegram, Claude only sees the new message text — the replied-to message content is lost. Same for forwarded messages: forward origin and original author are not passed. This makes it impossible for Claude to understand what the user is referencing.
 
