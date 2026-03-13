@@ -1,10 +1,9 @@
 import { loadConfig } from "./config.js";
 import { SessionManager } from "./session-manager.js";
-import { createTelegramBot, BOT_COMMANDS } from "./telegram-bot.js";
+import { createTelegramBot, BOT_COMMANDS, type TelegramBotResult } from "./telegram-bot.js";
 import { createDiscordBot } from "./discord-bot.js";
 import { log, setLogLevel } from "./logger.js";
 import { startMetricsServer, stopMetricsServer } from "./metrics.js";
-import type { Bot } from "grammy";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
 
@@ -25,7 +24,7 @@ async function main(): Promise<void> {
   log.info("main", "Session manager initialized");
 
   // Track resources for shutdown
-  let telegramBot: Bot | undefined;
+  let telegramBot: TelegramBotResult["bot"] | undefined;
   const messageQueues: MessageQueue[] = [];
   let discordClient: Client | undefined;
 
