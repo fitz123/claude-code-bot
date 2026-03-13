@@ -155,8 +155,10 @@ export class SessionManager {
     // Check if we have a stored session to resume (discards stale sessions)
     const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
 
-    // Create outbox directory for file delivery
+    // Clean and recreate outbox directory to prevent stale files from
+    // a previous crashed session from leaking into the new session's replies.
     const outboxPath = outboxDir(chatId);
+    rmSync(outboxPath, { recursive: true, force: true });
     mkdirSync(outboxPath, { recursive: true });
 
     // Spawn the claude subprocess

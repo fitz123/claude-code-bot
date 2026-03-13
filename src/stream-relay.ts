@@ -1,4 +1,4 @@
-import { readdirSync, statSync, unlinkSync } from "node:fs";
+import { readdirSync, lstatSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { StreamLine, PlatformContext } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
@@ -89,7 +89,7 @@ export async function sendOutboxFiles(outboxPath: string, platform: PlatformCont
   for (const name of entries) {
     const filePath = join(outboxPath, name);
     try {
-      const stat = statSync(filePath);
+      const stat = lstatSync(filePath);
       if (!stat.isFile()) continue;
       await platform.sendFile(filePath, isImageExtension(filePath));
       // Delete only after successful send
