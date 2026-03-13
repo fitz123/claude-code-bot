@@ -283,13 +283,13 @@ But `getOrCreateSession` never compares `stored.agentId` with the incoming `agen
 
 **What we want:** An explicit outbox mechanism. Each session gets an outbox directory (e.g. `/tmp/bot-outbox/<sessionKey>/`). Claude is told about this directory via a dynamic `--append-system-prompt` injected at session spawn time (not hardcoded in agent config — the outbox path is per-session). This dynamic prompt should be appended alongside any existing `systemPrompt` from the agent config, not replacing it. When Claude wants to send a file to the user, it writes/copies it to the outbox directory. After the stream completes (result received), the bot checks the outbox directory for files, sends each one via `platform.sendFile()`, then cleans up. No automatic scanning of Write tool_use events — only files explicitly placed in the outbox are sent. Works for both Telegram and Discord (both adapters already implement `sendFile`). Remove the old disabled `collectWritePaths` code path.
 
-- [ ] Outbox directory created per session (unique path, e.g. `/tmp/bot-outbox/<sessionKey>/`)
-- [ ] Outbox path communicated to Claude via `--append-system-prompt` when spawning the session
-- [ ] System prompt instruction tells Claude to copy/write files to the outbox dir when user asks for a file
-- [ ] After stream completes, bot scans outbox directory for files
-- [ ] Each file in outbox is sent via `platform.sendFile()` (images via photo, others via document)
-- [ ] Outbox directory cleaned up after files are sent (or on session close)
-- [ ] Old disabled `collectWritePaths` code path removed from stream-relay.ts
-- [ ] Works for both Telegram and Discord
-- [ ] Tests for outbox scanning, file sending, and cleanup
-- [ ] Verify existing tests pass
+- [x] Outbox directory created per session (unique path, e.g. `/tmp/bot-outbox/<sessionKey>/`)
+- [x] Outbox path communicated to Claude via `--append-system-prompt` when spawning the session
+- [x] System prompt instruction tells Claude to copy/write files to the outbox dir when user asks for a file
+- [x] After stream completes, bot scans outbox directory for files
+- [x] Each file in outbox is sent via `platform.sendFile()` (images via photo, others via document)
+- [x] Outbox directory cleaned up after files are sent (or on session close)
+- [x] Old disabled `collectWritePaths` code path removed from stream-relay.ts
+- [x] Works for both Telegram and Discord
+- [x] Tests for outbox scanning, file sending, and cleanup
+- [x] Verify existing tests pass

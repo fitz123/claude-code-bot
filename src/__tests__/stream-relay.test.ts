@@ -1,6 +1,8 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { splitMessage, extractText, collectWritePaths, isImageExtension, relayStream } from "../stream-relay.js";
+import { mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { splitMessage, extractText, isImageExtension, sendOutboxFiles, relayStream } from "../stream-relay.js";
 import type { StreamLine, StreamEvent, AssistantMessage, ResultMessage, ToolProgress, PlatformContext } from "../types.js";
 
 describe("splitMessage", () => {
@@ -194,198 +196,107 @@ describe("isImageExtension", () => {
   });
 });
 
-describe("collectWritePaths", () => {
-  it("collects file path from Write tool_use block", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01ABC",
-            input: { file_path: "/workspace/output.png", content: "..." },
-          },
-        ],
+describe("sendOutboxFiles", () => {
+  const outboxPath = "/tmp/bot-outbox-test-relay";
+
+  beforeEach(() => {
+    rmSync(outboxPath, { recursive: true, force: true });
+    mkdirSync(outboxPath, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(outboxPath, { recursive: true, force: true });
+  });
+
+  it("sends files from outbox directory", async () => {
+    writeFileSync(join(outboxPath, "chart.png"), "fake-png");
+    writeFileSync(join(outboxPath, "report.pdf"), "fake-pdf");
+
+    const sentFiles: Array<{ path: string; isImage: boolean }> = [];
+    const platform = {
+      ...mockPlatform().platform,
+      async sendFile(filePath: string, isImage: boolean): Promise<void> {
+        sentFiles.push({ path: filePath, isImage });
       },
-      session_id: "s",
     };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 1);
-    assert.ok(paths.has("/workspace/output.png"));
+
+    await sendOutboxFiles(outboxPath, platform);
+
+    assert.strictEqual(sentFiles.length, 2);
+    const names = sentFiles.map(f => f.path.split("/").pop());
+    assert.ok(names.includes("chart.png"));
+    assert.ok(names.includes("report.pdf"));
+
+    // Image detection
+    const png = sentFiles.find(f => f.path.endsWith("chart.png"));
+    assert.strictEqual(png?.isImage, true);
+    const pdf = sentFiles.find(f => f.path.endsWith("report.pdf"));
+    assert.strictEqual(pdf?.isImage, false);
   });
 
-  it("ignores Edit tool_use blocks", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Edit",
-            id: "toolu_01DEF",
-            input: { file_path: "/workspace/existing.ts", old_string: "a", new_string: "b" },
-          },
-        ],
+  it("cleans up files after sending", async () => {
+    writeFileSync(join(outboxPath, "output.txt"), "hello");
+
+    await sendOutboxFiles(outboxPath, mockPlatform().platform);
+
+    const remaining = readdirSync(outboxPath);
+    assert.strictEqual(remaining.length, 0);
+  });
+
+  it("skips subdirectories in outbox", async () => {
+    mkdirSync(join(outboxPath, "subdir"));
+    writeFileSync(join(outboxPath, "file.txt"), "hello");
+
+    const sentFiles: string[] = [];
+    const platform = {
+      ...mockPlatform().platform,
+      async sendFile(filePath: string): Promise<void> {
+        sentFiles.push(filePath);
       },
-      session_id: "s",
     };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 0);
+
+    await sendOutboxFiles(outboxPath, platform);
+    assert.strictEqual(sentFiles.length, 1);
+    assert.ok(sentFiles[0].endsWith("file.txt"));
   });
 
-  it("ignores non-assistant messages", () => {
-    const paths = new Set<string>();
-    const result: ResultMessage = {
-      type: "result",
-      result: "done",
-      session_id: "s",
-    };
-    collectWritePaths(result, paths);
-    assert.strictEqual(paths.size, 0);
+  it("handles nonexistent outbox directory gracefully", async () => {
+    rmSync(outboxPath, { recursive: true, force: true });
+    // Should not throw
+    await sendOutboxFiles(outboxPath, mockPlatform().platform);
   });
 
-  it("ignores assistant messages with subtype (tool_progress etc)", () => {
-    const paths = new Set<string>();
-    const msg: ToolProgress = {
-      type: "assistant",
-      subtype: "tool_progress",
-    };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 0);
-  });
-
-  it("deduplicates repeated snapshots of the same Write", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01ABC",
-            input: { file_path: "/workspace/file.txt", content: "hello" },
-          },
-        ],
+  it("handles empty outbox directory", async () => {
+    const sentFiles: string[] = [];
+    const platform = {
+      ...mockPlatform().platform,
+      async sendFile(filePath: string): Promise<void> {
+        sentFiles.push(filePath);
       },
-      session_id: "s",
     };
-    // Simulate repeated snapshots from --include-partial-messages
-    collectWritePaths(msg, paths);
-    collectWritePaths(msg, paths);
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 1);
+
+    await sendOutboxFiles(outboxPath, platform);
+    assert.strictEqual(sentFiles.length, 0);
   });
 
-  it("ignores Write block with missing file_path in input", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01GHI",
-            input: { content: "hello" },
-          },
-        ],
-      },
-      session_id: "s",
-    };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 0);
-  });
+  it("continues sending remaining files if one fails", async () => {
+    writeFileSync(join(outboxPath, "a.txt"), "aaa");
+    writeFileSync(join(outboxPath, "b.png"), "bbb");
 
-  it("ignores Write block with non-string file_path", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01JKL",
-            input: { file_path: 12345, content: "hello" },
-          },
-        ],
+    const sentFiles: string[] = [];
+    let callCount = 0;
+    const platform = {
+      ...mockPlatform().platform,
+      async sendFile(filePath: string): Promise<void> {
+        callCount++;
+        if (callCount === 1) throw new Error("network error");
+        sentFiles.push(filePath);
       },
-      session_id: "s",
     };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 0);
-  });
 
-  it("ignores Write block with undefined input", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01MNO",
-          },
-        ],
-      },
-      session_id: "s",
-    };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 0);
-  });
-
-  it("handles assistant message with non-array content", () => {
-    const paths = new Set<string>();
-    const msg = {
-      type: "assistant" as const,
-      message: {
-        role: "assistant" as const,
-        content: "just a string",
-      },
-      session_id: "s",
-    };
-    collectWritePaths(msg as unknown as AssistantMessage, paths);
-    assert.strictEqual(paths.size, 0);
-  });
-
-  it("collects multiple distinct Write paths", () => {
-    const paths = new Set<string>();
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01A",
-            input: { file_path: "/workspace/a.png", content: "..." },
-          },
-          {
-            type: "tool_use",
-            name: "Write",
-            id: "toolu_01B",
-            input: { file_path: "/workspace/b.txt", content: "..." },
-          },
-        ],
-      },
-      session_id: "s",
-    };
-    collectWritePaths(msg, paths);
-    assert.strictEqual(paths.size, 2);
-    assert.ok(paths.has("/workspace/a.png"));
-    assert.ok(paths.has("/workspace/b.txt"));
+    await sendOutboxFiles(outboxPath, platform);
+    // One succeeded, one failed — but both were attempted
+    assert.strictEqual(sentFiles.length, 1);
   });
 });
 
