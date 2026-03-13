@@ -156,6 +156,9 @@ export function validateDiscordBinding(raw: unknown, index: number): DiscordBind
   if (obj.channelId !== undefined && typeof obj.channelId !== "string") {
     throw new Error(`discord.bindings[${index}] channelId must be a string if provided`);
   }
+  if (obj.kind === "dm" && obj.channelId === undefined) {
+    throw new Error(`discord.bindings[${index}] kind "dm" requires channelId`);
+  }
   if (obj.channels !== undefined && obj.channelId !== undefined) {
     throw new Error(`discord.bindings[${index}] cannot have both channelId and channels`);
   }
