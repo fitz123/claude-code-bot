@@ -3,6 +3,7 @@ import { type Context, InputFile } from "grammy";
 import type { StreamLine } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
 import { log } from "./logger.js";
+import { messagesSent } from "./metrics.js";
 
 /** Maximum Telegram message length. */
 const MAX_MSG_LENGTH = 4096;
@@ -204,6 +205,7 @@ export async function relayStream(
         });
         sentMessageId = sent.message_id;
         lastEditTime = Date.now();
+        messagesSent.inc();
         continue;
       }
 
@@ -250,6 +252,7 @@ export async function relayStream(
             await ctx.reply(chunks[0], {
               ...(threadId ? { message_thread_id: threadId } : {}),
             });
+            messagesSent.inc();
           }
         }
 
@@ -258,6 +261,7 @@ export async function relayStream(
           await ctx.reply(chunks[i], {
             ...(threadId ? { message_thread_id: threadId } : {}),
           });
+          messagesSent.inc();
         }
       } else if (sentMessageId === null) {
         // Never sent an initial message (shouldn't happen, but handle it)
@@ -265,6 +269,7 @@ export async function relayStream(
           await ctx.reply(chunk, {
             ...(threadId ? { message_thread_id: threadId } : {}),
           });
+          messagesSent.inc();
         }
       }
     }

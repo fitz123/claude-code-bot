@@ -58,6 +58,7 @@ export interface BotConfig {
   bindings: TelegramBinding[];
   sessionDefaults: SessionDefaults;
   logLevel?: LogLevel;
+  metricsPort?: number;
 }
 
 // CLI Protocol types
