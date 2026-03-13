@@ -6,6 +6,7 @@ import {
   shouldRespondInDiscord,
   buildDiscordSourcePrefix,
 } from "../discord-bot.js";
+import { validateDiscordBinding } from "../config.js";
 import type { DiscordBinding } from "../types.js";
 
 // --- discordSessionKey ---
@@ -75,6 +76,91 @@ describe("resolveDiscordBinding", () => {
   it("handles empty bindings array", () => {
     const binding = resolveDiscordBinding("111", []);
     assert.strictEqual(binding, undefined);
+  });
+});
+
+// --- resolveDiscordBinding with guild-wide defaults and channel overrides ---
+
+describe("resolveDiscordBinding with guild-wide defaults", () => {
+  const guildBindings: DiscordBinding[] = [
+    {
+      guildId: "g1",
+      agentId: "main",
+      kind: "channel",
+      label: "My Server",
+      requireMention: true,
+      channels: [
+        { channelId: "c1", label: "Platform", requireMention: false },
+        { channelId: "c2", agentId: "coder", label: "Coding" },
+      ],
+    },
+    { channelId: "c3", guildId: "g2", agentId: "support", kind: "channel", label: "Support" },
+  ];
+
+  it("resolves exact channelId match over guild default", () => {
+    const binding = resolveDiscordBinding("c3", guildBindings, "g2");
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "support");
+    assert.strictEqual(binding.label, "Support");
+  });
+
+  it("resolves channel override from channels[] with overridden fields", () => {
+    const binding = resolveDiscordBinding("c1", guildBindings, "g1");
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "main"); // inherited from guild
+    assert.strictEqual(binding.label, "Platform"); // overridden
+    assert.strictEqual(binding.requireMention, false); // overridden
+    assert.strictEqual(binding.channelId, "c1");
+  });
+
+  it("resolves channel override with agentId override", () => {
+    const binding = resolveDiscordBinding("c2", guildBindings, "g1");
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "coder"); // overridden
+    assert.strictEqual(binding.label, "Coding"); // overridden
+    assert.strictEqual(binding.requireMention, true); // inherited from guild
+  });
+
+  it("falls back to guild-wide default for unlisted channel", () => {
+    const binding = resolveDiscordBinding("c999", guildBindings, "g1");
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "main");
+    assert.strictEqual(binding.label, "My Server");
+    assert.strictEqual(binding.requireMention, true);
+  });
+
+  it("returns undefined when no guild matches", () => {
+    const binding = resolveDiscordBinding("c999", guildBindings, "g999");
+    assert.strictEqual(binding, undefined);
+  });
+
+  it("returns undefined when guildId not provided and no channelId match", () => {
+    const binding = resolveDiscordBinding("c999", guildBindings);
+    assert.strictEqual(binding, undefined);
+  });
+
+  it("exact channelId match wins over guild fallback even without guildId", () => {
+    const binding = resolveDiscordBinding("c3", guildBindings);
+    assert.ok(binding);
+    assert.strictEqual(binding.agentId, "support");
+  });
+
+  it("preserves kind from guild binding in channel override", () => {
+    const binding = resolveDiscordBinding("c1", guildBindings, "g1");
+    assert.ok(binding);
+    assert.strictEqual(binding.kind, "channel");
+  });
+
+  it("does not include channels[] array in resolved override result", () => {
+    const binding = resolveDiscordBinding("c1", guildBindings, "g1");
+    assert.ok(binding);
+    assert.strictEqual(binding.channels, undefined);
+  });
+
+  it("guild default result does not include channels[] array", () => {
+    const binding = resolveDiscordBinding("c999", guildBindings, "g1");
+    assert.ok(binding);
+    assert.strictEqual(binding.channels, undefined);
   });
 });
 
@@ -219,6 +305,113 @@ describe("thread session isolation", () => {
     // But the session key includes the thread ID for isolation
     const key = discordSessionKey(parentChannelId, "thread123");
     assert.strictEqual(key, "discord:111:thread123");
+  });
+});
+
+// --- validateDiscordBinding config validation ---
+
+describe("validateDiscordBinding", () => {
+  it("accepts binding with channelId", () => {
+    const binding = validateDiscordBinding(
+      { channelId: "c1", guildId: "g1", agentId: "main", kind: "channel" },
+      0,
+    );
+    assert.strictEqual(binding.channelId, "c1");
+    assert.strictEqual(binding.guildId, "g1");
+  });
+
+  it("accepts guild-only binding without channelId", () => {
+    const binding = validateDiscordBinding(
+      { guildId: "g1", agentId: "main", kind: "channel" },
+      0,
+    );
+    assert.strictEqual(binding.channelId, undefined);
+    assert.strictEqual(binding.guildId, "g1");
+  });
+
+  it("accepts guild binding with channels array", () => {
+    const binding = validateDiscordBinding(
+      {
+        guildId: "g1",
+        agentId: "main",
+        kind: "channel",
+        channels: [
+          { channelId: "c1", label: "General" },
+          { channelId: "c2", agentId: "coder" },
+        ],
+      },
+      0,
+    );
+    assert.ok(binding.channels);
+    assert.strictEqual(binding.channels.length, 2);
+    assert.strictEqual(binding.channels[0].channelId, "c1");
+    assert.strictEqual(binding.channels[1].agentId, "coder");
+  });
+
+  it("rejects binding with both channelId and channels", () => {
+    assert.throws(
+      () =>
+        validateDiscordBinding(
+          { channelId: "c1", guildId: "g1", agentId: "main", kind: "channel", channels: [] },
+          0,
+        ),
+      /cannot have both channelId and channels/,
+    );
+  });
+
+  it("rejects missing guildId", () => {
+    assert.throws(
+      () => validateDiscordBinding({ agentId: "main", kind: "channel" }, 0),
+      /missing guildId/,
+    );
+  });
+
+  it("rejects missing agentId", () => {
+    assert.throws(
+      () => validateDiscordBinding({ guildId: "g1", kind: "channel" }, 0),
+      /missing agentId/,
+    );
+  });
+
+  it("rejects invalid kind", () => {
+    assert.throws(
+      () => validateDiscordBinding({ guildId: "g1", agentId: "main", kind: "server" }, 0),
+      /invalid kind/,
+    );
+  });
+
+  it("rejects channel override missing channelId", () => {
+    assert.throws(
+      () =>
+        validateDiscordBinding(
+          {
+            guildId: "g1",
+            agentId: "main",
+            kind: "channel",
+            channels: [{ label: "No ID" }],
+          },
+          0,
+        ),
+      /channels\[0\] missing channelId/,
+    );
+  });
+
+  it("rejects non-array channels", () => {
+    assert.throws(
+      () =>
+        validateDiscordBinding(
+          { guildId: "g1", agentId: "main", kind: "channel", channels: "bad" },
+          0,
+        ),
+      /channels must be an array/,
+    );
+  });
+
+  it("rejects DM binding without channelId", () => {
+    assert.throws(
+      () => validateDiscordBinding({ guildId: "g1", agentId: "main", kind: "dm" }, 0),
+      /kind "dm" requires channelId/,
+    );
   });
 });
 

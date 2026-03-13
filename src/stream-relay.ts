@@ -1,4 +1,5 @@
-import { realpathSync } from "node:fs";
+import { readdirSync, lstatSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import type { StreamLine, PlatformContext } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
 import { log } from "./logger.js";
@@ -74,26 +75,27 @@ export function isImageExtension(filePath: string): boolean {
 }
 
 /**
- * Scan a stream line for Write tool_use blocks and collect file paths.
- * AssistantMessage snapshots repeat with --include-partial-messages,
- * so paths are collected into a Set for deduplication.
+ * Scan the outbox directory for files and send each via the platform adapter.
+ * After sending, files are removed from the outbox.
  */
-export function collectWritePaths(msg: StreamLine, paths: Set<string>): void {
-  if (msg.type !== "assistant" || msg.subtype !== undefined) return;
-  const content = msg.message?.content;
-  if (!Array.isArray(content)) return;
-  for (const block of content) {
-    if (
-      block.type === "tool_use" &&
-      (block as Record<string, unknown>).name === "Write"
-    ) {
-      const input = (block as Record<string, unknown>).input as
-        | Record<string, unknown>
-        | undefined;
-      const filePath = input?.file_path;
-      if (typeof filePath === "string") {
-        paths.add(filePath);
-      }
+export async function sendOutboxFiles(outboxPath: string, platform: PlatformContext): Promise<void> {
+  let entries: string[];
+  try {
+    entries = readdirSync(outboxPath);
+  } catch {
+    return; // Directory doesn't exist or isn't readable
+  }
+
+  for (const name of entries) {
+    const filePath = join(outboxPath, name);
+    try {
+      const stat = lstatSync(filePath);
+      if (!stat.isFile()) continue;
+      await platform.sendFile(filePath, isImageExtension(filePath));
+      // Delete only after successful send
+      try { unlinkSync(filePath); } catch { /* ignore cleanup errors */ }
+    } catch (err) {
+      log.error("stream-relay", `Failed to send outbox file ${name}:`, err);
     }
   }
 }
@@ -114,7 +116,7 @@ export function collectWritePaths(msg: StreamLine, paths: Set<string>): void {
 export async function relayStream(
   stream: AsyncGenerator<StreamLine>,
   platform: PlatformContext,
-  workspaceCwd?: string,
+  outboxPath?: string,
 ): Promise<void> {
   let accumulated = "";
   let sentMessageId: string | null = null;
@@ -123,7 +125,6 @@ export async function relayStream(
   let editTimer: ReturnType<typeof setTimeout> | null = null;
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let finalSent = false;
-  const writtenFiles = new Set<string>();
 
   // Send typing indicator periodically (if enabled)
   if (platform.typingIndicator) {
@@ -174,11 +175,6 @@ export async function relayStream(
 
       if (text !== null) {
         accumulated += text;
-      }
-
-      // Collect file paths from Write tool_use events
-      if (false && workspaceCwd) { // DISABLED: auto-sends all written files, needs redesign
-        collectWritePaths(msg, writtenFiles);
       }
 
       // Track result text as fallback when no streaming deltas arrive
@@ -264,25 +260,9 @@ export async function relayStream(
       }
     }
 
-    // Send any files created by Claude's Write tool
-    if (workspaceCwd && writtenFiles.size > 0) {
-      for (const filePath of writtenFiles) {
-        // Resolve symlinks to prevent path-check bypass (e.g. symlink inside
-        // workspace pointing outside it). realpathSync also verifies existence.
-        let realPath: string;
-        try {
-          realPath = realpathSync(filePath);
-        } catch {
-          continue; // File doesn't exist or is inaccessible
-        }
-        if (!realPath.startsWith(workspaceCwd + "/") && !realPath.startsWith("/tmp/") && !realPath.startsWith("/private/tmp/")) continue;
-
-        try {
-          await platform.sendFile(realPath, isImageExtension(realPath));
-        } catch (err) {
-          log.error("stream-relay", `Failed to send file ${filePath}:`, err);
-        }
-      }
+    // Send any files Claude placed in the outbox directory
+    if (outboxPath) {
+      await sendOutboxFiles(outboxPath, platform);
     }
   } finally {
     if (typingTimer) {

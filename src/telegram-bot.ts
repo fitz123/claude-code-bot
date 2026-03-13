@@ -1,7 +1,7 @@
 import { Bot } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
-import type { SessionManager } from "./session-manager.js";
+import { outboxDir, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
@@ -224,8 +224,7 @@ export function createTelegramBot(
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
-      const agent = config.agents[agentId];
-      await relayStream(stream, platform, agent?.workspaceCwd);
+      await relayStream(stream, platform, outboxDir(chatId));
     },
   );
 

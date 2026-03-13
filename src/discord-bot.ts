@@ -1,7 +1,7 @@
 import { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder } from "discord.js";
 import type { Message as DiscordMessage } from "discord.js";
 import type { BotConfig, DiscordBinding, DiscordConfig } from "./types.js";
-import type { SessionManager } from "./session-manager.js";
+import { outboxDir, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { createDiscordAdapter, type DiscordSendableChannel } from "./discord-adapter.js";
@@ -20,13 +20,48 @@ export function discordSessionKey(channelId: string, threadId?: string): string 
 }
 
 /**
- * Resolve a Discord channelId to its binding config.
+ * Resolve a Discord channel to its binding config.
+ * Resolution priority: exact channelId match → channel override from channels[] → guild-wide fallback.
  */
 export function resolveDiscordBinding(
   channelId: string,
   bindings: DiscordBinding[],
+  guildId?: string,
 ): DiscordBinding | undefined {
-  return bindings.find((b) => b.channelId === channelId);
+  let guildFallback: DiscordBinding | undefined;
+
+  for (const b of bindings) {
+    // Exact channelId match always wins
+    if (b.channelId !== undefined && b.channelId === channelId) return b;
+
+    // Guild-wide binding (no channelId) — candidate for fallback
+    if (b.channelId === undefined && guildId !== undefined && b.guildId === guildId) {
+      guildFallback ??= b;
+    }
+  }
+
+  // Check channels[] array for per-channel overrides on the guild fallback
+  if (guildFallback && guildFallback.channels) {
+    const channel = guildFallback.channels.find((c) => c.channelId === channelId);
+    if (channel) {
+      const { channels: _, ...base } = guildFallback;
+      return {
+        ...base,
+        channelId,
+        agentId: channel.agentId ?? guildFallback.agentId,
+        label: channel.label ?? guildFallback.label,
+        requireMention: channel.requireMention ?? guildFallback.requireMention,
+        streamingUpdates: channel.streamingUpdates ?? guildFallback.streamingUpdates,
+        typingIndicator: channel.typingIndicator ?? guildFallback.typingIndicator,
+      };
+    }
+  }
+
+  if (guildFallback) {
+    const { channels: _, ...base } = guildFallback;
+    return base;
+  }
+  return undefined;
 }
 
 /**
@@ -97,8 +132,7 @@ export async function createDiscordBot(
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
-      const agent = config.agents[agentId];
-      await relayStream(stream, platform, agent?.workspaceCwd);
+      await relayStream(stream, platform, outboxDir(chatId));
     },
   );
 
@@ -130,7 +164,7 @@ export async function createDiscordBot(
       const threadId = isThread ? message.channelId : undefined;
 
       // Look up binding for this channel
-      const binding = resolveDiscordBinding(channelId, discordConfig.bindings);
+      const binding = resolveDiscordBinding(channelId, discordConfig.bindings, message.guildId ?? undefined);
       if (!binding) { log.info("discord-bot", `No binding for channel ${channelId} (thread: ${threadId})`); return; }
 
       // Mention gating for channel bindings
@@ -236,7 +270,7 @@ export async function createDiscordBot(
         : interaction.channelId;
       const threadId = isThread ? interaction.channelId : undefined;
 
-      const binding = resolveDiscordBinding(channelId, discordConfig.bindings);
+      const binding = resolveDiscordBinding(channelId, discordConfig.bindings, interaction.guildId ?? undefined);
       if (!binding) {
         await interaction.reply({ content: "This channel is not configured.", ephemeral: true });
         return;

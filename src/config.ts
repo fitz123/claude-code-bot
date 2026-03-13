@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults, DiscordBinding, DiscordConfig } from "./types.js";
+import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults, DiscordBinding, DiscordChannelOverride, DiscordConfig } from "./types.js";
 import { log, parseLogLevel } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -115,14 +115,35 @@ function validateTopics(raw: unknown, bindingIndex: number): TopicOverride[] | u
   });
 }
 
-function validateDiscordBinding(raw: unknown, index: number): DiscordBinding {
+export function validateDiscordChannels(raw: unknown, bindingIndex: number): DiscordChannelOverride[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error(`discord.bindings[${bindingIndex}].channels must be an array`);
+  }
+  return raw.map((c, i) => {
+    if (typeof c !== "object" || c === null) {
+      throw new Error(`discord.bindings[${bindingIndex}].channels[${i}] must be an object`);
+    }
+    const obj = c as Record<string, unknown>;
+    if (typeof obj.channelId !== "string") {
+      throw new Error(`discord.bindings[${bindingIndex}].channels[${i}] missing channelId (string)`);
+    }
+    return {
+      channelId: obj.channelId,
+      agentId: typeof obj.agentId === "string" ? obj.agentId : undefined,
+      label: typeof obj.label === "string" ? obj.label : undefined,
+      requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
+      streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
+      typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
+    };
+  });
+}
+
+export function validateDiscordBinding(raw: unknown, index: number): DiscordBinding {
   if (typeof raw !== "object" || raw === null) {
     throw new Error(`discord.bindings[${index}] must be an object`);
   }
   const obj = raw as Record<string, unknown>;
-  if (typeof obj.channelId !== "string") {
-    throw new Error(`discord.bindings[${index}] missing channelId (string)`);
-  }
   if (typeof obj.guildId !== "string") {
     throw new Error(`discord.bindings[${index}] missing guildId (string)`);
   }
@@ -132,8 +153,17 @@ function validateDiscordBinding(raw: unknown, index: number): DiscordBinding {
   if (obj.kind !== "dm" && obj.kind !== "channel") {
     throw new Error(`discord.bindings[${index}] has invalid kind "${String(obj.kind)}" (must be "dm" or "channel")`);
   }
+  if (obj.channelId !== undefined && typeof obj.channelId !== "string") {
+    throw new Error(`discord.bindings[${index}] channelId must be a string if provided`);
+  }
+  if (obj.kind === "dm" && obj.channelId === undefined) {
+    throw new Error(`discord.bindings[${index}] kind "dm" requires channelId`);
+  }
+  if (obj.channels !== undefined && obj.channelId !== undefined) {
+    throw new Error(`discord.bindings[${index}] cannot have both channelId and channels`);
+  }
   return {
-    channelId: obj.channelId,
+    channelId: typeof obj.channelId === "string" ? obj.channelId : undefined,
     guildId: obj.guildId,
     agentId: obj.agentId,
     kind: obj.kind,
@@ -141,6 +171,7 @@ function validateDiscordBinding(raw: unknown, index: number): DiscordBinding {
     requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
     streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
     typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
+    channels: validateDiscordChannels(obj.channels, index),
   };
 }
 
@@ -157,6 +188,13 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
     const binding = validateDiscordBinding(b, i);
     if (!agents[binding.agentId]) {
       throw new Error(`discord.bindings[${i}] references unknown agent "${binding.agentId}"`);
+    }
+    if (binding.channels) {
+      for (const [j, channel] of binding.channels.entries()) {
+        if (channel.agentId && !agents[channel.agentId]) {
+          throw new Error(`discord.bindings[${i}].channels[${j}] references unknown agent "${channel.agentId}"`);
+        }
+      }
     }
     return binding;
   });
