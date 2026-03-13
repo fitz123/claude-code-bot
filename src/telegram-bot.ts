@@ -207,7 +207,7 @@ export function createTelegramBot(
   const bot = new Bot(config.telegramToken);
 
   // Auto-retry on rate limits
-  bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+  bot.api.config.use(autoRetry({ maxRetryAttempts: 5, maxDelaySeconds: 60 }));
 
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
