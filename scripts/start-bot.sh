@@ -11,8 +11,8 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 # Claude Code CLI subprocess must NOT inherit CLAUDECODE
 unset CLAUDECODE
 
-# No API key — Max subscription via CLI OAuth
-unset ANTHROPIC_API_KEY
+# Read OAuth token from Keychain for Claude CLI subprocess
+export CLAUDE_CODE_OAUTH_TOKEN=$(security find-generic-password -s claude-code-oauth-token -w)
 
 # Claude Code subprocess environment
 export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
