@@ -1,6 +1,7 @@
 # OpenClaw Telegram Bot Configuration
 
 telegramTokenService: telegram-bot-token
+logLevel: debug
 
 agents:
   main:
