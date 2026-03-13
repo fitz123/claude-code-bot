@@ -56,7 +56,7 @@ What we want: Reply-to message text and forward metadata included in the message
 - [ ] Add tests for forward metadata formatting
 - [ ] Verify existing tests pass
 
-### Task 3: Cron delivery thread routing (bot-yri, P2)
+### Task 2: Cron delivery thread routing (bot-yri, P2)
 
 Cron jobs can only deliver to a chat ID. Forum topics (threads) require a `message_thread_id` parameter. deliver.sh already supports `--thread` but cron-runner.ts never passes it and crons.yaml has no field for it.
 
