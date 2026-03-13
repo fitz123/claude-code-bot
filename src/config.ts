@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults } from "./types.js";
+import { log, parseLogLevel } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "config.yaml");
@@ -13,6 +14,8 @@ interface RawConfig {
   agents?: Record<string, unknown>;
   bindings?: unknown[];
   sessionDefaults?: unknown;
+  logLevel?: string;
+  metricsPort?: number;
 }
 
 function resolveKeychainSecret(service: string): string {
@@ -162,21 +165,33 @@ export function loadConfig(configPath?: string): BotConfig {
 
   const sessionDefaults = validateSessionDefaults(raw.sessionDefaults);
 
-  return { telegramToken, agents, bindings, sessionDefaults };
+  // Log level: env var overrides config file
+  const logLevel = parseLogLevel(process.env.LOG_LEVEL) ?? parseLogLevel(raw.logLevel);
+
+  // Metrics port (optional — if not set, metrics endpoint is disabled)
+  let metricsPort: number | undefined;
+  if (typeof raw.metricsPort === "number") {
+    if (!Number.isInteger(raw.metricsPort) || raw.metricsPort < 1 || raw.metricsPort > 65535) {
+      throw new Error(`Invalid metricsPort: ${raw.metricsPort} (must be an integer between 1 and 65535)`);
+    }
+    metricsPort = raw.metricsPort;
+  }
+
+  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort };
 }
 
 // CLI: validate config
 if (process.argv.includes("--validate")) {
   try {
     const config = loadConfig();
-    console.log("Config valid.");
-    console.log(`  Agents: ${Object.keys(config.agents).join(", ")}`);
-    console.log(`  Bindings: ${config.bindings.length}`);
-    console.log(`  Token: ${config.telegramToken.slice(0, 10)}...`);
-    console.log(`  Idle timeout: ${config.sessionDefaults.idleTimeoutMs}ms`);
-    console.log(`  Max sessions: ${config.sessionDefaults.maxConcurrentSessions}`);
+    log.info("config", "Config valid.");
+    log.info("config", `  Agents: ${Object.keys(config.agents).join(", ")}`);
+    log.info("config", `  Bindings: ${config.bindings.length}`);
+    log.info("config", `  Token: ${config.telegramToken.slice(0, 10)}...`);
+    log.info("config", `  Idle timeout: ${config.sessionDefaults.idleTimeoutMs}ms`);
+    log.info("config", `  Max sessions: ${config.sessionDefaults.maxConcurrentSessions}`);
   } catch (e) {
-    console.error(`Config validation failed: ${(e as Error).message}`);
+    log.error("config", `Config validation failed: ${(e as Error).message}`);
     process.exit(1);
   }
 }

@@ -1,5 +1,7 @@
 // Core types for the OpenClaw Telegram bot
 
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
 export interface AgentConfig {
   id: string;
   workspaceCwd: string;
@@ -55,6 +57,8 @@ export interface BotConfig {
   agents: Record<string, AgentConfig>;
   bindings: TelegramBinding[];
   sessionDefaults: SessionDefaults;
+  logLevel?: LogLevel;
+  metricsPort?: number;
 }
 
 // CLI Protocol types

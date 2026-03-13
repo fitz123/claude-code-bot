@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { splitMessage, extractText, collectWritePaths, isImageExtension } from "../stream-relay.js";
+import { splitMessage, extractText, collectWritePaths, isImageExtension, relayStream } from "../stream-relay.js";
 import type { StreamLine, StreamEvent, AssistantMessage, ResultMessage, ToolProgress } from "../types.js";
+import type { Context } from "grammy";
 
 describe("splitMessage", () => {
   it("returns single chunk for short text", () => {
@@ -386,5 +387,98 @@ describe("collectWritePaths", () => {
     assert.strictEqual(paths.size, 2);
     assert.ok(paths.has("/workspace/a.png"));
     assert.ok(paths.has("/workspace/b.txt"));
+  });
+});
+
+// -------------------------------------------------------------------
+// relayStream — final edit failure fallback
+// -------------------------------------------------------------------
+
+/** Create a mock async generator yielding text deltas and a result. */
+async function* fakeStream(deltas: string[]): AsyncGenerator<StreamLine> {
+  for (const delta of deltas) {
+    yield {
+      type: "stream_event",
+      event: { delta: { type: "text_delta", text: delta } },
+    } as StreamEvent;
+  }
+  yield {
+    type: "result",
+    result: deltas.join(""),
+    session_id: "test",
+  } as ResultMessage;
+}
+
+/** Create a mock Context for relayStream tests. */
+function mockRelayContext(options?: { editShouldThrow?: boolean }) {
+  const replies: Array<{ text: string }> = [];
+  const edits: Array<{ chatId: number; messageId: number; text: string }> = [];
+
+  const ctx = {
+    chat: { id: 123 },
+    message: {},
+    api: {
+      editMessageText: async (chatId: number, messageId: number, text: string) => {
+        if (options?.editShouldThrow) {
+          throw new Error("429: Too Many Requests: retry after 30");
+        }
+        edits.push({ chatId, messageId, text });
+        return true;
+      },
+      sendChatAction: async () => true,
+    },
+    reply: async (text: string, _opts?: unknown) => {
+      replies.push({ text });
+      return { message_id: replies.length };
+    },
+  };
+
+  return { ctx: ctx as unknown as Context, replies, edits };
+}
+
+describe("relayStream final edit fallback", () => {
+  it("delivers complete text via fallback when final edit fails", async () => {
+    const { ctx, replies } = mockRelayContext({ editShouldThrow: true });
+    const stream = fakeStream(["Hello", " ", "world"]);
+
+    await relayStream(stream, ctx);
+
+    // First reply: initial message with first delta ("Hello")
+    // Second reply: fallback after final edit failed with complete text
+    assert.ok(replies.length >= 2, `Expected at least 2 replies, got ${replies.length}`);
+    const lastReply = replies[replies.length - 1];
+    assert.strictEqual(lastReply.text, "Hello world");
+  });
+
+  it("does not send fallback when final edit succeeds", async () => {
+    const { ctx, replies, edits } = mockRelayContext({ editShouldThrow: false });
+    const stream = fakeStream(["Hello", " ", "world"]);
+
+    await relayStream(stream, ctx);
+
+    // Only one reply: the initial message
+    assert.strictEqual(replies.length, 1);
+    // Final edit should have been called with complete text
+    assert.ok(edits.length >= 1);
+    assert.strictEqual(edits[edits.length - 1].text, "Hello world");
+  });
+
+  it("does not send fallback when edit fails with 'not modified'", async () => {
+    const ctx = mockRelayContext().ctx;
+    // Override editMessageText to throw "not modified"
+    const replies: Array<{ text: string }> = [];
+    (ctx as unknown as Record<string, unknown>).reply = async (text: string, _opts?: unknown) => {
+      replies.push({ text });
+      return { message_id: replies.length };
+    };
+    (ctx.api as unknown as Record<string, unknown>).editMessageText = async () => {
+      throw new Error("Bad Request: message is not modified");
+    };
+
+    const stream = fakeStream(["Hello"]);
+    await relayStream(stream, ctx);
+
+    // Only one reply: the initial message. No fallback because "not modified" is fine.
+    assert.strictEqual(replies.length, 1);
   });
 });
