@@ -42,11 +42,11 @@ If any of these fields exist on `reply_to_message`, it is a forum service messag
 
 **Fix:** Before checking `reply_to_message.from.id`, check if `reply_to_message` is a forum service message. If it is, do not treat it as a reply to the bot. Extend the `reply_to_message` type in the `message` parameter to include these optional fields.
 
-- [ ] Add a helper (e.g. `isForumServiceMessage`) that checks for any `forum_topic_*` field on reply_to_message
-- [ ] Update shouldRespondInGroup to skip the reply check when reply_to_message is a forum service message
-- [ ] Extend the message type to include the new fields
-- [ ] Add tests for forum topic scenarios (thread-association vs real reply vs General topic)
-- [ ] Verify existing tests still pass
+- [x] Add a helper (e.g. `isForumServiceMessage`) that checks for any `forum_topic_*` field on reply_to_message
+- [x] Update shouldRespondInGroup to skip the reply check when reply_to_message is a forum service message
+- [x] Extend the message type to include the new fields
+- [x] Add tests for forum topic scenarios (thread-association vs real reply vs General topic)
+- [x] Verify existing tests still pass
 
 ### Task 2: Add startup timeout to bot.start() (bot-pv0, P1)
 
@@ -90,10 +90,10 @@ The startup timeout must also be cleared in the SIGTERM/SIGINT shutdown handler 
 
 launchd's KeepAlive + ThrottleInterval (35s in the plist) will handle restart on `process.exit(1)`. No retry loop needed.
 
-- [ ] Add startup timeout with timer+flag pattern in main.ts
-- [ ] Clear the timeout both in onStart and in the shutdown handler
-- [ ] Log clear error message on timeout before exit
-- [ ] Verify graceful shutdown still works (SIGTERM during normal operation)
+- [x] Add startup timeout with timer+flag pattern in main.ts
+- [x] Clear the timeout both in onStart and in the shutdown handler
+- [x] Log clear error message on timeout before exit
+- [x] Verify graceful shutdown still works (SIGTERM during normal operation)
 
 ### Task 3: Send files from Claude back to Telegram (bot-sdo, P2)
 
@@ -190,10 +190,10 @@ await ctx.replyWithPhoto(new InputFile("/path/to/image.jpg"), {
 5. No external MIME library needed — use simple extension check (project has no `mime-types` dep). Can reuse logic from existing `imageExtensionForMime()` in `telegram-bot.ts`
 6. Update the `processFn` callback in `telegram-bot.ts` to pass `workspaceCwd` through to `relayStream`
 
-- [ ] Extend relayStream signature to accept workspaceCwd
-- [ ] Detect Write tool_use events in stream processing (deduplicate with Set)
-- [ ] After stream completes, verify file exists and path is within allowed directories
-- [ ] Send files via replyWithPhoto (images) or replyWithDocument (other)
-- [ ] Include message_thread_id for forum topic support
-- [ ] Update processFn in telegram-bot.ts to pass workspaceCwd
-- [ ] Add tests
+- [x] Extend relayStream signature to accept workspaceCwd
+- [x] Detect Write tool_use events in stream processing (deduplicate with Set)
+- [x] After stream completes, verify file exists and path is within allowed directories
+- [x] Send files via replyWithPhoto (images) or replyWithDocument (other)
+- [x] Include message_thread_id for forum topic support
+- [x] Update processFn in telegram-bot.ts to pass workspaceCwd
+- [x] Add tests
