@@ -189,15 +189,30 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    discord:
      tokenService: discord-bot-token
      bindings:
-       - channelId: "1234567890"
+       # Guild-wide default: covers all channels in the server
+       - guildId: "9876543210"
+         agentId: main
+         kind: channel
+         label: My Server
+         requireMention: true
+         streamingUpdates: true
+         typingIndicator: true
+         channels:                         # per-channel overrides (optional)
+           - channelId: "1234567890"
+             label: Dev Channel
+             requireMention: false         # no @mention needed here
+           - channelId: "1111111111"
+             agentId: coder                # different agent for this channel
+
+       # Per-channel binding (still works — exact channelId match wins)
+       - channelId: "5555555555"
          guildId: "9876543210"
          agentId: main
-         kind: channel          # or "dm"
-         label: Dev Channel
-         requireMention: true   # default true for channels
-         streamingUpdates: true  # default true; false sends only final message
-         typingIndicator: true   # default true; false suppresses typing indicator
+         kind: channel
+         label: Legacy Channel
    ```
+
+   A binding with `guildId` but no `channelId` acts as a guild-wide default — any channel in that guild uses it. Per-channel overrides via the `channels` array can override `agentId`, `label`, `requireMention`, `streamingUpdates`, and `typingIndicator`. Resolution priority: exact `channelId` binding > per-channel override from `channels` > guild-wide fallback.
 
 3. Discord threads automatically inherit the parent channel's binding and get independent sessions (keyed as `discord:channelId:threadId`).
 
@@ -215,7 +230,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | Voice | Transcribed locally via whisper-cli, transcript echoed back and sent to Claude |
 | Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
 | Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
-| File output | Files created by Claude via Write tool are sent back: images as photos, others as documents. Only files within the agent's `workspaceCwd` or `/tmp` are sent. |
+| File output | Claude is told about a per-session outbox directory via system prompt. Files written or copied there are sent to the user after the response completes: images as photos, others as documents. The outbox is cleaned up after delivery. |
 
 In group chats, the bot only responds to messages that @mention the bot or reply to the bot (configurable via `requireMention` in bindings). Every message sent to Claude is prefixed with source context (e.g. `[Chat: HQ Forum | From: John (@johndoe)]`) using the binding's `label` and the sender's Telegram profile.
 

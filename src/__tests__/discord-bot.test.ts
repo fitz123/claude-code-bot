@@ -157,10 +157,10 @@ describe("resolveDiscordBinding with guild-wide defaults", () => {
     assert.strictEqual(binding.channels, undefined);
   });
 
-  it("guild default result still has channels[] (not a synthesized override)", () => {
+  it("guild default result does not include channels[] array", () => {
     const binding = resolveDiscordBinding("c999", guildBindings, "g1");
     assert.ok(binding);
-    assert.ok(binding.channels); // guild fallback returns the original object
+    assert.strictEqual(binding.channels, undefined);
   });
 });
 
