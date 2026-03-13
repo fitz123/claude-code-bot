@@ -1,8 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { splitMessage, extractText, collectWritePaths, isImageExtension, relayStream } from "../stream-relay.js";
-import type { StreamLine, StreamEvent, AssistantMessage, ResultMessage, ToolProgress } from "../types.js";
-import type { Context } from "grammy";
+import type { StreamLine, StreamEvent, AssistantMessage, ResultMessage, ToolProgress, PlatformContext } from "../types.js";
 
 describe("splitMessage", () => {
   it("returns single chunk for short text", () => {
@@ -59,7 +58,7 @@ describe("splitMessage", () => {
 
   it("splits long response into multiple 4096-char chunks", () => {
     const text = "x".repeat(10000);
-    const result = splitMessage(text);
+    const result = splitMessage(text, 4096);
     assert.ok(result.length >= 3);
     for (const chunk of result) {
       assert.ok(chunk.length <= 4096);
@@ -391,7 +390,7 @@ describe("collectWritePaths", () => {
 });
 
 // -------------------------------------------------------------------
-// relayStream — final edit failure fallback
+// relayStream — tests using PlatformContext
 // -------------------------------------------------------------------
 
 /** Create a mock async generator yielding text deltas and a result. */
@@ -409,76 +408,138 @@ async function* fakeStream(deltas: string[]): AsyncGenerator<StreamLine> {
   } as ResultMessage;
 }
 
-/** Create a mock Context for relayStream tests. */
-function mockRelayContext(options?: { editShouldThrow?: boolean }) {
-  const replies: Array<{ text: string }> = [];
-  const edits: Array<{ chatId: number; messageId: number; text: string }> = [];
+/** Create a mock PlatformContext for relayStream tests. */
+function mockPlatform(options?: {
+  editShouldThrow?: boolean;
+  streamingUpdates?: boolean;
+  typingIndicator?: boolean;
+}) {
+  const sends: Array<{ text: string }> = [];
+  const edits: Array<{ messageId: string; text: string }> = [];
+  const typings: number[] = [];
+  let messageCounter = 0;
 
-  const ctx = {
-    chat: { id: 123 },
-    message: {},
-    api: {
-      editMessageText: async (chatId: number, messageId: number, text: string) => {
-        if (options?.editShouldThrow) {
-          throw new Error("429: Too Many Requests: retry after 30");
-        }
-        edits.push({ chatId, messageId, text });
-        return true;
-      },
-      sendChatAction: async () => true,
+  const platform: PlatformContext = {
+    maxMessageLength: 4096,
+    editDebounceMs: 2000,
+    typingIntervalMs: 4000,
+    streamingUpdates: options?.streamingUpdates !== false,
+    typingIndicator: options?.typingIndicator !== false,
+
+    async sendMessage(text: string): Promise<string> {
+      messageCounter++;
+      sends.push({ text });
+      return String(messageCounter);
     },
-    reply: async (text: string, _opts?: unknown) => {
-      replies.push({ text });
-      return { message_id: replies.length };
+
+    async editMessage(messageId: string, text: string): Promise<void> {
+      if (options?.editShouldThrow) {
+        throw new Error("429: Too Many Requests: retry after 30");
+      }
+      edits.push({ messageId, text });
+    },
+
+    async sendTyping(): Promise<void> {
+      typings.push(Date.now());
+    },
+
+    async sendFile(): Promise<void> {},
+
+    async replyError(text: string): Promise<void> {
+      sends.push({ text });
     },
   };
 
-  return { ctx: ctx as unknown as Context, replies, edits };
+  return { platform, sends, edits, typings };
 }
 
 describe("relayStream final edit fallback", () => {
   it("delivers complete text via fallback when final edit fails", async () => {
-    const { ctx, replies } = mockRelayContext({ editShouldThrow: true });
+    const { platform, sends } = mockPlatform({ editShouldThrow: true });
     const stream = fakeStream(["Hello", " ", "world"]);
 
-    await relayStream(stream, ctx);
+    await relayStream(stream, platform);
 
-    // First reply: initial message with first delta ("Hello")
-    // Second reply: fallback after final edit failed with complete text
-    assert.ok(replies.length >= 2, `Expected at least 2 replies, got ${replies.length}`);
-    const lastReply = replies[replies.length - 1];
-    assert.strictEqual(lastReply.text, "Hello world");
+    // First send: initial message with first delta ("Hello")
+    // Second send: fallback after final edit failed with complete text
+    assert.ok(sends.length >= 2, `Expected at least 2 sends, got ${sends.length}`);
+    const lastSend = sends[sends.length - 1];
+    assert.strictEqual(lastSend.text, "Hello world");
   });
 
   it("does not send fallback when final edit succeeds", async () => {
-    const { ctx, replies, edits } = mockRelayContext({ editShouldThrow: false });
+    const { platform, sends, edits } = mockPlatform({ editShouldThrow: false });
     const stream = fakeStream(["Hello", " ", "world"]);
 
-    await relayStream(stream, ctx);
+    await relayStream(stream, platform);
 
-    // Only one reply: the initial message
-    assert.strictEqual(replies.length, 1);
+    // Only one send: the initial message
+    assert.strictEqual(sends.length, 1);
     // Final edit should have been called with complete text
     assert.ok(edits.length >= 1);
     assert.strictEqual(edits[edits.length - 1].text, "Hello world");
   });
 
   it("does not send fallback when edit fails with 'not modified'", async () => {
-    const ctx = mockRelayContext().ctx;
-    // Override editMessageText to throw "not modified"
-    const replies: Array<{ text: string }> = [];
-    (ctx as unknown as Record<string, unknown>).reply = async (text: string, _opts?: unknown) => {
-      replies.push({ text });
-      return { message_id: replies.length };
-    };
-    (ctx.api as unknown as Record<string, unknown>).editMessageText = async () => {
+    const { platform, sends } = mockPlatform();
+    // Override editMessage to throw "not modified"
+    (platform as { editMessage: PlatformContext["editMessage"] }).editMessage = async () => {
       throw new Error("Bad Request: message is not modified");
     };
 
     const stream = fakeStream(["Hello"]);
-    await relayStream(stream, ctx);
+    await relayStream(stream, platform);
 
-    // Only one reply: the initial message. No fallback because "not modified" is fine.
-    assert.strictEqual(replies.length, 1);
+    // Only one send: the initial message. No fallback because "not modified" is fine.
+    assert.strictEqual(sends.length, 1);
+  });
+});
+
+describe("relayStream streamingUpdates=false", () => {
+  it("sends only the final message with no intermediate edits", async () => {
+    const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });
+    const stream = fakeStream(["Hello", " ", "world"]);
+
+    await relayStream(stream, platform);
+
+    // No intermediate sends or edits — only the final message
+    assert.strictEqual(edits.length, 0, "Should have no edits when streamingUpdates=false");
+    assert.strictEqual(sends.length, 1, "Should send exactly one final message");
+    assert.strictEqual(sends[0].text, "Hello world");
+  });
+
+  it("handles multi-chunk final message without streaming", async () => {
+    const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });
+    // Create text longer than max message length
+    const longText = "x".repeat(5000);
+    const stream = fakeStream([longText]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(edits.length, 0, "Should have no edits when streamingUpdates=false");
+    assert.ok(sends.length >= 2, "Should split into multiple messages");
+    // Total content preserved
+    const totalText = sends.map(s => s.text).join("");
+    assert.strictEqual(totalText.length, 5000);
+  });
+});
+
+describe("relayStream typingIndicator=false", () => {
+  it("sends no typing indicators when disabled", async () => {
+    const { platform, typings } = mockPlatform({ typingIndicator: false });
+    const stream = fakeStream(["Hello"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(typings.length, 0, "Should have no typing indicators");
+  });
+
+  it("sends typing indicators when enabled (default)", async () => {
+    const { platform, typings } = mockPlatform({ typingIndicator: true });
+    const stream = fakeStream(["Hello"]);
+
+    await relayStream(stream, platform);
+
+    assert.ok(typings.length >= 1, "Should have at least one typing indicator");
   });
 });

@@ -85,6 +85,8 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
     requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
     topics: validateTopics(obj.topics, index),
     voiceTranscriptEcho: typeof obj.voiceTranscriptEcho === "boolean" ? obj.voiceTranscriptEcho : undefined,
+    streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
+    typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
   };
 }
 
