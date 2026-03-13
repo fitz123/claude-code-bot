@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events, REST, Routes, SlashCommandBuilder } from "discord.js";
+import { Client, GatewayIntentBits, Partials, Events, REST, Routes, SlashCommandBuilder } from "discord.js";
 import type { Message as DiscordMessage } from "discord.js";
 import type { BotConfig, DiscordBinding, DiscordConfig } from "./types.js";
 import type { SessionManager } from "./session-manager.js";
@@ -8,7 +8,7 @@ import { createDiscordAdapter, type DiscordSendableChannel } from "./discord-ada
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { log } from "./logger.js";
 import { messagesReceived } from "./metrics.js";
-import { isImageMimeType } from "./telegram-bot.js";
+import { isImageMimeType } from "./mime.js";
 
 /**
  * Build a session key for Discord channels and threads.
@@ -91,6 +91,7 @@ export async function createDiscordBot(
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.DirectMessages,
     ],
+    partials: [Partials.Channel],
   });
 
   const messageQueue = new MessageQueue(
@@ -180,7 +181,8 @@ export async function createDiscordBot(
         messagesReceived.inc({ type: "voice" });
         let tempPath: string | null = null;
         try {
-          tempPath = tempFilePath("discord-voice", ".ogg");
+          const ext = attachment.name?.match(/\.(\w+)$/)?.[0] ?? ".ogg";
+          tempPath = tempFilePath("discord-voice", ext);
           await downloadFile(attachment.url, tempPath);
 
           const transcript = await transcribeAudio(tempPath);
