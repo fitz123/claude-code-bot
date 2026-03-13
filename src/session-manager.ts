@@ -143,10 +143,8 @@ export class SessionManager {
     // Check if we need to evict
     await this.evictIfNeeded();
 
-    // Check if we have a stored session to resume
-    const stored = this.store.getSession(chatId);
-    const resume = stored !== undefined && stored.sessionId !== "";
-    const sessionId = resume ? stored.sessionId : randomUUID();
+    // Check if we have a stored session to resume (discards stale sessions)
+    const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
 
     // Spawn the claude subprocess
     const child = spawnClaudeSession({
@@ -438,6 +436,31 @@ export class SessionManager {
       lastSuccessAt: session.lastSuccessAt,
       restartCount: session.restartCount,
     };
+  }
+
+  /**
+   * Determine if a stored session should be resumed or discarded.
+   * Discards and logs if the agentId changed or the stored agent was deleted.
+   */
+  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string } {
+    const stored = this.store.getSession(chatId);
+    if (!stored || stored.sessionId === "") {
+      return { resume: false, sessionId: randomUUID() };
+    }
+
+    const agentDeleted = !(stored.agentId in this.agents);
+    const agentMismatch = stored.agentId !== agentId;
+
+    if (agentMismatch || agentDeleted) {
+      const reason = agentDeleted
+        ? `agent "${stored.agentId}" no longer exists`
+        : `agentId changed from "${stored.agentId}" to "${agentId}"`;
+      log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
+      this.store.deleteSession(chatId);
+      return { resume: false, sessionId: randomUUID() };
+    }
+
+    return { resume: true, sessionId: stored.sessionId };
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */
