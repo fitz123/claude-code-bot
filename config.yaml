@@ -11,6 +11,13 @@ agents:
     maxTurns: 250 # just a safety from infinite loop
     effort: high
 
+  coder:
+    id: coder
+    workspaceCwd: /Users/ninja/.minime/workspace-coder
+    model: claude-sonnet-4-6
+    maxTurns: 250
+    effort: high
+
 bindings:
   - chatId: 306600687
     agentId: main
