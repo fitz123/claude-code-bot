@@ -14,7 +14,7 @@ agents:
   coder:
     id: coder
     workspaceCwd: /Users/ninja/.minime/workspace-coder
-    model: claude-sonnet-4-6
+    model: claude-opus-4-6
     maxTurns: 250
     effort: high
 
@@ -25,7 +25,7 @@ bindings:
     label: Ninja DM
 
   - chatId: -1003894624477
-    agentId: main
+    agentId: coder
     kind: group
     label: Minime HQ
     requireMention: false
@@ -33,3 +33,5 @@ bindings:
 sessionDefaults:
   idleTimeoutMs: 14400000 # 4hrs
   maxConcurrentSessions: 6
+
+metricsPort: 9091
