@@ -92,17 +92,10 @@ export async function sendOutboxFiles(outboxPath: string, platform: PlatformCont
       const stat = statSync(filePath);
       if (!stat.isFile()) continue;
       await platform.sendFile(filePath, isImageExtension(filePath));
+      // Delete only after successful send
+      try { unlinkSync(filePath); } catch { /* ignore cleanup errors */ }
     } catch (err) {
       log.error("stream-relay", `Failed to send outbox file ${name}:`, err);
-    }
-  }
-
-  // Clean up sent files
-  for (const name of entries) {
-    try {
-      unlinkSync(join(outboxPath, name));
-    } catch {
-      // Ignore cleanup errors
     }
   }
 }

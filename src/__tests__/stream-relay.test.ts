@@ -297,6 +297,10 @@ describe("sendOutboxFiles", () => {
     await sendOutboxFiles(outboxPath, platform);
     // One succeeded, one failed — but both were attempted
     assert.strictEqual(sentFiles.length, 1);
+
+    // Failed file should still exist (not deleted), successful file should be gone
+    const remaining = readdirSync(outboxPath);
+    assert.strictEqual(remaining.length, 1, "failed file should remain in outbox");
   });
 });
 

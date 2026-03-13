@@ -57,7 +57,11 @@ export function resolveDiscordBinding(
     }
   }
 
-  return guildFallback;
+  if (guildFallback) {
+    const { channels: _, ...base } = guildFallback;
+    return base;
+  }
+  return undefined;
 }
 
 /**
