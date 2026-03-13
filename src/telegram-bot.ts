@@ -97,7 +97,7 @@ export function buildSourcePrefix(
  * Telegram sets reply_to_message on every message in a forum topic, pointing to the
  * topic's creation service message. This is NOT a real user reply.
  */
-function isForumServiceMessage(
+export function isForumServiceMessage(
   msg: {
     forum_topic_created?: unknown;
     forum_topic_edited?: unknown;
@@ -115,6 +115,93 @@ function isForumServiceMessage(
     msg.general_forum_topic_hidden ||
     msg.general_forum_topic_unhidden
   );
+}
+
+/** Max characters of replied-to text to include before truncating. */
+const REPLY_TRUNCATE_LIMIT = 200;
+
+/**
+ * Build reply context string when a user replies to a message.
+ * Returns formatted context or empty string if not a real reply.
+ */
+export function buildReplyContext(
+  replyTo?: {
+    from?: { first_name: string; username?: string };
+    text?: string;
+    caption?: string;
+    forum_topic_created?: unknown;
+    forum_topic_edited?: unknown;
+    forum_topic_closed?: unknown;
+    forum_topic_reopened?: unknown;
+    general_forum_topic_hidden?: unknown;
+    general_forum_topic_unhidden?: unknown;
+  },
+): string {
+  if (!replyTo) return "";
+  if (isForumServiceMessage(replyTo)) return "";
+
+  const parts: string[] = [];
+
+  if (replyTo.from) {
+    const name = replyTo.from.first_name.replace(/[\n\r]/g, " ");
+    parts.push(replyTo.from.username ? `${name} (@${replyTo.from.username})` : name);
+  }
+
+  const header = parts.length > 0 ? `[Reply to ${parts.join("")}]` : "[Reply]";
+
+  const replyText = replyTo.text ?? replyTo.caption ?? "";
+  if (!replyText) return header + "\n";
+
+  const cleaned = replyText.replace(/\n/g, " ").trim();
+  const truncated = cleaned.length > REPLY_TRUNCATE_LIMIT
+    ? cleaned.slice(0, REPLY_TRUNCATE_LIMIT) + "..."
+    : cleaned;
+
+  return `${header}\n> ${truncated}\n`;
+}
+
+/**
+ * Build forward context string when a user forwards a message.
+ * Returns formatted context or empty string if not a forward.
+ */
+export function buildForwardContext(
+  forwardOrigin?: {
+    type: string;
+    sender_user?: { first_name: string; username?: string };
+    sender_user_name?: string;
+    sender_chat?: { title?: string };
+    chat?: { title?: string };
+    author_signature?: string;
+  },
+): string {
+  if (!forwardOrigin) return "";
+
+  let origin = "";
+  switch (forwardOrigin.type) {
+    case "user": {
+      const u = forwardOrigin.sender_user;
+      if (u) {
+        origin = u.username ? `${u.first_name} (@${u.username})` : u.first_name;
+      }
+      break;
+    }
+    case "hidden_user":
+      origin = forwardOrigin.sender_user_name ?? "Unknown";
+      break;
+    case "chat":
+      origin = forwardOrigin.sender_chat?.title ?? "Unknown chat";
+      break;
+    case "channel":
+      origin = forwardOrigin.chat?.title ?? "Unknown channel";
+      if (forwardOrigin.author_signature) {
+        origin += ` (${forwardOrigin.author_signature})`;
+      }
+      break;
+    default:
+      origin = "Unknown";
+  }
+
+  return `[Forwarded from ${origin}]\n`;
 }
 
 /**
@@ -353,7 +440,9 @@ export function createTelegramBot(
 
     const key = sessionKey(chatId, topicId);
     const prefix = buildSourcePrefix(binding, ctx.from);
-    const messageText = prefix + ctx.message.text;
+    const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+    const fwdCtx = buildForwardContext(ctx.message.forward_origin);
+    const messageText = prefix + replyCtx + fwdCtx + ctx.message.text;
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
@@ -397,7 +486,9 @@ export function createTelegramBot(
 
       // Send transcript text to Claude session
       const prefix = buildSourcePrefix(binding, ctx.from);
-      messageQueue.enqueue(key, binding.agentId, `${prefix}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+      const fwdCtx = buildForwardContext(ctx.message.forward_origin);
+      messageQueue.enqueue(key, binding.agentId, `${prefix}${replyCtx}${fwdCtx}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
 
       // Echo transcript back to user (non-critical — don't block enqueue)
       if (binding.voiceTranscriptEcho !== false) {
@@ -446,10 +537,13 @@ export function createTelegramBot(
 
       // Build message: caption (if any) + image file path
       const prefix = buildSourcePrefix(binding, ctx.from);
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+      const fwdCtx = buildForwardContext(ctx.message.forward_origin);
+      const context = prefix + replyCtx + fwdCtx;
       const caption = ctx.msg.caption ?? "";
       const messageText = caption.trimEnd()
-        ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
-        : `${prefix}${tempPath}`;
+        ? `${context}${caption.trimEnd()}\n\n${tempPath}`
+        : `${context}${tempPath}`;
 
       // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
@@ -497,10 +591,13 @@ export function createTelegramBot(
       await downloadFile(url, tempPath);
 
       const prefix = buildSourcePrefix(binding, ctx.from);
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+      const fwdCtx = buildForwardContext(ctx.message.forward_origin);
+      const context = prefix + replyCtx + fwdCtx;
       const caption = ctx.msg.caption ?? "";
       const messageText = caption.trimEnd()
-        ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
-        : `${prefix}${tempPath}`;
+        ? `${context}${caption.trimEnd()}\n\n${tempPath}`
+        : `${context}${tempPath}`;
 
       const pathToClean = tempPath;
       tempPath = null;
