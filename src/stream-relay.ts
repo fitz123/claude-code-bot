@@ -183,7 +183,7 @@ export async function relayStream(
       }
 
       // Collect file paths from Write tool_use events
-      if (workspaceCwd) {
+      if (false && workspaceCwd) { // DISABLED: auto-sends all written files, needs redesign
         collectWritePaths(msg, writtenFiles);
       }
 
