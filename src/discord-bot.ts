@@ -153,7 +153,8 @@ export async function createDiscordBot(
 
       // Handle text + image attachments
       if (imageAttachments.length > 0) {
-        for (const attachment of imageAttachments) {
+        for (let i = 0; i < imageAttachments.length; i++) {
+          const attachment = imageAttachments[i];
           messagesReceived.inc({ type: "photo" });
           let tempPath: string | null = null;
           try {
@@ -161,7 +162,8 @@ export async function createDiscordBot(
             tempPath = tempFilePath("discord-img", ext);
             await downloadFile(attachment.url, tempPath);
 
-            const caption = message.content ?? "";
+            // Only include caption text with the first image to avoid duplication
+            const caption = i === 0 ? (message.content ?? "") : "";
             const messageText = caption.trimEnd()
               ? `${prefix}${caption.trimEnd()}\n\n${tempPath}`
               : `${prefix}${tempPath}`;
