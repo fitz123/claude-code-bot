@@ -209,13 +209,13 @@ this.restartCounts.set(chatId, restartCount);
 - Session spawn has exponential backoff based on `restartCount` — if a session for a chatId has crashed N times recently, delay the next spawn attempt. After a threshold (e.g. 5 crashes), stop spawning for that chatId and log at ERROR level. The backoff should reset when a session completes successfully.
 - Same staleness check for Discord messages (Discord `Message.createdTimestamp` is milliseconds).
 
-- [ ] Telegram messages older than a threshold are silently discarded (never enqueued)
-- [ ] Discord messages older than the same threshold are silently discarded
-- [ ] Threshold is configurable via config.yaml (e.g. `maxMessageAgeMs`, default 300000 = 5 min)
-- [ ] Discarded messages logged at DEBUG level with age
-- [ ] Session spawn backs off exponentially based on recent crash count for the same chatId
-- [ ] After max crashes (e.g. 5), session spawn is blocked for that chatId with ERROR log
-- [ ] Backoff resets when a session completes successfully
-- [ ] Tests for message staleness filtering
-- [ ] Tests for crash backoff and circuit breaking
-- [ ] Verify existing tests pass
+- [x] Telegram messages older than a threshold are silently discarded (never enqueued)
+- [x] Discord messages older than the same threshold are silently discarded
+- [x] Threshold is configurable via config.yaml (e.g. `maxMessageAgeMs`, default 300000 = 5 min)
+- [x] Discarded messages logged at DEBUG level with age
+- [x] Session spawn backs off exponentially based on recent crash count for the same chatId
+- [x] After max crashes (e.g. 5), session spawn is blocked for that chatId with ERROR log
+- [x] Backoff resets when a session completes successfully
+- [x] Tests for message staleness filtering
+- [x] Tests for crash backoff and circuit breaking
+- [x] Verify existing tests pass

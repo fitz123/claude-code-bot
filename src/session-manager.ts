@@ -12,6 +12,9 @@ const LOG_DIR = "/Users/ninja/.openclaw/logs";
 const OUTBOX_BASE = "/tmp/bot-outbox";
 const STARTUP_TIMEOUT_MS = 10_000;
 const RESPONSE_ACTIVITY_TIMEOUT_MS = 300_000; // 5 minutes with no events = hung
+const CRASH_BACKOFF_BASE_MS = 5_000; // Base delay for crash backoff
+const MAX_CRASH_BACKOFF_MS = 60_000; // Maximum backoff delay (1 minute)
+export const MAX_CRASH_RESTARTS = 5; // Block session after this many consecutive crashes
 
 /** Deterministic outbox directory path for a given chat. */
 export function outboxDir(chatId: string): string {
@@ -155,6 +158,18 @@ export class SessionManager {
     // Check if we have a stored session to resume (discards stale sessions)
     const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
 
+    // Crash backoff: prevent rapid crash→spawn→crash loops
+    const prevCrashCount = this.restartCounts.get(chatId) ?? 0;
+    if (prevCrashCount >= MAX_CRASH_RESTARTS) {
+      log.error("session-manager", `Session for chat ${chatId} blocked after ${prevCrashCount} consecutive crashes — use /reset to unblock`);
+      throw new Error(`Session blocked: ${prevCrashCount} consecutive crashes for chat ${chatId}`);
+    }
+    if (prevCrashCount > 0) {
+      const delayMs = Math.min(CRASH_BACKOFF_BASE_MS * 2 ** (prevCrashCount - 1), MAX_CRASH_BACKOFF_MS);
+      log.warn("session-manager", `Crash backoff: ${delayMs}ms for chat ${chatId} (crash #${prevCrashCount})`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+
     // Clean and recreate outbox directory to prevent stale files from
     // a previous crashed session from leaking into the new session's replies.
     const outboxPath = outboxDir(chatId);
@@ -189,11 +204,12 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
-    // Restart count accumulates across crash recoveries via a separate map
-    // that survives active.delete() in setupCrashRecovery.
-    const prevCount = this.restartCounts.get(chatId) ?? 0;
-    const restartCount = (existing || resume) ? prevCount + 1 : 0;
-    this.restartCounts.set(chatId, restartCount);
+    // Restart/crash count accumulates via setupCrashRecovery and survives
+    // active.delete(). Reset to 0 for fresh sessions (no existing, no resume).
+    const restartCount = this.restartCounts.get(chatId) ?? 0;
+    if (!existing && !resume) {
+      this.restartCounts.set(chatId, 0);
+    }
 
     const session: ActiveSession = {
       child,
@@ -324,6 +340,8 @@ export class SessionManager {
           if (line.type === "result") {
             gotResult = true;
             session.lastSuccessAt = Date.now();
+            // Reset crash backoff on successful response
+            this.restartCounts.set(chatId, 0);
             recordResultMetrics(session.agentId, line);
             break;
           }
@@ -373,6 +391,9 @@ export class SessionManager {
 
   /** Close a session: persist state, SIGTERM child, clean up. */
   async closeSession(chatId: string): Promise<void> {
+    // Always clear crash count so /reset unblocks circuit-broken chats
+    this.restartCounts.delete(chatId);
+
     const session = this.active.get(chatId);
     if (!session) return;
 
@@ -393,9 +414,6 @@ export class SessionManager {
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
     sessionsActive.dec();
-
-    // Clean up restart count — session lifecycle is complete
-    this.restartCounts.delete(chatId);
 
     // Clean up outbox directory
     try {
@@ -521,9 +539,12 @@ export class SessionManager {
 
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
         sessionCrashes.inc();
+        // Increment crash count for backoff (survives active.delete)
+        const count = (this.restartCounts.get(chatId) ?? 0) + 1;
+        this.restartCounts.set(chatId, count);
         log.error(
           "session-manager",
-          `Session for chat ${chatId} crashed: code=${code} signal=${signal}`,
+          `Session for chat ${chatId} crashed: code=${code} signal=${signal} (crash #${count})`,
         );
       }
     });
