@@ -244,8 +244,8 @@ export async function createDiscordBot(
         }
         case "reset": {
           messageQueue.clear(key);
-          await sessionManager.closeSession(key);
           await interaction.reply("Session reset. Next message starts a fresh conversation.");
+          await sessionManager.closeSession(key);
           break;
         }
         case "status": {
@@ -288,6 +288,9 @@ export async function createDiscordBot(
           await interaction.reply(lines.join("\n"));
           break;
         }
+        default:
+          await interaction.reply({ content: "Unknown command.", ephemeral: true });
+          break;
       }
     } catch (err) {
       log.error("discord-bot", `Interaction handler error:`, err);
