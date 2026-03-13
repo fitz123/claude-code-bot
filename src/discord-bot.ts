@@ -244,8 +244,8 @@ export async function createDiscordBot(
         }
         case "reset": {
           messageQueue.clear(key);
-          await interaction.reply("Session reset. Next message starts a fresh conversation.");
           await sessionManager.closeSession(key);
+          await interaction.reply("Session reset. Next message starts a fresh conversation.");
           break;
         }
         case "status": {

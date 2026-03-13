@@ -158,7 +158,7 @@ export async function relayStream(
     const elapsed = Date.now() - lastEditTime;
     if (elapsed >= platform.editDebounceMs) {
       editPending = true;
-      doEdit();
+      doEdit().catch(() => {});
     } else {
       editPending = true;
       if (editTimer) clearTimeout(editTimer);
