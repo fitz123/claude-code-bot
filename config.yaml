@@ -44,9 +44,8 @@ metricsPort: 9091
 discord:
   tokenService: discord-bot-token
   bindings:
-    - channelId: '1479772128298664007'
-      guildId: '1470077196537168007'
+    - guildId: '1470077196537168007'
       agentId: main
       kind: channel
-      label: Main
-      requireMention: false
+      label: Ninja Server
+      requireMention: true
