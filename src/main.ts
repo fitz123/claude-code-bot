@@ -12,9 +12,19 @@ async function main(): Promise<void> {
 
   const { bot, messageQueue } = createTelegramBot(config, sessionManager);
 
+  // Startup timeout — if onStart doesn't fire within 30s, exit for launchd restart
+  let startedSuccessfully = false;
+  const startupTimeout = setTimeout(() => {
+    if (!startedSuccessfully) {
+      console.error("[main] Startup timed out after 30s — exiting for launchd restart");
+      process.exit(1);
+    }
+  }, 30_000);
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`[main] Received ${signal}, shutting down...`);
+    clearTimeout(startupTimeout);
     bot.stop();
     messageQueue.clearAll();
     await sessionManager.closeAll();
@@ -36,6 +46,8 @@ async function main(): Promise<void> {
   console.log("[main] Starting Telegram bot polling...");
   await bot.start({
     onStart: async (botInfo) => {
+      startedSuccessfully = true;
+      clearTimeout(startupTimeout);
       console.log(`[main] Bot @${botInfo.username} is running (id: ${botInfo.id})`);
       try {
         await bot.api.setMyCommands(BOT_COMMANDS);

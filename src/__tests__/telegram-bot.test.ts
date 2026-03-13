@@ -399,6 +399,71 @@ describe("shouldRespondInGroup", () => {
     const msg = { reply_to_message: { from: { id: botId } } };
     assert.strictEqual(shouldRespondInGroup(explicit, botId, botUsername, msg), true);
   });
+
+  it("returns false when reply_to_message is a forum topic creation service message from bot", () => {
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, forum_topic_created: { name: "Topic", icon_color: 0 } },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns false when reply_to_message is a forum_topic_edited service message from bot", () => {
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, forum_topic_edited: { name: "New Name" } },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns false when reply_to_message is a forum_topic_closed service message from bot", () => {
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, forum_topic_closed: {} },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns false when reply_to_message is a forum_topic_reopened service message from bot", () => {
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, forum_topic_reopened: {} },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns true when replying to a real bot message in a forum topic (no service fields)", () => {
+    const msg = {
+      text: "thanks bot",
+      reply_to_message: { from: { id: botId } },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+  });
+
+  it("returns true when requireMention is false, even for forum service messages (early exit)", () => {
+    // When requireMention is false, shouldRespondInGroup returns true before reaching the service message check
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, forum_topic_created: { name: "Topic", icon_color: 0 } },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupNoMention, botId, botUsername, msg), true);
+  });
+
+  it("returns false for general_forum_topic_hidden service message from bot", () => {
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, general_forum_topic_hidden: {} },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
+
+  it("returns false for general_forum_topic_unhidden service message from bot", () => {
+    const msg = {
+      text: "hello",
+      reply_to_message: { from: { id: botId }, general_forum_topic_unhidden: {} },
+    };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+  });
 });
 
 describe("voiceTranscriptEcho config", () => {

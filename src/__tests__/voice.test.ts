@@ -140,7 +140,7 @@ describe("convertToWav", () => {
 describe("transcribeAudio", () => {
   it("exports correct whisper-cli paths", () => {
     assert.strictEqual(WHISPER_BIN, "/opt/homebrew/bin/whisper-cli");
-    assert.strictEqual(WHISPER_MODEL, "/opt/homebrew/share/whisper-cpp/ggml-small.bin");
+    assert.strictEqual(WHISPER_MODEL, "/opt/homebrew/share/whisper-cpp/ggml-medium.bin");
   });
 
   it("rejects when given a nonexistent audio file", async () => {

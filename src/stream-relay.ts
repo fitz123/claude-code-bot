@@ -1,4 +1,5 @@
-import type { Context } from "grammy";
+import { realpathSync } from "node:fs";
+import { type Context, InputFile } from "grammy";
 import type { StreamLine } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
 
@@ -70,6 +71,41 @@ export function extractText(msg: StreamLine): { text: string | null; isFinal: bo
   return { text: null, isFinal: false };
 }
 
+/** Image extensions that Telegram can display inline via replyWithPhoto. */
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
+
+/** Check if a file path has an image extension suitable for replyWithPhoto. */
+export function isImageExtension(filePath: string): boolean {
+  const dotIdx = filePath.lastIndexOf(".");
+  if (dotIdx === -1) return false;
+  return IMAGE_EXTENSIONS.has(filePath.slice(dotIdx).toLowerCase());
+}
+
+/**
+ * Scan a stream line for Write tool_use blocks and collect file paths.
+ * AssistantMessage snapshots repeat with --include-partial-messages,
+ * so paths are collected into a Set for deduplication.
+ */
+export function collectWritePaths(msg: StreamLine, paths: Set<string>): void {
+  if (msg.type !== "assistant" || msg.subtype !== undefined) return;
+  const content = msg.message?.content;
+  if (!Array.isArray(content)) return;
+  for (const block of content) {
+    if (
+      block.type === "tool_use" &&
+      (block as Record<string, unknown>).name === "Write"
+    ) {
+      const input = (block as Record<string, unknown>).input as
+        | Record<string, unknown>
+        | undefined;
+      const filePath = input?.file_path;
+      if (typeof filePath === "string") {
+        paths.add(filePath);
+      }
+    }
+  }
+}
+
 /**
  * Relay Claude CLI stream output to a Telegram chat.
  *
@@ -83,6 +119,7 @@ export function extractText(msg: StreamLine): { text: string | null; isFinal: bo
 export async function relayStream(
   stream: AsyncGenerator<StreamLine>,
   ctx: Context,
+  workspaceCwd?: string,
 ): Promise<void> {
   let accumulated = "";
   let sentMessageId: number | null = null;
@@ -93,6 +130,7 @@ export async function relayStream(
   let finalSent = false;
   const chatId = ctx.chat?.id;
   const threadId = ctx.message?.message_thread_id;
+  const writtenFiles = new Set<string>();
 
   if (!chatId) return;
 
@@ -144,6 +182,11 @@ export async function relayStream(
         accumulated += text;
       }
 
+      // Collect file paths from Write tool_use events
+      if (workspaceCwd) {
+        collectWritePaths(msg, writtenFiles);
+      }
+
       // Track result text as fallback when no streaming deltas arrive
       if (msg.type === "result" && msg.result) {
         resultText = msg.result;
@@ -187,31 +230,57 @@ export async function relayStream(
 
     finalSent = true;
 
-    // Send final version
-    if (!accumulated) return;
+    // Send final text version
+    if (accumulated) {
+      const chunks = splitMessage(accumulated);
 
-    const chunks = splitMessage(accumulated);
+      if (sentMessageId !== null && chunks.length >= 1) {
+        // Edit the first message to final text
+        try {
+          await ctx.api.editMessageText(chatId, sentMessageId, chunks[0]);
+        } catch {
+          // May fail if text unchanged
+        }
 
-    if (sentMessageId !== null && chunks.length >= 1) {
-      // Edit the first message to final text
-      try {
-        await ctx.api.editMessageText(chatId, sentMessageId, chunks[0]);
-      } catch {
-        // May fail if text unchanged
+        // Send remaining chunks as new messages
+        for (let i = 1; i < chunks.length; i++) {
+          await ctx.reply(chunks[i], {
+            ...(threadId ? { message_thread_id: threadId } : {}),
+          });
+        }
+      } else if (sentMessageId === null) {
+        // Never sent an initial message (shouldn't happen, but handle it)
+        for (const chunk of chunks) {
+          await ctx.reply(chunk, {
+            ...(threadId ? { message_thread_id: threadId } : {}),
+          });
+        }
       }
+    }
 
-      // Send remaining chunks as new messages
-      for (let i = 1; i < chunks.length; i++) {
-        await ctx.reply(chunks[i], {
-          ...(threadId ? { message_thread_id: threadId } : {}),
-        });
-      }
-    } else if (sentMessageId === null && accumulated) {
-      // Never sent an initial message (shouldn't happen, but handle it)
-      for (const chunk of chunks) {
-        await ctx.reply(chunk, {
-          ...(threadId ? { message_thread_id: threadId } : {}),
-        });
+    // Send any files created by Claude's Write tool
+    if (workspaceCwd && writtenFiles.size > 0) {
+      for (const filePath of writtenFiles) {
+        // Resolve symlinks to prevent path-check bypass (e.g. symlink inside
+        // workspace pointing outside it). realpathSync also verifies existence.
+        let realPath: string;
+        try {
+          realPath = realpathSync(filePath);
+        } catch {
+          continue; // File doesn't exist or is inaccessible
+        }
+        if (!realPath.startsWith(workspaceCwd + "/") && !realPath.startsWith("/tmp/") && !realPath.startsWith("/private/tmp/")) continue;
+
+        try {
+          const opts = threadId ? { message_thread_id: threadId } : {};
+          if (isImageExtension(realPath)) {
+            await ctx.replyWithPhoto(new InputFile(realPath), opts);
+          } else {
+            await ctx.replyWithDocument(new InputFile(realPath), opts);
+          }
+        } catch (err) {
+          console.error(`[stream-relay] Failed to send file ${filePath}:`, err);
+        }
       }
     }
   } finally {
