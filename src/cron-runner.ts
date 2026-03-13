@@ -100,7 +100,7 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
     "--fallback-model",
     "claude-sonnet-4-6",
     "--max-turns",
-    "20",
+    "50",
     "--add-dir",
     workspaceCwd,
     "--append-system-prompt",
