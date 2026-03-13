@@ -58,7 +58,8 @@ async function main(): Promise<void> {
         }
       },
     }).catch((err) => {
-      log.error("main", "Telegram bot error:", err);
+      log.error("main", "Telegram bot polling failed — exiting for restart:", err);
+      process.exit(1);
     });
   }
 
@@ -72,6 +73,12 @@ async function main(): Promise<void> {
     } catch (err) {
       log.error("main", "Failed to start Discord bot:", err);
     }
+  }
+
+  // Fail fast if no bots are active
+  if (!telegramBot && !discordClient) {
+    log.error("main", "No bots started — exiting");
+    process.exit(1);
   }
 
   // Graceful shutdown

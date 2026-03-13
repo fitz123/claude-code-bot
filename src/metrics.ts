@@ -71,14 +71,14 @@ export const sessionCrashes = new client.Counter({
 // --- Message flow ---
 
 export const messagesReceived = new client.Counter({
-  name: "bot_telegram_messages_received_total",
-  help: "Total Telegram messages received",
+  name: "bot_messages_received_total",
+  help: "Total messages received",
   labelNames: ["type"] as const,
 });
 
 export const messagesSent = new client.Counter({
-  name: "bot_telegram_messages_sent_total",
-  help: "Total Telegram messages sent by the bot",
+  name: "bot_messages_sent_total",
+  help: "Total messages sent by the bot",
 });
 
 // --- Helpers ---
