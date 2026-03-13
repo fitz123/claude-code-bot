@@ -9,7 +9,10 @@ import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./
 import { log } from "./logger.js";
 import { messagesReceived } from "./metrics.js";
 import { isImageMimeType } from "./mime.js";
-import { isStaleMessage } from "./telegram-bot.js";
+/** Check if a message is too old to process (same logic as telegram-bot.ts). */
+function isStaleMessage(messageTimestampMs: number, maxAgeMs: number): boolean {
+  return Date.now() - messageTimestampMs > maxAgeMs;
+}
 
 /**
  * Build a session key for Discord channels and threads.
