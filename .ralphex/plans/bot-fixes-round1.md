@@ -56,9 +56,9 @@ bot-round10 added `Events.Error`, `Events.ShardError`, `Events.Warn` handlers an
 
 ### Task 1: Remove dead Discord code (bot-nva, P1)
 
-Discord is decommissioned per ADR-038/ADR-039 but the code remains active. Discord.js WebSocket failures (handshake timeout, network glitches) crash the entire Node.js process via uncaughtException, killing Telegram with it. This has happened in production.
+Discord is decommissioned per ADR-038/ADR-039. Error handlers were added in bot-round10 so it no longer crashes the process, but the code is dead weight — ~400 lines of unused code, an unused npm dependency, and config parsing for a platform nobody uses.
 
-What we want: All Discord-related code, imports, config handling, and tests removed. The bot should be Telegram-only. No Discord dependencies in package.json.
+What we want: All Discord-related code, imports, config handling, and tests removed. The bot should be Telegram-only. No Discord dependencies in package.json. The `process.on("uncaughtException"/"unhandledRejection")` handlers added in round10 should stay (they're a good safety net regardless of Discord).
 
 - [ ] Discord bot module, adapter, and tests removed
 - [ ] Discord imports and initialization removed from main.ts
