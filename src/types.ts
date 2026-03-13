@@ -32,8 +32,17 @@ export interface TelegramBinding {
   typingIndicator?: boolean;
 }
 
-export interface DiscordBinding {
+export interface DiscordChannelOverride {
   channelId: string;
+  agentId?: string;
+  label?: string;
+  requireMention?: boolean;
+  streamingUpdates?: boolean;
+  typingIndicator?: boolean;
+}
+
+export interface DiscordBinding {
+  channelId?: string;
   guildId: string;
   agentId: string;
   kind: "dm" | "channel";
@@ -41,6 +50,7 @@ export interface DiscordBinding {
   requireMention?: boolean;
   streamingUpdates?: boolean;
   typingIndicator?: boolean;
+  channels?: DiscordChannelOverride[];
 }
 
 export interface DiscordConfig {

@@ -267,15 +267,15 @@ But `getOrCreateSession` never compares `stored.agentId` with the incoming `agen
 
 **What we want:** A Discord binding with `guildId` but no `channelId` acts as a guild-wide default — any channel in that guild uses it. Per-channel overrides (via a `channels[]` array on the guild binding, same pattern as Telegram's `topics[]`) can override `agentId`, `label`, `requireMention`, `streamingUpdates`, and `typingIndicator` for specific channels. Resolution priority: exact channelId match → per-channel override from `channels[]` → guild-wide fallback. `channelId` becomes optional in the binding type. Config validation updated accordingly. `resolveDiscordBinding` needs `guildId` as an additional parameter (available from the Discord message).
 
-- [ ] `channelId` is optional in `DiscordBinding` — a binding with only `guildId` is valid
-- [ ] `channels` array support on guild-wide bindings (same pattern as Telegram `topics[]`)
-- [ ] `resolveDiscordBinding` accepts `guildId` parameter and resolves: exact channel → channel override → guild default
-- [ ] Config validation allows bindings without `channelId`
-- [ ] Config validation validates `channels[]` entries (channelId required in override, agentId references valid agent)
-- [ ] Existing per-channel bindings (with explicit `channelId`) continue to work unchanged
-- [ ] Tests for resolution priority (exact > override > guild default)
-- [ ] Tests for config validation (guild-only binding, channel overrides, invalid entries)
-- [ ] Verify existing tests pass
+- [x] `channelId` is optional in `DiscordBinding` — a binding with only `guildId` is valid
+- [x] `channels` array support on guild-wide bindings (same pattern as Telegram `topics[]`)
+- [x] `resolveDiscordBinding` accepts `guildId` parameter and resolves: exact channel → channel override → guild default
+- [x] Config validation allows bindings without `channelId`
+- [x] Config validation validates `channels[]` entries (channelId required in override, agentId references valid agent)
+- [x] Existing per-channel bindings (with explicit `channelId`) continue to work unchanged
+- [x] Tests for resolution priority (exact > override > guild default)
+- [x] Tests for config validation (guild-only binding, channel overrides, invalid entries)
+- [x] Verify existing tests pass
 
 ### Task 3: Outbox-based file sending from Claude to chat (bot-sdo, P2)
 
