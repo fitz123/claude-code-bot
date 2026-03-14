@@ -1,6 +1,7 @@
 import { type Context, InputFile } from "grammy";
 import type { PlatformContext, TelegramBinding } from "./types.js";
 import { markdownToHtml } from "./markdown-html.js";
+import { setThread } from "./message-thread-cache.js";
 
 /** Telegram platform constants. */
 const TELEGRAM_MAX_MSG_LENGTH = 4096;
@@ -32,11 +33,13 @@ export function createTelegramAdapter(
       const html = markdownToHtml(text);
       try {
         const sent = await ctx.reply(html, { ...threadOpts, parse_mode: "HTML" });
+        if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
         return String(sent.message_id);
       } catch (err) {
         // Only fall back to plain text for HTML parse errors; re-throw everything else
         if (err instanceof Error && /can't parse entities|message is too long/.test(err.message)) {
           const sent = await ctx.reply(text, { ...threadOpts });
+          if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
           return String(sent.message_id);
         }
         throw err;
