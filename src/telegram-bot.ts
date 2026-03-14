@@ -9,6 +9,8 @@ import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./
 import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
+import { setThread, getThread } from "./message-thread-cache.js";
+import { logReaction } from "./reaction-log.js";
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
@@ -440,6 +442,7 @@ export function createTelegramBot(
   bot.command("start", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
+    if (ctx.message) setThread(chatId, ctx.message.message_id, topicId);
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
     if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
@@ -460,6 +463,7 @@ export function createTelegramBot(
   // retained through the compaction summary.
   bot.command("reset", async (ctx) => {
     const topicId = ctx.message?.message_thread_id;
+    if (ctx.message) setThread(ctx.chat.id, ctx.message.message_id, topicId);
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
     if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
@@ -475,6 +479,7 @@ export function createTelegramBot(
   // /status command — active sessions, memory, uptime, subprocess health
   bot.command("status", async (ctx) => {
     const topicId = ctx.message?.message_thread_id;
+    if (ctx.message) setThread(ctx.chat.id, ctx.message.message_id, topicId);
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
     if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
@@ -526,6 +531,7 @@ export function createTelegramBot(
   bot.on("message:text", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
+    setThread(chatId, ctx.message.message_id, topicId);
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -554,6 +560,7 @@ export function createTelegramBot(
   bot.on("message:voice", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
+    setThread(chatId, ctx.message.message_id, topicId);
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -611,6 +618,7 @@ export function createTelegramBot(
   bot.on("message:photo", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
+    setThread(chatId, ctx.message.message_id, topicId);
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -665,6 +673,7 @@ export function createTelegramBot(
   bot.on("message:document", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
+    setThread(chatId, ctx.message.message_id, topicId);
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -732,12 +741,15 @@ export function createTelegramBot(
   });
 
   // Handle message reactions — forward as contextual info to the agent.
-  // Note: Telegram's MessageReactionUpdated does not include message_thread_id,
-  // so reactions in forum topics resolve to the chat-level binding. This is a
-  // Telegram API limitation — topicId is unavailable for reaction events.
+  // Telegram's MessageReactionUpdated does not include message_thread_id
+  // (tdlib/telegram-bot-api#726). We work around this by maintaining an
+  // in-memory cache of messageId→topicId populated by every message handler.
+  // Cache miss degrades gracefully to chat-level routing (previous behavior).
   bot.on("message_reaction", async (ctx) => {
     const chatId = ctx.chat.id;
-    const binding = resolveBinding(chatId, config.bindings);
+    const messageId = ctx.messageReaction.message_id;
+    const topicId = getThread(chatId, messageId);
+    const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
     try {
@@ -751,15 +763,25 @@ export function createTelegramBot(
 
       messagesReceived.inc({ type: "reaction" });
 
-      const messageId = ctx.messageReaction.message_id;
       const user = ctx.messageReaction.user;
       const from = user ? { first_name: user.first_name, username: user.username } : undefined;
       const prefix = buildSourcePrefix(binding, from);
       const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
       const messageText = prefix + reactionText;
 
-      const key = sessionKey(chatId);
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
+      logReaction({
+        ts: new Date(ctx.messageReaction.date * 1000).toISOString(),
+        chatId,
+        topicId,
+        messageId,
+        userId: user?.id,
+        username: user?.username,
+        added: emojiAdded,
+        removed: emojiRemoved,
+      });
+
+      const key = sessionKey(chatId, topicId);
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, topicId));
     } catch (err) {
       log.error("telegram-bot", `Reaction handling error for chat ${chatId}:`, err);
     }
