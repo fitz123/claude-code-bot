@@ -1,94 +1,294 @@
-# Bot Features and Fixes — Round 3
+# Bot Features & Fixes — Round 3
 
 ## Goal
 
-Implement 4 features/fixes for the Telegram bot. Reference OpenClaw's queue implementation at `~/minime/openclaw/src/auto-reply/reply/queue/` for the collect pattern design.
+Fix paragraph newline loss in Telegram messages, add topicId to agent message headers, handle 409 Conflict crash-loops gracefully, support receiving files/documents from Telegram, and support message reactions as a feedback signal.
 
 ## Validation Commands
 
 ```bash
-npx tsc --noEmit
-npm test
+cd ~/.openclaw/bot && npx tsc --noEmit && npm test
 ```
 
-## Real Claude CLI stream-json event shapes
+## Reference: Message splitting (stream-relay.ts:12-44)
 
-Use these real event shapes in tests. Captured from `claude -p --output-format stream-json --verbose --include-partial-messages`:
+```typescript
+export function splitMessage(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
 
-```jsonl
-{"type":"system","subtype":"init","session_id":"c9d40f09-...","model":"claude-opus-4-6"}
-{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}
-{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"! How"}}}
-{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" can I help you today?"}}}
-{"type":"assistant","message":{"model":"claude-opus-4-6","role":"assistant","content":[{"type":"text","text":"Hello! How can I help you today?"}]}}
-{"type":"stream_event","event":{"type":"content_block_stop","index":0}}
-{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"}}}
-{"type":"stream_event","event":{"type":"message_stop"}}
-{"type":"result","subtype":"success","is_error":false,"result":"Hello! How can I help you today?","stop_reason":"end_turn","session_id":"c9d40f09-..."}
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Try to split at paragraph boundary
+    let splitIdx = remaining.lastIndexOf("\n\n", maxLen);
+    if (splitIdx <= 0) {
+      splitIdx = remaining.lastIndexOf("\n", maxLen);
+    }
+    if (splitIdx <= 0) {
+      splitIdx = remaining.lastIndexOf(" ", maxLen);
+    }
+    if (splitIdx <= 0) {
+      splitIdx = maxLen;
+    }
+
+    chunks.push(remaining.slice(0, splitIdx));
+    remaining = remaining.slice(splitIdx).replace(/^\n+/, "");  // BUG: strips ALL leading newlines
+  }
+
+  return chunks;
+}
 ```
 
-Key facts:
-- Streaming deltas have `type: "stream_event"` (NOT `type: "assistant"` with `subtype: "stream_event"`)
-- The `assistant` message (full text) arrives AFTER all deltas — do NOT accumulate text from it
-- The `result` message also contains full text — do NOT accumulate text from it
-- `extractTextDelta()` must check `msg.type === "stream_event"` and look for `event.delta.type === "text_delta"`
-- Round 2 already fixed this in `extractTextDelta()` — verify tests use correct shapes
+Line 40: `.replace(/^\n+/, "")` strips ALL leading newlines from the next chunk. When splitting at a `\n\n` paragraph boundary, this removes the paragraph break between chunks. The existing test at stream-relay.test.ts:20-38 asserts this buggy behavior as correct.
 
-## Previous bugs found in testing (avoid regressions)
+## Reference: deliver.sh splitting (scripts/deliver.sh:80-117)
 
-- `readStream()` creating new readline per call leaked listeners (MaxListenersExceededWarning after ~10 messages). Fixed in round 2.
-- `extractText()` was accumulating text from deltas + assistant message + result = triple text. Fixed in round 2.
-- Session stderr log was 0 bytes on crash. Fix attempted in round 2 (removed premature logStream.end()). Not yet verified.
+```bash
+if [ ${#remaining} -le $MAX_LEN ]; then
+  send_message "$remaining"
+  break
+fi
+
+chunk="${remaining:0:$MAX_LEN}"
+split_pos=$(echo "$chunk" | grep -b -o $'\n\n' | tail -1 | cut -d: -f1 || echo "")
+
+if [ -n "$split_pos" ] && [ "$split_pos" -gt 100 ]; then
+  send_message "${remaining:0:$split_pos}"
+  remaining="${remaining:$((split_pos + 2))}"  # Skips BOTH \n\n characters
+```
+
+Line 100: when splitting at `\n\n`, skips both newline chars, losing the paragraph break in the next chunk.
+
+## Reference: buildSourcePrefix (telegram-bot.ts:74-93)
+
+```typescript
+export function buildSourcePrefix(
+  binding: TelegramBinding,
+  from?: { first_name: string; username?: string },
+): string {
+  const parts: string[] = [];
+
+  if (binding.label) {
+    parts.push(`Chat: ${binding.label}`);
+  }
+
+  if (from) {
+    const name = from.first_name.replace(/[\n\r]/g, " ");
+    const sender = from.username
+      ? `${name} (@${from.username.replace(/[\n\r]/g, "")})`
+      : name;
+    parts.push(`From: ${sender}`);
+  }
+
+  return parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
+}
+```
+
+TelegramBinding type (types.ts:22-33):
+```typescript
+export interface TelegramBinding {
+  chatId: number;
+  agentId: string;
+  kind: "dm" | "group";
+  topicId?: number;
+  label?: string;
+  requireMention?: boolean;
+  topics?: TopicOverride[];
+  voiceTranscriptEcho?: boolean;
+  streamingUpdates?: boolean;
+  typingIndicator?: boolean;
+}
+```
+
+`binding.topicId` is already available but not included in the prefix output.
+
+Existing tests (telegram-bot.test.ts:204-230):
+```typescript
+describe("buildSourcePrefix", () => {
+  it("includes chat label and sender", () => {
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: Minime HQ | From: John (@johndoe)]\n");
+  });
+  it("handles missing username", () => {
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: Ninja DM | From: Alice]\n");
+  });
+  it("handles missing label", () => {
+    assert.strictEqual(buildSourcePrefix(binding, from), "[From: Bob (@bob123)]\n");
+  });
+  it("handles missing sender", () => {
+    assert.strictEqual(buildSourcePrefix(binding, undefined), "[Chat: Dev Chat]\n");
+  });
+  it("returns empty for no info", () => {
+    assert.strictEqual(buildSourcePrefix(binding, undefined), "");
+  });
+});
+```
+
+## Reference: Bot lifecycle and 409 handling (main.ts:31-89)
+
+Graceful shutdown (main.ts:33-42):
+```typescript
+const shutdown = async (signal: string) => {
+  log.info("main", `Received ${signal}, shutting down...`);
+  if (telegramBot) telegramBot.stop();
+  if (discordClient) discordClient.destroy();
+  for (const mq of messageQueues) mq.clearAll();
+  await stopMetricsServer();
+  await sessionManager.closeAll();
+  log.info("main", "All sessions closed. Exiting.");
+  process.exit(0);
+};
+```
+
+bot.start() call (main.ts:73-89):
+```typescript
+bot.start({
+  onStart: async (botInfo) => {
+    startedSuccessfully = true;
+    clearTimeout(startupTimeout);
+    log.info("main", `Telegram bot @${botInfo.username} is running`);
+    // ...
+  },
+}).catch((err) => {
+  log.error("main", "Telegram bot polling failed — exiting for restart:", err);
+  process.exit(1);
+});
+```
+
+grammY internal behavior (node_modules/grammy/out/bot.js:435-446):
+- Error 409 is **thrown immediately**, not retried
+- The thrown error propagates to the `.catch()` handler → `process.exit(1)` → launchd restarts → new instance also gets 409 → crash-loop
+
+LaunchAgent plist has `ThrottleInterval: 35` seconds, but that's not enough if Telegram hasn't cleaned up the old getUpdates long-poll connection.
+
+## Reference: Current message handlers (telegram-bot.ts)
+
+Registered handlers:
+- `bot.command("start")` — line 357
+- `bot.command("reset")` — line 378
+- `bot.command("status")` — line 393
+- `bot.on("message:text")` — line 443
+- `bot.on("message:voice")` — line 471
+- `bot.on("message:photo")` — line 528
+- `bot.on("message:document")` — line 582 (only image MIME types, non-images are silently ignored)
+- `bot.catch()` — line 635
+
+No `message_reaction` handler exists. No `allowed_updates` param in `bot.start()`.
+
+## Reference: Voice handler pattern (telegram-bot.ts:471-525)
+
+```typescript
+bot.on("message:voice", async (ctx) => {
+  // ... auth, binding, group checks ...
+  const file = await ctx.getFile();
+  const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+  const inputPath = join(tmpdir(), `bot-voice-${randomUUID()}.ogg`);
+  // ... download, transcribe, enqueue with [Voice message] label ...
+  // cleanup in finally block
+});
+```
+
+## Reference: Document handler — image only (telegram-bot.ts:582-632)
+
+```typescript
+bot.on("message:document", async (ctx) => {
+  // ... auth, binding checks ...
+  const doc = ctx.msg.document;
+  if (!isImageMimeType(doc.mime_type)) return;  // Line 589: REJECTS non-images
+
+  const file = await ctx.getFile();
+  // ... download to tmp, enqueue with filepath, cleanup ...
+});
+```
+
+## Reference: grammY reaction API
+
+grammY v1.41.1 supports reactions:
+```typescript
+bot.reaction("👍", (ctx) => { /* ... */ });
+bot.on("message_reaction", (ctx) => {
+  const { emojiAdded, emojiRemoved } = ctx.reactions();
+});
+```
+
+Requires `allowed_updates` to include `"message_reaction"` in `bot.start()`. Bot must be admin in groups.
+
+`ctx.messageReaction` contains: `chat`, `message_id`, `date`, `old_reaction`, `new_reaction`, `user` (optional if anonymous).
+
+## Reference: Telegram getFile API for documents
+
+Two-step download: `getFile(file_id)` → returns `file_path` → download from `https://api.telegram.org/file/bot<TOKEN>/<file_path>`.
+- Download limit: 20MB
+- Link validity: ~1 hour
 
 ## Tasks
 
-### Task 1: Message batching and mid-turn queue (bot-43s, P1)
+### Task 1: Fix paragraph newline loss in message splitting (bot-p2y, P1)
 
-Messages sent rapidly by the user should be concatenated into a single message before sending to Claude. If messages arrive while Claude is already processing a response, they should be queued and delivered as a combined followup after the current turn finishes.
+When a long message is split into chunks for Telegram's 4096-char limit, paragraph breaks (`\n\n`) between chunks are lost. This happens in two places: `splitMessage()` in stream-relay.ts strips all leading newlines from subsequent chunks, and deliver.sh skips both `\n\n` characters when splitting at paragraph boundaries.
 
-Two behaviors:
-- **Pre-send debounce** (3s window): hold incoming messages, reset timer on each new one, send concatenated result when timer expires
-- **Mid-turn collect**: buffer messages arriving during active processing, combine into a single followup prompt when the turn completes, formatted like:
-  ```
-  [Queued messages while agent was busy]
-  ---
-  Queued #1
-  <text>
-  ---
-  Queued #2
-  <text>
-  ```
+Users see wall-of-text responses where Claude intended paragraph breaks. This is the most visible quality issue.
 
-Reference implementation: OpenClaw `~/minime/openclaw/src/auto-reply/reply/queue/` (modes, debounce, drain loop, collect prompt building). Key files: `types.ts` (QueueMode, QueueSettings), `settings.ts` (resolveQueueSettings), `drain.ts` (scheduleFollowupDrain, buildCollectPrompt), `state.ts` (DEFAULT_QUEUE_DEBOUNCE_MS=1000, DEFAULT_QUEUE_CAP=20).
+- [ ] Paragraph breaks between split chunks are preserved in stream-relay.ts splitMessage()
+- [ ] Paragraph breaks between split chunks are preserved in deliver.sh
+- [ ] Existing split tests are updated to verify paragraph spacing is maintained
+- [ ] Add tests: message with multiple paragraph breaks split across chunks retains all breaks
+- [ ] Verify existing tests pass
 
-- [x] Implement pre-send debounce in message handler
-- [x] Implement mid-turn collect queue
-- [x] Auto-drain queued messages after turn completes
-- [x] Update tests
+### Task 2: Include topicId in agent message header (bot-2bm, P2)
 
-### Task 2: Verify and fix subprocess crash logging (bot-ai2, P1)
+When a message comes from a Telegram forum topic without its own binding, the parent binding's label is used. The agent cannot distinguish which topic the message came from. `binding.topicId` is already available but not included in `buildSourcePrefix()` output.
 
-Previous ralphex round attempted to fix empty session stderr logs by removing premature `logStream.end()`. Verify the fix works — when a subprocess crashes, `~/.openclaw/logs/session-<chatId>.log` should contain the actual error output. If still broken, investigate and fix.
+Current: `[Chat: Minime HQ | From: User (@user)]`
+Desired: `[Chat: Minime HQ | Topic: 591 | From: User (@user)]` (when topicId is present)
 
-- [x] Verify stderr logging captures subprocess crash output
-- [x] Fix if still broken
-- [x] Update tests
+- [ ] `buildSourcePrefix()` includes `Topic: <id>` when `binding.topicId` is defined
+- [ ] Topic appears between Chat and From in the header
+- [ ] No Topic field when `topicId` is undefined (DMs, non-forum groups)
+- [ ] Update existing buildSourcePrefix tests
+- [ ] Add test: binding with topicId produces correct header
+- [ ] Add test: binding without topicId produces header without Topic field
+- [ ] Verify existing tests pass
 
-### Task 3: Enhanced /status command with session health (bot-7ed, P2)
+### Task 3: Handle 409 Conflict on bot restart (bot-81s, P2)
 
-The `/status` command should show real subprocess state so the user can tell if Claude is alive, working, or hung. Currently it only shows active count, memory, uptime, and idle time.
+When the bot is restarted via `launchctl kickstart -k`, the new instance starts before Telegram fully releases the old long-poll connection. grammY throws 409 Conflict immediately (no retry), which triggers `process.exit(1)`, and launchd restarts again — creating a crash-loop.
 
-Add: subprocess PID, whether the process is alive, current response duration if processing, last successful response timestamp, subprocess restart count.
+The 35-second ThrottleInterval in the LaunchAgent plist is insufficient because Telegram may hold the old connection longer.
 
-- [x] Add subprocess health info to /status output
-- [x] Update tests
+- [ ] Bot handles 409 Conflict errors with a retry-with-backoff strategy instead of immediately crashing
+- [ ] Retry attempts are logged at WARN level with attempt count
+- [ ] After exhausting retries (reasonable limit), the bot exits for launchd restart
+- [ ] Add tests for the 409 retry behavior
+- [ ] Verify existing tests pass
 
-### Task 4: Per-topic bindings for forum supergroups (bot-h7j, P3)
+### Task 4: Support receiving files and documents from Telegram (bot-8ae, P2)
 
-Allow binding a specific Telegram forum topic (thread) to an agent. The `topicId` field already exists in `TelegramBinding` type and config parser. The stream relay already passes `message_thread_id` for replies. Missing pieces: routing and session isolation.
+Currently the `message:document` handler only accepts image MIME types and silently drops everything else. Users cannot send PDFs, text files, or other documents to the agent. The voice handler already demonstrates the download-and-forward pattern.
 
-`resolveBinding()` in `telegram-bot.ts` currently matches only on `chatId` — it should also match `topicId` when set in the binding config. Session key is currently just `chatId` string — it should include topicId so each topic gets its own Claude session. grammY exposes topic as `ctx.msg.message_thread_id`.
+Files should be downloaded from Telegram, saved to a temp path, and forwarded to Claude with metadata (filename, MIME type, size). Claude Code can read files natively — just pass the local path.
 
-- [x] Update binding resolution to match chatId + topicId
-- [x] Update session key to include topicId
-- [x] Update tests
+- [ ] Non-image documents (PDF, TXT, CSV, etc.) are downloaded and forwarded to the agent session
+- [ ] Message to agent includes file metadata: original filename, MIME type, file size
+- [ ] Local file path is included so Claude can read the file
+- [ ] 20MB Telegram API limit is respected — files exceeding this are rejected with a user-facing message
+- [ ] Temp files are cleaned up after the agent processes the message
+- [ ] Add tests for document handling (various MIME types, size limits)
+- [ ] Verify existing tests pass
+
+### Task 5: Support message reactions as feedback signal (bot-p1a, P2)
+
+The bot has no way to receive reaction events from Telegram. Reactions (thumbs up/down, etc.) on bot messages are a natural feedback mechanism. The bot should forward reaction events to the agent session as contextual information.
+
+- [ ] `allowed_updates` in `bot.start()` includes `"message_reaction"`
+- [ ] New handler for `message_reaction` events
+- [ ] Reaction events are forwarded to the agent session as text context (e.g., `[Reaction: 👍 on message 123 from User]`)
+- [ ] Reactions in groups respect the same binding/authorization rules as messages
+- [ ] Reaction removals are also forwarded (so agent knows feedback was retracted)
+- [ ] Add tests for reaction event handling
+- [ ] Verify existing tests pass
