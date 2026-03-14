@@ -4,6 +4,7 @@ import { createTelegramBot, BOT_COMMANDS, type TelegramBotResult } from "./teleg
 import { createDiscordBot } from "./discord-bot.js";
 import { log, setLogLevel } from "./logger.js";
 import { startMetricsServer, stopMetricsServer } from "./metrics.js";
+import { startBotWithRetry } from "./bot-startup.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
 
@@ -70,20 +71,25 @@ async function main(): Promise<void> {
     }, 30_000);
 
     log.info("main", "Starting Telegram bot polling...");
-    // bot.start() blocks until stopped — run it without awaiting
-    bot.start({
-      onStart: async (botInfo) => {
-        startedSuccessfully = true;
-        clearTimeout(startupTimeout);
-        log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
-        try {
-          await bot.api.setMyCommands(BOT_COMMANDS);
-          log.info("main", "Bot commands registered with Telegram");
-        } catch (err) {
-          log.error("main", "Failed to register bot commands:", err);
-        }
-      },
-    }).catch((err) => {
+    // bot.start() blocks until stopped — run it without awaiting.
+    // startBotWithRetry handles 409 Conflict errors (old instance still polling)
+    // with exponential backoff to avoid crash-loops on restart.
+    startBotWithRetry(
+      () =>
+        bot.start({
+          onStart: async (botInfo) => {
+            startedSuccessfully = true;
+            clearTimeout(startupTimeout);
+            log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
+            try {
+              await bot.api.setMyCommands(BOT_COMMANDS);
+              log.info("main", "Bot commands registered with Telegram");
+            } catch (err) {
+              log.error("main", "Failed to register bot commands:", err);
+            }
+          },
+        }),
+    ).catch((err) => {
       log.error("main", "Telegram bot polling failed — exiting for restart:", err);
       process.exit(1);
     });
