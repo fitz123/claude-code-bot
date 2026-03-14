@@ -92,6 +92,7 @@ describe("resolveBinding with topicId", () => {
     const binding = resolveBinding(-100999, topicBindings, 999);
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "general");
+    assert.strictEqual(binding.topicId, 999);
   });
 
   it("falls back to chatId-only binding when no topicId provided", () => {
@@ -241,6 +242,30 @@ describe("buildSourcePrefix", () => {
     const from = { first_name: "Alice" };
     assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: DM Chat | From: Alice]\n");
   });
+
+  it("shows topicId for unlisted topic via resolveBinding fallback", () => {
+    const bindings: TelegramBinding[] = [
+      {
+        chatId: -100999,
+        agentId: "main",
+        kind: "group",
+        label: "HQ",
+        topics: [{ topicId: 10, agentId: "finance" }],
+      },
+    ];
+    const binding = resolveBinding(-100999, bindings, 1890);
+    assert.ok(binding);
+    assert.strictEqual(buildSourcePrefix(binding, { first_name: "User" }), "[Chat: HQ | Topic: 1890 | From: User]\n");
+  });
+
+  it("DM binding without topicId shows no Topic field", () => {
+    const bindings: TelegramBinding[] = [
+      { chatId: 100, agentId: "main", kind: "dm", label: "Ninja DM" },
+    ];
+    const binding = resolveBinding(100, bindings);
+    assert.ok(binding);
+    assert.strictEqual(buildSourcePrefix(binding, { first_name: "Ninja" }), "[Chat: Ninja DM | From: Ninja]\n");
+  });
 });
 
 describe("imageExtensionForMime", () => {
@@ -311,12 +336,12 @@ describe("resolveBinding with topics array", () => {
     assert.strictEqual(binding.requireMention, true);
   });
 
-  it("falls back to group defaults for unlisted topic", () => {
+  it("falls back to group defaults for unlisted topic but preserves topicId", () => {
     const binding = resolveBinding(-100999, bindingsWithTopics, 999);
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "main");
     assert.strictEqual(binding.requireMention, true);
-    assert.strictEqual(binding.topicId, undefined);
+    assert.strictEqual(binding.topicId, 999);
   });
 
   it("falls back to group defaults when no topicId provided", () => {
