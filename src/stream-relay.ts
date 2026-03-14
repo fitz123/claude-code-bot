@@ -136,6 +136,7 @@ export async function relayStream(
   let editTimer: ReturnType<typeof setTimeout> | null = null;
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let finalSent = false;
+  let sawNonTextBlock = false;
 
   // Send typing indicator periodically (if enabled)
   if (platform.typingIndicator) {
@@ -182,9 +183,29 @@ export async function relayStream(
     let resultText: string | null = null;
 
     for await (const msg of stream) {
+      // Detect non-text content blocks (tool_use, etc.) so we can insert a
+      // paragraph break when the next text block starts.  Without this,
+      // "plan:" + [Edit tool] + "Done!" would become "plan:Done!".
+      if (msg.type === "stream_event") {
+        const ev = msg.event as Record<string, unknown>;
+        if (ev.type === "content_block_start") {
+          const block = ev.content_block as Record<string, unknown> | undefined;
+          if (block?.type && block.type !== "text") {
+            sawNonTextBlock = true;
+          }
+        }
+      }
+
       const { text, isFinal } = extractText(msg);
 
       if (text !== null) {
+        // Insert paragraph break when text resumes after a tool-use block
+        if (sawNonTextBlock && accumulated.length > 0) {
+          if (!accumulated.endsWith("\n\n")) {
+            accumulated += accumulated.endsWith("\n") ? "\n" : "\n\n";
+          }
+          sawNonTextBlock = false;
+        }
         accumulated += text;
       }
 
