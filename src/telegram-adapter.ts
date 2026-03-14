@@ -15,9 +15,10 @@ const TELEGRAM_TYPING_INTERVAL_MS = 4000;
 export function createTelegramAdapter(
   ctx: Context,
   binding?: TelegramBinding,
+  threadIdOverride?: number,
 ): PlatformContext {
   const chatId = ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
+  const threadId = threadIdOverride ?? ctx.message?.message_thread_id;
   const threadOpts = threadId ? { message_thread_id: threadId } : {};
 
   return {
