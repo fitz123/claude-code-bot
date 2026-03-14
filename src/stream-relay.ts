@@ -23,21 +23,32 @@ export function splitMessage(text: string, maxLen: number): string[] {
 
     // Try to split at paragraph boundary
     let splitIdx = remaining.lastIndexOf("\n\n", maxLen);
+    let skipChars = 2; // skip the \n\n boundary
+    if (splitIdx > 0) {
+      // Walk back to the start of the newline run so the chunk
+      // doesn't end with a stray \n from an overlapping match.
+      while (splitIdx > 0 && remaining[splitIdx - 1] === "\n") {
+        splitIdx--;
+      }
+    }
     if (splitIdx <= 0) {
       // Try newline
       splitIdx = remaining.lastIndexOf("\n", maxLen);
+      skipChars = 1; // skip the \n boundary
     }
     if (splitIdx <= 0) {
       // Hard cut at space
       splitIdx = remaining.lastIndexOf(" ", maxLen);
+      skipChars = 1; // skip the space
     }
     if (splitIdx <= 0) {
       // Hard cut
       splitIdx = maxLen;
+      skipChars = 0;
     }
 
     chunks.push(remaining.slice(0, splitIdx));
-    remaining = remaining.slice(splitIdx).replace(/^\n+/, "");
+    remaining = remaining.slice(splitIdx + skipChars);
   }
 
   return chunks;

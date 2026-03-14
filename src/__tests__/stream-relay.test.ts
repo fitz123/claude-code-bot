@@ -53,6 +53,32 @@ describe("splitMessage", () => {
     assert.strictEqual(result[0].length, 50);
   });
 
+  it("preserves paragraph breaks across split chunks", () => {
+    // When splitting at \n\n, extra newlines after the boundary must survive
+    const para1 = "a".repeat(100);
+    const para2 = "b".repeat(100);
+    // Three newlines: split consumes \n\n boundary, one \n remains at start of next chunk
+    const text = para1 + "\n\n\n" + para2;
+    const result = splitMessage(text, 150);
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0], para1);
+    assert.strictEqual(result[1], "\n" + para2, "extra newline after split boundary should be preserved");
+  });
+
+  it("preserves multiple paragraph breaks across split chunks", () => {
+    const para1 = "a".repeat(80);
+    const para2 = "b".repeat(80);
+    const para3 = "c".repeat(80);
+    // Build text: para1 \n\n para2 \n\n para3
+    const text = para1 + "\n\n" + para2 + "\n\n" + para3;
+    const result = splitMessage(text, 100);
+    // Should split into 3 chunks, each paragraph intact
+    assert.strictEqual(result.length, 3);
+    assert.strictEqual(result[0], para1);
+    assert.strictEqual(result[1], para2);
+    assert.strictEqual(result[2], para3);
+  });
+
   it("handles empty string", () => {
     const result = splitMessage("", 4096);
     assert.deepStrictEqual(result, [""]);
