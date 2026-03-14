@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, TELEGRAM_FILE_SIZE_LIMIT } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, TELEGRAM_FILE_SIZE_LIMIT, buildReactionContext } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -910,5 +910,46 @@ describe("formatDocumentMeta", () => {
 describe("TELEGRAM_FILE_SIZE_LIMIT", () => {
   it("is 20 MB", () => {
     assert.strictEqual(TELEGRAM_FILE_SIZE_LIMIT, 20 * 1024 * 1024);
+  });
+});
+
+describe("buildReactionContext", () => {
+  it("formats a single added emoji", () => {
+    assert.strictEqual(
+      buildReactionContext(123, ["👍"], []),
+      "[Reaction: 👍 on message 123]",
+    );
+  });
+
+  it("formats a single removed emoji", () => {
+    assert.strictEqual(
+      buildReactionContext(456, [], ["👎"]),
+      "[Reaction removed: 👎 on message 456]",
+    );
+  });
+
+  it("formats multiple added emojis", () => {
+    assert.strictEqual(
+      buildReactionContext(789, ["👍", "❤️"], []),
+      "[Reaction: 👍 on message 789]\n[Reaction: ❤️ on message 789]",
+    );
+  });
+
+  it("formats both added and removed emojis", () => {
+    assert.strictEqual(
+      buildReactionContext(100, ["👍"], ["👎"]),
+      "[Reaction: 👍 on message 100]\n[Reaction removed: 👎 on message 100]",
+    );
+  });
+
+  it("returns empty string when no emojis", () => {
+    assert.strictEqual(buildReactionContext(100, [], []), "");
+  });
+
+  it("handles large message IDs", () => {
+    assert.strictEqual(
+      buildReactionContext(9999999, ["🔥"], []),
+      "[Reaction: 🔥 on message 9999999]",
+    );
   });
 });

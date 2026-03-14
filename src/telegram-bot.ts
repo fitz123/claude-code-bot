@@ -221,6 +221,26 @@ export function buildForwardContext(
   return `[Forwarded from ${origin}]\n`;
 }
 
+/**
+ * Build reaction context lines for forwarding to the agent.
+ * Produces lines like `[Reaction: 👍 on message 123]` for added emojis
+ * and `[Reaction removed: 👎 on message 123]` for removed emojis.
+ */
+export function buildReactionContext(
+  messageId: number,
+  emojiAdded: string[],
+  emojiRemoved: string[],
+): string {
+  const lines: string[] = [];
+  for (const emoji of emojiAdded) {
+    lines.push(`[Reaction: ${emoji} on message ${messageId}]`);
+  }
+  for (const emoji of emojiRemoved) {
+    lines.push(`[Reaction removed: ${emoji} on message ${messageId}]`);
+  }
+  return lines.join("\n");
+}
+
 /** Telegram Bot API file download limit (20 MB). */
 export const TELEGRAM_FILE_SIZE_LIMIT = 20 * 1024 * 1024;
 
@@ -701,6 +721,33 @@ export function createTelegramBot(
         cleanupTempFile(tempPath);
       }
     }
+  });
+
+  // Handle message reactions — forward as contextual info to the agent
+  bot.on("message_reaction", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const binding = resolveBinding(chatId, config.bindings);
+    if (!binding) return;
+
+    if (isStaleMessage(ctx.messageReaction.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale reaction for chat ${chatId} (age: ${Math.round((Date.now() - ctx.messageReaction.date * 1000) / 1000)}s)`);
+      return;
+    }
+
+    const { emojiAdded, emojiRemoved } = ctx.reactions();
+    if (emojiAdded.length === 0 && emojiRemoved.length === 0) return;
+
+    messagesReceived.inc({ type: "reaction" });
+
+    const messageId = ctx.messageReaction.message_id;
+    const user = ctx.messageReaction.user;
+    const from = user ? { first_name: user.first_name, username: user.username } : undefined;
+    const prefix = buildSourcePrefix(binding, from);
+    const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
+    const messageText = prefix + reactionText;
+
+    const key = sessionKey(chatId);
+    messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
   });
 
   // Global error handler
