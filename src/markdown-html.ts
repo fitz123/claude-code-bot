@@ -13,6 +13,43 @@ export function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Convert markdown links [text](url) to HTML, handling nested parentheses. */
+function convertLinks(text: string): string {
+  const linkStart = /\[([^\]]+)\]\(/g;
+  let result = "";
+  let lastIndex = 0;
+  let match;
+
+  while ((match = linkStart.exec(text)) !== null) {
+    const linkText = match[1];
+    const urlStart = match.index + match[0].length;
+
+    // Find the balanced closing parenthesis
+    let depth = 1;
+    let pos = urlStart;
+    while (pos < text.length && depth > 0) {
+      if (text[pos] === "(") depth++;
+      else if (text[pos] === ")") depth--;
+      pos++;
+    }
+
+    if (depth !== 0) continue; // unbalanced — skip
+
+    const url = text.slice(urlStart, pos - 1);
+
+    // Only convert http/https URLs without whitespace
+    if (!/^https?:\/\/\S+$/.test(url)) continue;
+
+    result += text.slice(lastIndex, match.index);
+    result += `<a href="${url}">${linkText}</a>`;
+    lastIndex = pos;
+    linkStart.lastIndex = pos;
+  }
+
+  result += text.slice(lastIndex);
+  return result;
+}
+
 /** Convert inline markdown (bold, italic, code, links) to HTML. */
 function convertInline(text: string): string {
   // Step 1: Extract inline code spans to protect their content from further conversion
@@ -35,11 +72,8 @@ function convertInline(text: string): string {
   processed = processed.replace(/\*([^*\n]+)\*/g, "<i>$1</i>");
   // Strikethrough: ~~text~~
   processed = processed.replace(/~~(.+?)~~/g, "<s>$1</s>");
-  // Links: [text](url) — only http/https URLs
-  processed = processed.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    (_, text, url) => `<a href="${url.replace(/"/g, "&quot;")}">${text}</a>`,
-  );
+  // Links: [text](url) — only http/https URLs, handles nested parentheses
+  processed = convertLinks(processed);
 
   // Step 4: Restore inline code spans
   processed = processed.replace(/\x00CODE(\d+)\x00/g, (_, i: string) => codeSpans[Number(i)]);
@@ -54,7 +88,7 @@ function convertInline(text: string): string {
  * the non-code segments. HTML special characters are escaped everywhere.
  */
 export function markdownToHtml(md: string): string {
-  const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
+  const codeBlockRe = /```([^\n]*)\n([\s\S]*?)```/g;
   let result = "";
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -64,7 +98,7 @@ export function markdownToHtml(md: string): string {
     result += convertInline(md.slice(lastIndex, match.index));
 
     // Convert the code block itself
-    const lang = match[1];
+    const lang = escapeHtml(match[1].trim());
     const code = escapeHtml(match[2].replace(/\n$/, ""));
     result += lang
       ? `<pre><code class="language-${lang}">${code}</code></pre>`

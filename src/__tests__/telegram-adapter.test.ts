@@ -141,6 +141,26 @@ describe("createTelegramAdapter", () => {
       assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
     });
 
+    it("falls back to plain text when message is too long after HTML expansion", async () => {
+      const ctx = mockContext();
+      // Simulate Telegram rejecting HTML that exceeded length limit
+      const originalReply = ctx.reply.bind(ctx);
+      let callCount = 0;
+      ctx.reply = async (text: string, opts: any = {}) => {
+        callCount++;
+        if (callCount === 1 && opts.parse_mode === "HTML") {
+          throw new Error("Bad Request: message is too long");
+        }
+        return originalReply(text, opts);
+      };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      const id = await adapter.sendMessage("test & text");
+      assert.strictEqual(id, "100");
+      // Fallback sends original text without parse_mode
+      assert.strictEqual(ctx._sentMessages[0].text, "test & text");
+      assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
+    });
+
     it("re-throws non-HTML errors instead of falling back", async () => {
       const ctx = mockContext();
       // Override reply to throw a network error
@@ -179,6 +199,24 @@ describe("createTelegramAdapter", () => {
       assert.strictEqual(ctx._editedMessages.length, 1);
       // Fallback sends original text without parse_mode
       assert.strictEqual(ctx._editedMessages[0].text, "**bold**");
+      assert.strictEqual(ctx._editedMessages[0].opts, undefined);
+    });
+
+    it("falls back to plain text when edited message is too long after HTML expansion", async () => {
+      const ctx = mockContext();
+      const originalEdit = ctx.api.editMessageText.bind(ctx.api);
+      let callCount = 0;
+      ctx.api.editMessageText = async (cId: number, msgId: number, text: string, opts?: any) => {
+        callCount++;
+        if (callCount === 1 && opts?.parse_mode === "HTML") {
+          throw new Error("Bad Request: message is too long");
+        }
+        return originalEdit(cId, msgId, text, opts);
+      };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.editMessage("50", "test & text");
+      assert.strictEqual(ctx._editedMessages.length, 1);
+      assert.strictEqual(ctx._editedMessages[0].text, "test & text");
       assert.strictEqual(ctx._editedMessages[0].opts, undefined);
     });
 
