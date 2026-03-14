@@ -35,8 +35,6 @@ bindings:
     topics:
       - topicId: 591
         agentId: coder
-      - topicId: 1667
-        agentId: coder
 
 sessionDefaults:
   idleTimeoutMs: 3600000 # 1hr
