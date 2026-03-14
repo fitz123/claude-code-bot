@@ -1,5 +1,7 @@
-import { describe, it } from "node:test";
+import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import type { PlatformContext } from "../types.js";
 import {
   MessageQueue,
@@ -7,6 +9,7 @@ import {
   DEFAULT_DEBOUNCE_MS,
   DEFAULT_QUEUE_CAP,
 } from "../message-queue.js";
+import { injectDirForChat, readAckCount, cleanupInjectDir, INJECT_DIR_BASE } from "../inject-file.js";
 
 /** Minimal mock PlatformContext — the queue never inspects it deeply, only passes it through. */
 function mockPlatform(): PlatformContext {
@@ -441,6 +444,243 @@ describe("MessageQueue error handling", () => {
     assert.strictEqual(callCount, 2);
     assert.ok(repliedText.includes("Something went wrong processing queued messages"));
     assert.strictEqual(queue.isBusy("chat1"), false);
+
+    queue.clearAll();
+  });
+});
+
+// -------------------------------------------------------------------
+// MessageQueue — inject file writing
+// -------------------------------------------------------------------
+
+// Use a unique chatId prefix for inject tests to avoid collisions
+const INJECT_CHAT = "__inject_test__";
+
+function injectCleanup(chatId: string) {
+  cleanupInjectDir(injectDirForChat(chatId));
+}
+
+describe("MessageQueue inject file writing", () => {
+  afterEach(() => {
+    injectCleanup(INJECT_CHAT);
+  });
+
+  it("writes inject file when message is enqueued mid-turn", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
+    await wait(60);
+
+    // Enqueue mid-turn message
+    queue.enqueue(INJECT_CHAT, "main", "mid-turn msg", platform);
+
+    // Check inject file was created
+    const dir = injectDirForChat(INJECT_CHAT);
+    const pendingPath = join(dir, "pending");
+    assert.ok(existsSync(pendingPath), "pending inject file should exist");
+
+    const content = readFileSync(pendingPath, "utf-8");
+    assert.strictEqual(content.split("\n")[0], "1", "count should be 1");
+    assert.ok(content.includes("mid-turn msg"));
+
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(50);
+    queue.clearAll();
+  });
+
+  it("overwrites inject file with all un-consumed messages", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
+    await wait(60);
+
+    // Enqueue multiple mid-turn messages
+    queue.enqueue(INJECT_CHAT, "main", "msg A", platform);
+    queue.enqueue(INJECT_CHAT, "main", "msg B", platform);
+
+    const dir = injectDirForChat(INJECT_CHAT);
+    const content = readFileSync(join(dir, "pending"), "utf-8");
+    assert.strictEqual(content.split("\n")[0], "2", "count should be 2");
+    assert.ok(content.includes("msg A"));
+    assert.ok(content.includes("msg B"));
+
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(50);
+    queue.clearAll();
+  });
+
+  it("cleans up inject files on clearAll", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
+    await wait(60);
+    queue.enqueue(INJECT_CHAT, "main", "mid-turn", platform);
+
+    const dir = injectDirForChat(INJECT_CHAT);
+    assert.ok(existsSync(join(dir, "pending")));
+
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(50);
+    queue.clearAll();
+
+    // Inject dir should be cleaned up
+    assert.ok(!existsSync(join(dir, "pending")));
+  });
+});
+
+// -------------------------------------------------------------------
+// MessageQueue — inject dedup (hook-consumed messages not re-drained)
+// -------------------------------------------------------------------
+
+describe("MessageQueue inject dedup", () => {
+  afterEach(() => {
+    injectCleanup(INJECT_CHAT);
+  });
+
+  it("deduplicates messages consumed by hook (full consumption)", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial message", platform);
+    await wait(60);
+
+    // Enqueue 2 mid-turn messages
+    queue.enqueue(INJECT_CHAT, "main", "injected msg 1", platform);
+    queue.enqueue(INJECT_CHAT, "main", "injected msg 2", platform);
+
+    // Simulate hook consuming: delete pending file, write ack=2
+    const dir = injectDirForChat(INJECT_CHAT);
+    const pendingPath = join(dir, "pending");
+    if (existsSync(pendingPath)) {
+      unlinkSync(pendingPath);
+    }
+    writeFileSync(join(dir, "ack"), "2", "utf-8");
+
+    // Unblock — drain should skip both consumed messages
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(100);
+
+    // Only the initial message should have been processed (no drain)
+    assert.strictEqual(mock.calls.length, 1);
+    assert.strictEqual(mock.calls[0].text, "initial message");
+
+    queue.clearAll();
+  });
+
+  it("deduplicates partial consumption (some consumed, rest drained)", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
+    await wait(60);
+
+    // Enqueue 3 mid-turn messages
+    queue.enqueue(INJECT_CHAT, "main", "consumed msg", platform);
+    queue.enqueue(INJECT_CHAT, "main", "drained msg 1", platform);
+    queue.enqueue(INJECT_CHAT, "main", "drained msg 2", platform);
+
+    // Simulate hook consuming only 1 message
+    const dir = injectDirForChat(INJECT_CHAT);
+    const pendingPath = join(dir, "pending");
+    if (existsSync(pendingPath)) {
+      unlinkSync(pendingPath);
+    }
+    writeFileSync(join(dir, "ack"), "1", "utf-8");
+
+    // Unblock — drain should deliver the 2 non-consumed messages
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(100);
+
+    assert.strictEqual(mock.calls.length, 2);
+    assert.strictEqual(mock.calls[0].text, "initial");
+
+    // Second call should contain the 2 drained messages
+    const drainText = mock.calls[1].text;
+    assert.ok(drainText.includes("drained msg 1"));
+    assert.ok(drainText.includes("drained msg 2"));
+    // The consumed message should NOT be in the drain
+    assert.ok(!drainText.includes("consumed msg"));
+
+    queue.clearAll();
+  });
+
+  it("collect buffer works as fallback when no hook fires", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
+    await wait(60);
+
+    // Enqueue mid-turn (inject file is written but no hook runs to consume it)
+    queue.enqueue(INJECT_CHAT, "main", "fallback msg", platform);
+
+    // No ack file written (hook never fired) — all messages should drain
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(100);
+
+    assert.strictEqual(mock.calls.length, 2);
+    assert.strictEqual(mock.calls[0].text, "initial");
+    assert.strictEqual(mock.calls[1].text, "fallback msg");
+
+    queue.clearAll();
+  });
+
+  it("updates consumed count when new message arrives after hook fires", async () => {
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
+    await wait(60);
+
+    // First mid-turn message
+    queue.enqueue(INJECT_CHAT, "main", "msg 1", platform);
+
+    // Simulate hook consuming it
+    const dir = injectDirForChat(INJECT_CHAT);
+    unlinkSync(join(dir, "pending"));
+    writeFileSync(join(dir, "ack"), "1", "utf-8");
+
+    // Second mid-turn message — should trigger ack read and only write this one
+    queue.enqueue(INJECT_CHAT, "main", "msg 2", platform);
+
+    const content = readFileSync(join(dir, "pending"), "utf-8");
+    assert.strictEqual(content.split("\n")[0], "1", "only 1 un-consumed message");
+    assert.ok(content.includes("msg 2"));
+    assert.ok(!content.includes("msg 1"));
+
+    // Simulate hook consuming msg 2
+    unlinkSync(join(dir, "pending"));
+    writeFileSync(join(dir, "ack"), "2", "utf-8");
+
+    // Unblock — all consumed, nothing to drain
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(100);
+
+    assert.strictEqual(mock.calls.length, 1);
 
     queue.clearAll();
   });

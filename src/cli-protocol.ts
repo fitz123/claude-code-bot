@@ -15,6 +15,8 @@ export interface SpawnOptions {
   includePartialMessages?: boolean;
   /** Per-session outbox directory; injected into system prompt so Claude can send files. */
   outboxPath?: string;
+  /** Per-session inject directory for mid-turn message delivery via PreToolUse hook. */
+  injectDir?: string;
 }
 
 /**
@@ -76,7 +78,7 @@ export function buildSpawnArgs(opts: SpawnOptions): string[] {
 /**
  * Build environment variables for the Claude CLI subprocess.
  */
-export function buildSpawnEnv(): Record<string, string> {
+export function buildSpawnEnv(options?: { injectDir?: string }): Record<string, string> {
   const env: Record<string, string> = {};
 
   // Copy relevant env vars
@@ -94,6 +96,11 @@ export function buildSpawnEnv(): Record<string, string> {
     env.PATH = `/opt/homebrew/bin:${env.PATH ?? ""}`;
   }
 
+  // Mid-turn message injection: tell the PreToolUse hook where to find inject files
+  if (options?.injectDir) {
+    env.OPENCLAW_INJECT_DIR = options.injectDir;
+  }
+
   return env;
 }
 
@@ -102,7 +109,7 @@ export function buildSpawnEnv(): Record<string, string> {
  */
 export function spawnClaudeSession(opts: SpawnOptions): ChildProcess {
   const args = buildSpawnArgs(opts);
-  const env = buildSpawnEnv();
+  const env = buildSpawnEnv({ injectDir: opts.injectDir });
 
   const child = spawn(CLAUDE_BIN, args, {
     env,

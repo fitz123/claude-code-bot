@@ -1,5 +1,6 @@
 import type { PlatformContext } from "./types.js";
 import { log } from "./logger.js";
+import { injectDirForChat, writeInjectFile, readAckCount, cleanupInjectDir } from "./inject-file.js";
 
 export const DEFAULT_DEBOUNCE_MS = 3000;
 export const DEFAULT_QUEUE_CAP = 20;
@@ -38,6 +39,11 @@ interface ChatQueueState {
 
   /** Agent ID for this chat */
   agentId: string;
+
+  /** Cumulative count of messages confirmed consumed by inject hook */
+  injectConsumed: number;
+  /** Last ack count read from hook's ack file */
+  injectLastAck: number;
 }
 
 /**
@@ -92,6 +98,8 @@ export class MessageQueue {
         busy: false,
         latestPlatform: null,
         agentId,
+        injectConsumed: 0,
+        injectLastAck: 0,
       };
       this.queues.set(chatId, state);
     }
@@ -112,6 +120,10 @@ export class MessageQueue {
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
         if (cleanup) state.collectCleanups.push(cleanup);
+
+        // Write inject file so PreToolUse hook can deliver mid-turn
+        this.writeInject(chatId, state);
+
         log.debug(
           "message-queue",
           `Queued mid-turn message for ${chatId} (${state.collectBuffer.length} in buffer)`,
@@ -191,6 +203,20 @@ export class MessageQueue {
     const state = this.queues.get(chatId);
     if (!state || state.collectBuffer.length === 0) return;
 
+    // Dedup: remove messages already consumed by the inject hook mid-turn
+    const consumed = this.finalizeInject(chatId, state);
+    if (consumed > 0) {
+      state.collectBuffer.splice(0, consumed);
+      log.debug("message-queue", `Deduped ${consumed} inject-consumed message(s) for ${chatId}`);
+    }
+
+    // If all messages were consumed by hook, just run cleanups and return
+    if (state.collectBuffer.length === 0) {
+      const cleanups = state.collectCleanups.splice(0);
+      for (const fn of cleanups) fn();
+      return;
+    }
+
     // Loop to drain messages that arrive during processing (avoids recursion)
     while (state.collectBuffer.length > 0) {
       const collected = state.collectBuffer.splice(0);
@@ -251,16 +277,19 @@ export class MessageQueue {
       for (const fn of state.collectCleanups) fn();
       this.queues.delete(chatId);
     }
+    // Clean up inject files (safe even if no state)
+    try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
   }
 
   /** Clear all queues (for shutdown). */
   clearAll(): void {
-    for (const [, state] of this.queues) {
+    for (const [chatId, state] of this.queues) {
       if (state.debounceTimer) {
         clearTimeout(state.debounceTimer);
       }
       for (const fn of state.pendingCleanups) fn();
       for (const fn of state.collectCleanups) fn();
+      try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
     }
     this.queues.clear();
   }
@@ -276,6 +305,63 @@ export class MessageQueue {
       !state.debounceTimer
     ) {
       this.queues.delete(chatId);
+    }
+  }
+
+  /**
+   * Write un-consumed collect buffer messages to the inject file.
+   * Called each time a mid-turn message is enqueued.
+   */
+  private writeInject(chatId: string, state: ChatQueueState): void {
+    try {
+      const dir = injectDirForChat(chatId);
+
+      // Check for new ack updates from hook (messages consumed since last check)
+      const ackCount = readAckCount(dir);
+      if (ackCount > state.injectLastAck) {
+        state.injectConsumed += ackCount - state.injectLastAck;
+        state.injectLastAck = ackCount;
+      }
+
+      // Write all un-consumed messages to inject file
+      const toInject = state.collectBuffer.slice(state.injectConsumed);
+      if (toInject.length > 0) {
+        writeInjectFile(dir, toInject);
+      }
+    } catch (err) {
+      log.warn("message-queue", `Inject file write failed for ${chatId}: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Finalize inject state before draining: read final ack, clean up files, reset state.
+   * Returns the number of messages confirmed consumed by hook.
+   */
+  private finalizeInject(chatId: string, state: ChatQueueState): number {
+    try {
+      const dir = injectDirForChat(chatId);
+
+      // Read final ack count from hook
+      const ackCount = readAckCount(dir);
+      if (ackCount > state.injectLastAck) {
+        state.injectConsumed += ackCount - state.injectLastAck;
+      }
+
+      const consumed = state.injectConsumed;
+
+      // Clean up inject files (pending file may still exist if hook didn't fire)
+      cleanupInjectDir(dir);
+
+      // Reset inject state for next turn
+      state.injectConsumed = 0;
+      state.injectLastAck = 0;
+
+      return consumed;
+    } catch (err) {
+      log.warn("message-queue", `Inject finalize failed for ${chatId}: ${(err as Error).message}`);
+      state.injectConsumed = 0;
+      state.injectLastAck = 0;
+      return 0;
     }
   }
 }
