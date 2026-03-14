@@ -207,6 +207,8 @@ export class MessageQueue {
     const consumed = this.finalizeInject(chatId, state);
     if (consumed > 0) {
       state.collectBuffer.splice(0, consumed);
+      const consumedCleanups = state.collectCleanups.splice(0, consumed);
+      for (const fn of consumedCleanups) fn();
       log.debug("message-queue", `Deduped ${consumed} inject-consumed message(s) for ${chatId}`);
     }
 

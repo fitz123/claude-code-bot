@@ -40,6 +40,8 @@ fi
 ack_file="$dir/ack"
 prev=0
 [[ -f "$ack_file" ]] && prev=$(< "$ack_file")
+# Validate prev is a non-negative integer (guards against corrupted ack file)
+if ! [[ "$prev" =~ ^[0-9]+$ ]]; then prev=0; fi
 echo $(( prev + count )) > "$ack_file"
 
 # Frame the message so the agent recognizes it as live user input
