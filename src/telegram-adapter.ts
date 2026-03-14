@@ -71,15 +71,15 @@ export function createTelegramAdapter(
     },
 
     async sendFile(filePath: string, isImage: boolean): Promise<void> {
-      if (isImage) {
-        await ctx.replyWithPhoto(new InputFile(filePath), threadOpts);
-      } else {
-        await ctx.replyWithDocument(new InputFile(filePath), threadOpts);
-      }
+      const sent = isImage
+        ? await ctx.replyWithPhoto(new InputFile(filePath), threadOpts)
+        : await ctx.replyWithDocument(new InputFile(filePath), threadOpts);
+      if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
     },
 
     async replyError(text: string): Promise<void> {
-      await ctx.reply(text, { ...threadOpts });
+      const sent = await ctx.reply(text, { ...threadOpts });
+      if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
     },
   };
 }
