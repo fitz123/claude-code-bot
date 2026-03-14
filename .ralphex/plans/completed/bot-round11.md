@@ -126,15 +126,15 @@ The message "Next message starts a fresh conversation" is false — context surv
 
 **What we want:** Telegram messages render with proper formatting — bold, italic, inline code, code blocks, and links. The conversion must be robust: if the HTML is malformed (unmatched tags, invalid nesting), the message should fall back to plain text rather than failing with a 400 error. Both `sendMessage` and `editMessage` in `telegram-adapter.ts` need the conversion. `replyError` can stay plain text.
 
-- [ ] Messages with markdown formatting render correctly in Telegram (bold, italic, code, code blocks, links)
-- [ ] `sendMessage` uses `parse_mode: "HTML"` with markdown→HTML conversion
-- [ ] `editMessage` uses `parse_mode: "HTML"` with the same conversion
-- [ ] If HTML parsing fails (Telegram returns 400), message is retried as plain text
-- [ ] Code blocks with language tags (` ```typescript `) render as `<pre>` blocks
-- [ ] Special HTML characters (`<`, `>`, `&`) in agent output are escaped
-- [ ] Tests for markdown→HTML conversion (bold, italic, code, code blocks, links, mixed)
-- [ ] Tests for fallback to plain text on conversion failure
-- [ ] Verify existing tests pass
+- [x] Messages with markdown formatting render correctly in Telegram (bold, italic, code, code blocks, links)
+- [x] `sendMessage` uses `parse_mode: "HTML"` with markdown→HTML conversion
+- [x] `editMessage` uses `parse_mode: "HTML"` with the same conversion
+- [x] If HTML parsing fails (Telegram returns 400), message is retried as plain text
+- [x] Code blocks with language tags (` ```typescript `) render as `<pre>` blocks
+- [x] Special HTML characters (`<`, `>`, `&`) in agent output are escaped
+- [x] Tests for markdown→HTML conversion (bold, italic, code, code blocks, links, mixed)
+- [x] Tests for fallback to plain text on conversion failure
+- [x] Verify existing tests pass
 
 ### Task 2: Support inline quotes in reply context (bot-9q3, P2)
 
@@ -142,14 +142,14 @@ The message "Next message starts a fresh conversation" is false — context surv
 
 **What we want:** `buildReplyContext()` accepts the optional `quote` field (`TextQuote`). When `quote.text` is present, it replaces the full message text in the reply context. The format should clearly indicate it's a quote: `[Reply to User, quoting: "selected text"]` with the quoted text on the `>` line instead of the full message.
 
-- [ ] When user selects text and replies, only the selected quote appears in agent context
-- [ ] `buildReplyContext()` accepts a `quote` parameter with the `TextQuote` shape
-- [ ] All call sites pass `ctx.message.quote` to `buildReplyContext()`
-- [ ] Full message text is still shown when no quote is present (backward compatible)
-- [ ] Quote text is truncated at the same limit as regular reply text
-- [ ] Tests for reply with quote vs without quote
-- [ ] Tests for quote truncation
-- [ ] Verify existing tests pass
+- [x] When user selects text and replies, only the selected quote appears in agent context
+- [x] `buildReplyContext()` accepts a `quote` parameter with the `TextQuote` shape
+- [x] All call sites pass `ctx.message.quote` to `buildReplyContext()`
+- [x] Full message text is still shown when no quote is present (backward compatible)
+- [x] Quote text is truncated at the same limit as regular reply text
+- [x] Tests for reply with quote vs without quote
+- [x] Tests for quote truncation
+- [x] Verify existing tests pass
 
 ### Task 3: Fix /reset message to accurately describe behavior (bot-yve, P3)
 
@@ -157,7 +157,7 @@ The message "Next message starts a fresh conversation" is false — context surv
 
 **What we want:** The `/reset` response message accurately describes what happens. Something like: "Session restarted. Prior context may be partially retained." Also update the Discord `/reset` handler (discord-bot.ts) with the same corrected message. Document the actual session lifecycle (create → compact → reset → resume) in a code comment near the `/reset` handler so future developers understand the behavior.
 
-- [ ] `/reset` response in Telegram accurately describes that context may be retained
-- [ ] `/reset` response in Discord matches the Telegram message
-- [ ] Code comment near `/reset` handler explains session lifecycle (create/compact/reset/resume)
-- [ ] Verify existing tests pass
+- [x] `/reset` response in Telegram accurately describes that context may be retained
+- [x] `/reset` response in Discord matches the Telegram message
+- [x] Code comment near `/reset` handler explains session lifecycle (create/compact/reset/resume)
+- [x] Verify existing tests pass
