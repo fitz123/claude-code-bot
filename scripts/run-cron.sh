@@ -23,6 +23,7 @@ export CLAUDE_CODE_SIMPLE=1
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
 
 TASK_NAME="${1:?Usage: run-cron.sh <task-name>}"
+export CRON_NAME="$TASK_NAME"
 BOT_DIR="/Users/user/.openclaw/bot"
 
 cd "$BOT_DIR"
