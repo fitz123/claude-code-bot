@@ -126,15 +126,15 @@ The message "Next message starts a fresh conversation" is false — context surv
 
 **What we want:** Telegram messages render with proper formatting — bold, italic, inline code, code blocks, and links. The conversion must be robust: if the HTML is malformed (unmatched tags, invalid nesting), the message should fall back to plain text rather than failing with a 400 error. Both `sendMessage` and `editMessage` in `telegram-adapter.ts` need the conversion. `replyError` can stay plain text.
 
-- [ ] Messages with markdown formatting render correctly in Telegram (bold, italic, code, code blocks, links)
-- [ ] `sendMessage` uses `parse_mode: "HTML"` with markdown→HTML conversion
-- [ ] `editMessage` uses `parse_mode: "HTML"` with the same conversion
-- [ ] If HTML parsing fails (Telegram returns 400), message is retried as plain text
-- [ ] Code blocks with language tags (` ```typescript `) render as `<pre>` blocks
-- [ ] Special HTML characters (`<`, `>`, `&`) in agent output are escaped
-- [ ] Tests for markdown→HTML conversion (bold, italic, code, code blocks, links, mixed)
-- [ ] Tests for fallback to plain text on conversion failure
-- [ ] Verify existing tests pass
+- [x] Messages with markdown formatting render correctly in Telegram (bold, italic, code, code blocks, links)
+- [x] `sendMessage` uses `parse_mode: "HTML"` with markdown→HTML conversion
+- [x] `editMessage` uses `parse_mode: "HTML"` with the same conversion
+- [x] If HTML parsing fails (Telegram returns 400), message is retried as plain text
+- [x] Code blocks with language tags (` ```typescript `) render as `<pre>` blocks
+- [x] Special HTML characters (`<`, `>`, `&`) in agent output are escaped
+- [x] Tests for markdown→HTML conversion (bold, italic, code, code blocks, links, mixed)
+- [x] Tests for fallback to plain text on conversion failure
+- [x] Verify existing tests pass
 
 ### Task 2: Support inline quotes in reply context (bot-9q3, P2)
 

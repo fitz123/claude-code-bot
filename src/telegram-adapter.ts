@@ -1,5 +1,6 @@
 import { type Context, InputFile } from "grammy";
 import type { PlatformContext, TelegramBinding } from "./types.js";
+import { markdownToHtml } from "./markdown-html.js";
 
 /** Telegram platform constants. */
 const TELEGRAM_MAX_MSG_LENGTH = 4096;
@@ -27,13 +28,26 @@ export function createTelegramAdapter(
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
-      const sent = await ctx.reply(text, { ...threadOpts });
-      return String(sent.message_id);
+      const html = markdownToHtml(text);
+      try {
+        const sent = await ctx.reply(html, { ...threadOpts, parse_mode: "HTML" });
+        return String(sent.message_id);
+      } catch {
+        // Fallback to plain text if Telegram rejects the HTML
+        const sent = await ctx.reply(text, { ...threadOpts });
+        return String(sent.message_id);
+      }
     },
 
     async editMessage(messageId: string, text: string): Promise<void> {
       if (!chatId) return;
-      await ctx.api.editMessageText(chatId, Number(messageId), text);
+      const html = markdownToHtml(text);
+      try {
+        await ctx.api.editMessageText(chatId, Number(messageId), html, { parse_mode: "HTML" });
+      } catch {
+        // Fallback to plain text if Telegram rejects the HTML
+        await ctx.api.editMessageText(chatId, Number(messageId), text);
+      }
     },
 
     async sendTyping(): Promise<void> {
