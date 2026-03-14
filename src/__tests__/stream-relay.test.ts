@@ -349,6 +349,50 @@ async function* fakeStream(deltas: string[]): AsyncGenerator<StreamLine> {
   } as ResultMessage;
 }
 
+/**
+ * Create a mock stream that simulates text → tool_use → text sequences.
+ * Each segment is either a string (text deltas) or "tool_use" (a tool block).
+ */
+async function* fakeStreamWithTools(segments: Array<string | "tool_use">): AsyncGenerator<StreamLine> {
+  let fullText = "";
+  for (const seg of segments) {
+    if (seg === "tool_use") {
+      // content_block_start for tool_use
+      yield {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "tool_use", id: "t1", name: "Edit" } },
+      } as unknown as StreamEvent;
+      // input_json_delta
+      yield {
+        type: "stream_event",
+        event: { delta: { type: "input_json_delta", partial_json: "{}" } },
+      } as unknown as StreamEvent;
+      // content_block_stop
+      yield {
+        type: "stream_event",
+        event: { type: "content_block_stop" },
+      } as unknown as StreamEvent;
+    } else {
+      // content_block_start for text
+      yield {
+        type: "stream_event",
+        event: { type: "content_block_start", content_block: { type: "text" } },
+      } as unknown as StreamEvent;
+      // text_delta
+      yield {
+        type: "stream_event",
+        event: { delta: { type: "text_delta", text: seg } },
+      } as StreamEvent;
+      fullText += seg;
+    }
+  }
+  yield {
+    type: "result",
+    result: fullText,
+    session_id: "test",
+  } as ResultMessage;
+}
+
 /** Create a mock PlatformContext for relayStream tests. */
 function mockPlatform(options?: {
   editShouldThrow?: boolean;
@@ -482,5 +526,108 @@ describe("relayStream typingIndicator=false", () => {
     await relayStream(stream, platform);
 
     assert.ok(typings.length >= 1, "Should have at least one typing indicator");
+  });
+});
+
+describe("relayStream paragraph breaks across tool-use", () => {
+  it("inserts paragraph break between text blocks separated by tool_use", async () => {
+    const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });
+    const stream = fakeStreamWithTools(["Here's the plan:", "tool_use", "Done! Applied."]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Here's the plan:\n\nDone! Applied.");
+  });
+
+  it("does not double paragraph break when text already ends with \\n\\n", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const stream = fakeStreamWithTools(["Plan:\n\n", "tool_use", "Done!"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Plan:\n\nDone!");
+  });
+
+  it("adds one \\n when text already ends with single \\n", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const stream = fakeStreamWithTools(["Plan:\n", "tool_use", "Done!"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Plan:\n\nDone!");
+  });
+
+  it("handles multiple tool-use blocks between text", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const stream = fakeStreamWithTools(["Part 1", "tool_use", "Part 2", "tool_use", "Part 3"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Part 1\n\nPart 2\n\nPart 3");
+  });
+
+  it("does not insert break when tool_use is before any text", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    // Tool use before first text — no accumulated text yet, no separator needed
+    async function* toolFirst(): AsyncGenerator<StreamLine> {
+      yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", id: "t1", name: "Read" } } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { type: "content_block_stop" } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "text" } } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { delta: { type: "text_delta", text: "Result here" } } } as StreamEvent;
+      yield { type: "result", result: "Result here", session_id: "test" } as ResultMessage;
+    }
+
+    await relayStream(toolFirst(), platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Result here");
+  });
+
+  it("does not insert break when tool_use is before first text arriving in multiple deltas", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    // Tool use before first text, text arrives in multiple deltas — no spurious \n\n
+    async function* toolFirstMultiDelta(): AsyncGenerator<StreamLine> {
+      yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", id: "t1", name: "Read" } } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { type: "content_block_stop" } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "text" } } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { delta: { type: "text_delta", text: "Result" } } } as StreamEvent;
+      yield { type: "stream_event", event: { delta: { type: "text_delta", text: " here" } } } as StreamEvent;
+      yield { type: "result", result: "Result here", session_id: "test" } as ResultMessage;
+    }
+
+    await relayStream(toolFirstMultiDelta(), platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Result here");
+  });
+
+  it("preserves paragraph breaks with streaming edits enabled", async () => {
+    const { platform, edits } = mockPlatform({ streamingUpdates: true });
+    const stream = fakeStreamWithTools(["Before tool", "tool_use", "After tool"]);
+
+    await relayStream(stream, platform);
+
+    // Final edit should contain the paragraph break
+    const finalEdit = edits[edits.length - 1];
+    assert.strictEqual(finalEdit.text, "Before tool\n\nAfter tool");
+  });
+
+  it("preserves paragraph breaks in split messages over 4096 chars", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const longBefore = "x".repeat(3000);
+    const longAfter = "y".repeat(3000);
+    const stream = fakeStreamWithTools([longBefore, "tool_use", longAfter]);
+
+    await relayStream(stream, platform);
+
+    // splitMessage splits at \n\n boundary, consuming it — the paragraph break
+    // becomes a message boundary (separate Telegram messages), which is correct.
+    assert.strictEqual(sends.length, 2, "Should split into 2 messages");
+    assert.strictEqual(sends[0].text, longBefore);
+    assert.strictEqual(sends[1].text, longAfter);
   });
 });

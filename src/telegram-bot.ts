@@ -63,6 +63,11 @@ export function resolveBinding(
     }
   }
 
+  // Preserve topicId for unlisted forum topics so headers show Topic: <id>
+  if (fallback && topicId !== undefined) {
+    return { ...fallback, topicId };
+  }
+
   return fallback;
 }
 

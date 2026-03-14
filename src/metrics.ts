@@ -5,6 +5,9 @@ import { log } from "./logger.js";
 // Use the default registry
 const register = client.register;
 
+// Expose Node.js process metrics (heap, CPU, event loop, GC)
+client.collectDefaultMetrics();
+
 // --- Token usage ---
 
 export const tokensInput = new client.Counter({
