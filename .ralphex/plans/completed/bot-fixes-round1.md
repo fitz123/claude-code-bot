@@ -47,14 +47,14 @@ When a user replies to a message in Telegram, Claude only sees the new message t
 
 What we want: Reply-to message text and forward metadata included in the message text sent to Claude, using a clear format that Claude can parse.
 
-- [ ] When user replies to a message, the replied-to text is included before the user's message
-- [ ] Forum service messages (topic creation etc.) are excluded from reply context (existing detection at lines 96-118)
-- [ ] When user forwards a message, forward origin (author/channel name) is included
-- [ ] Reply/forward context is included for all message types (text, voice, photo)
-- [ ] Long replied-to messages are truncated to prevent context bloat
-- [ ] Add tests for reply context formatting
-- [ ] Add tests for forward metadata formatting
-- [ ] Verify existing tests pass
+- [x] When user replies to a message, the replied-to text is included before the user's message
+- [x] Forum service messages (topic creation etc.) are excluded from reply context (existing detection at lines 96-118)
+- [x] When user forwards a message, forward origin (author/channel name) is included
+- [x] Reply/forward context is included for all message types (text, voice, photo)
+- [x] Long replied-to messages are truncated to prevent context bloat
+- [x] Add tests for reply context formatting
+- [x] Add tests for forward metadata formatting
+- [x] Verify existing tests pass
 
 ### Task 2: Cron delivery thread routing (bot-yri, P2)
 

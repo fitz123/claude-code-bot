@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -534,5 +534,181 @@ describe("isStaleMessage", () => {
   it("works with Discord-style timestamps (already ms)", () => {
     const fourMinAgoMs = Date.now() - 4 * 60 * 1000;
     assert.strictEqual(isStaleMessage(fourMinAgoMs, 300000), false);
+  });
+});
+
+describe("buildReplyContext", () => {
+  it("returns empty string when replyTo is undefined", () => {
+    assert.strictEqual(buildReplyContext(undefined), "");
+  });
+
+  it("returns empty string for forum service messages", () => {
+    assert.strictEqual(
+      buildReplyContext({ forum_topic_created: { name: "Test", icon_color: 0 } }),
+      "",
+    );
+  });
+
+  it("returns empty string for forum_topic_edited service message", () => {
+    assert.strictEqual(
+      buildReplyContext({ forum_topic_edited: { name: "New" } }),
+      "",
+    );
+  });
+
+  it("returns empty string for forum_topic_closed service message", () => {
+    assert.strictEqual(buildReplyContext({ forum_topic_closed: {} }), "");
+  });
+
+  it("returns empty string for forum_topic_reopened service message", () => {
+    assert.strictEqual(buildReplyContext({ forum_topic_reopened: {} }), "");
+  });
+
+  it("returns empty string for general_forum_topic_hidden service message", () => {
+    assert.strictEqual(buildReplyContext({ general_forum_topic_hidden: {} }), "");
+  });
+
+  it("returns empty string for general_forum_topic_unhidden service message", () => {
+    assert.strictEqual(buildReplyContext({ general_forum_topic_unhidden: {} }), "");
+  });
+
+  it("includes sender name and username", () => {
+    const result = buildReplyContext({
+      from: { first_name: "Alice", username: "alice42" },
+      text: "Hello world",
+    });
+    assert.strictEqual(result, "[Reply to Alice (@alice42)]\n> Hello world\n");
+  });
+
+  it("includes sender name without username", () => {
+    const result = buildReplyContext({
+      from: { first_name: "Bob" },
+      text: "Hi there",
+    });
+    assert.strictEqual(result, "[Reply to Bob]\n> Hi there\n");
+  });
+
+  it("uses caption when text is absent", () => {
+    const result = buildReplyContext({
+      from: { first_name: "Eve" },
+      caption: "Check this photo",
+    });
+    assert.strictEqual(result, "[Reply to Eve]\n> Check this photo\n");
+  });
+
+  it("shows [Reply] header when from is undefined", () => {
+    const result = buildReplyContext({ text: "Some text" });
+    assert.strictEqual(result, "[Reply]\n> Some text\n");
+  });
+
+  it("shows header only when no text or caption", () => {
+    const result = buildReplyContext({ from: { first_name: "Dave" } });
+    assert.strictEqual(result, "[Reply to Dave]\n");
+  });
+
+  it("truncates long reply text at 200 chars", () => {
+    const longText = "A".repeat(250);
+    const result = buildReplyContext({
+      from: { first_name: "Zoe" },
+      text: longText,
+    });
+    assert.strictEqual(result, `[Reply to Zoe]\n> ${"A".repeat(200)}...\n`);
+  });
+
+  it("does not truncate text at exactly 200 chars", () => {
+    const exactText = "B".repeat(200);
+    const result = buildReplyContext({
+      from: { first_name: "Max" },
+      text: exactText,
+    });
+    assert.strictEqual(result, `[Reply to Max]\n> ${"B".repeat(200)}\n`);
+  });
+
+  it("collapses newlines in reply text to spaces", () => {
+    const result = buildReplyContext({
+      from: { first_name: "Pat" },
+      text: "line one\nline two\nline three",
+    });
+    assert.strictEqual(result, "[Reply to Pat]\n> line one line two line three\n");
+  });
+});
+
+describe("buildForwardContext", () => {
+  it("returns empty string when forwardOrigin is undefined", () => {
+    assert.strictEqual(buildForwardContext(undefined), "");
+  });
+
+  it("formats user forward with username", () => {
+    const result = buildForwardContext({
+      type: "user",
+      sender_user: { first_name: "John", username: "john_doe" },
+    });
+    assert.strictEqual(result, "[Forwarded from John (@john_doe)]\n");
+  });
+
+  it("formats user forward without username", () => {
+    const result = buildForwardContext({
+      type: "user",
+      sender_user: { first_name: "Jane" },
+    });
+    assert.strictEqual(result, "[Forwarded from Jane]\n");
+  });
+
+  it("formats hidden_user forward", () => {
+    const result = buildForwardContext({
+      type: "hidden_user",
+      sender_user_name: "Secret Person",
+    });
+    assert.strictEqual(result, "[Forwarded from Secret Person]\n");
+  });
+
+  it("formats hidden_user with missing name", () => {
+    const result = buildForwardContext({ type: "hidden_user" });
+    assert.strictEqual(result, "[Forwarded from Unknown]\n");
+  });
+
+  it("formats chat forward", () => {
+    const result = buildForwardContext({
+      type: "chat",
+      sender_chat: { title: "Dev Group" },
+    });
+    assert.strictEqual(result, "[Forwarded from Dev Group]\n");
+  });
+
+  it("formats channel forward with author signature", () => {
+    const result = buildForwardContext({
+      type: "channel",
+      chat: { title: "News Channel" },
+      author_signature: "Editor",
+    });
+    assert.strictEqual(result, "[Forwarded from News Channel (Editor)]\n");
+  });
+
+  it("formats channel forward without author signature", () => {
+    const result = buildForwardContext({
+      type: "channel",
+      chat: { title: "Updates" },
+    });
+    assert.strictEqual(result, "[Forwarded from Updates]\n");
+  });
+
+  it("formats user forward with missing sender_user", () => {
+    const result = buildForwardContext({ type: "user" });
+    assert.strictEqual(result, "[Forwarded from Unknown]\n");
+  });
+
+  it("formats chat forward with missing sender_chat", () => {
+    const result = buildForwardContext({ type: "chat" });
+    assert.strictEqual(result, "[Forwarded from Unknown chat]\n");
+  });
+
+  it("formats channel forward with missing chat", () => {
+    const result = buildForwardContext({ type: "channel" });
+    assert.strictEqual(result, "[Forwarded from Unknown channel]\n");
+  });
+
+  it("handles unknown forward type", () => {
+    const result = buildForwardContext({ type: "something_new" });
+    assert.strictEqual(result, "[Forwarded from Unknown]\n");
   });
 });
