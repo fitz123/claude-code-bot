@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, TELEGRAM_FILE_SIZE_LIMIT } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -783,5 +783,132 @@ describe("buildForwardContext", () => {
   it("handles unknown forward type", () => {
     const result = buildForwardContext({ type: "something_new" });
     assert.strictEqual(result, "[Forwarded from Unknown]\n");
+  });
+});
+
+describe("extensionForDocument", () => {
+  it("extracts extension from filename", () => {
+    assert.strictEqual(extensionForDocument("report.pdf", "application/pdf"), ".pdf");
+  });
+
+  it("extracts extension from filename with multiple dots", () => {
+    assert.strictEqual(extensionForDocument("my.data.csv", "text/csv"), ".csv");
+  });
+
+  it("falls back to MIME type when no filename", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/pdf"), ".pdf");
+  });
+
+  it("falls back to MIME type when filename has no extension", () => {
+    assert.strictEqual(extensionForDocument("Makefile", "text/plain"), ".txt");
+  });
+
+  it("returns .bin for unknown MIME type and no filename", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/octet-stream"), ".bin");
+  });
+
+  it("returns .bin when both are undefined", () => {
+    assert.strictEqual(extensionForDocument(undefined, undefined), ".bin");
+  });
+
+  it("maps text/csv to .csv", () => {
+    assert.strictEqual(extensionForDocument(undefined, "text/csv"), ".csv");
+  });
+
+  it("maps application/json to .json", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/json"), ".json");
+  });
+
+  it("maps application/xml to .xml", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/xml"), ".xml");
+  });
+
+  it("maps text/xml to .xml", () => {
+    assert.strictEqual(extensionForDocument(undefined, "text/xml"), ".xml");
+  });
+
+  it("maps text/html to .html", () => {
+    assert.strictEqual(extensionForDocument(undefined, "text/html"), ".html");
+  });
+
+  it("maps application/zip to .zip", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/zip"), ".zip");
+  });
+
+  it("maps application/gzip to .gz", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/gzip"), ".gz");
+  });
+
+  it("prefers filename extension over MIME type", () => {
+    assert.strictEqual(extensionForDocument("data.tsv", "text/plain"), ".tsv");
+  });
+});
+
+describe("formatFileSize", () => {
+  it("formats bytes", () => {
+    assert.strictEqual(formatFileSize(512), "512 B");
+  });
+
+  it("formats kilobytes", () => {
+    assert.strictEqual(formatFileSize(1536), "1.5 KB");
+  });
+
+  it("formats megabytes", () => {
+    assert.strictEqual(formatFileSize(2.5 * 1024 * 1024), "2.5 MB");
+  });
+
+  it("formats zero bytes", () => {
+    assert.strictEqual(formatFileSize(0), "0 B");
+  });
+
+  it("formats exactly 1 KB", () => {
+    assert.strictEqual(formatFileSize(1024), "1.0 KB");
+  });
+
+  it("formats exactly 1 MB", () => {
+    assert.strictEqual(formatFileSize(1024 * 1024), "1.0 MB");
+  });
+});
+
+describe("formatDocumentMeta", () => {
+  it("formats full metadata", () => {
+    assert.strictEqual(
+      formatDocumentMeta("report.pdf", "application/pdf", 1536),
+      "[Document: report.pdf | Type: application/pdf | Size: 1.5 KB]",
+    );
+  });
+
+  it("handles missing filename", () => {
+    assert.strictEqual(
+      formatDocumentMeta(undefined, "text/plain", 100),
+      "[Document: unknown | Type: text/plain | Size: 100 B]",
+    );
+  });
+
+  it("handles missing MIME type", () => {
+    assert.strictEqual(
+      formatDocumentMeta("data.bin", undefined, 2048),
+      "[Document: data.bin | Size: 2.0 KB]",
+    );
+  });
+
+  it("handles missing file size", () => {
+    assert.strictEqual(
+      formatDocumentMeta("notes.txt", "text/plain", undefined),
+      "[Document: notes.txt | Type: text/plain]",
+    );
+  });
+
+  it("handles all undefined", () => {
+    assert.strictEqual(
+      formatDocumentMeta(undefined, undefined, undefined),
+      "[Document: unknown]",
+    );
+  });
+});
+
+describe("TELEGRAM_FILE_SIZE_LIMIT", () => {
+  it("is 20 MB", () => {
+    assert.strictEqual(TELEGRAM_FILE_SIZE_LIMIT, 20 * 1024 * 1024);
   });
 });

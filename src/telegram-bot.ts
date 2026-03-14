@@ -221,6 +221,57 @@ export function buildForwardContext(
   return `[Forwarded from ${origin}]\n`;
 }
 
+/** Telegram Bot API file download limit (20 MB). */
+export const TELEGRAM_FILE_SIZE_LIMIT = 20 * 1024 * 1024;
+
+/**
+ * Derive a file extension for a document.
+ * Prefers the original filename extension; falls back to a MIME-based lookup.
+ */
+export function extensionForDocument(filename?: string, mimeType?: string): string {
+  if (filename) {
+    const dotIdx = filename.lastIndexOf(".");
+    if (dotIdx > 0) return filename.slice(dotIdx);
+  }
+  switch (mimeType) {
+    case "application/pdf": return ".pdf";
+    case "text/plain": return ".txt";
+    case "text/csv": return ".csv";
+    case "application/json": return ".json";
+    case "application/xml":
+    case "text/xml": return ".xml";
+    case "text/html": return ".html";
+    case "application/zip": return ".zip";
+    case "application/gzip": return ".gz";
+    default: return ".bin";
+  }
+}
+
+/**
+ * Format a byte count as a human-readable string (e.g. "1.2 MB").
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Build a metadata line for a document attachment.
+ * Example: `[Document: report.pdf | Type: application/pdf | Size: 1.2 MB]`
+ */
+export function formatDocumentMeta(
+  filename?: string,
+  mimeType?: string,
+  fileSize?: number,
+): string {
+  const parts: string[] = [];
+  parts.push(`Document: ${filename ?? "unknown"}`);
+  if (mimeType) parts.push(`Type: ${mimeType}`);
+  if (fileSize !== undefined) parts.push(`Size: ${formatFileSize(fileSize)}`);
+  return `[${parts.join(" | ")}]`;
+}
+
 /**
  * Check if a message is too old to process.
  * Used to discard stale messages that accumulated during bot downtime.
@@ -582,7 +633,7 @@ export function createTelegramBot(
     }
   });
 
-  // Handle document messages with image MIME types
+  // Handle document messages (images and general files)
   bot.on("message:document", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
@@ -590,7 +641,6 @@ export function createTelegramBot(
     if (!binding) return;
 
     const doc = ctx.msg.document;
-    if (!isImageMimeType(doc.mime_type)) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
@@ -599,6 +649,13 @@ export function createTelegramBot(
       return;
     }
 
+    // Telegram Bot API limits file downloads to 20 MB
+    if (doc.file_size !== undefined && doc.file_size > TELEGRAM_FILE_SIZE_LIMIT) {
+      await ctx.reply("File is too large (max 20 MB for bot downloads).").catch(() => {});
+      return;
+    }
+
+    const isImage = isImageMimeType(doc.mime_type);
     messagesReceived.inc({ type: "document" });
 
     const key = sessionKey(chatId, topicId);
@@ -608,7 +665,9 @@ export function createTelegramBot(
       const file = await ctx.api.getFile(doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-      const ext = imageExtensionForMime(doc.mime_type);
+      const ext = isImage
+        ? imageExtensionForMime(doc.mime_type)
+        : extensionForDocument(doc.file_name, doc.mime_type);
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);
 
@@ -617,9 +676,18 @@ export function createTelegramBot(
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       const context = prefix + replyCtx + fwdCtx;
       const caption = ctx.msg.caption ?? "";
-      const messageText = caption.trimEnd()
-        ? `${context}${caption.trimEnd()}\n\n${tempPath}`
-        : `${context}${tempPath}`;
+
+      let messageText: string;
+      if (isImage) {
+        messageText = caption.trimEnd()
+          ? `${context}${caption.trimEnd()}\n\n${tempPath}`
+          : `${context}${tempPath}`;
+      } else {
+        const meta = formatDocumentMeta(doc.file_name, doc.mime_type, doc.file_size);
+        messageText = caption.trimEnd()
+          ? `${context}${caption.trimEnd()}\n\n${meta}\n${tempPath}`
+          : `${context}${meta}\n${tempPath}`;
+      }
 
       const pathToClean = tempPath;
       tempPath = null;
@@ -627,8 +695,8 @@ export function createTelegramBot(
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
-      log.error("telegram-bot", `Document image handling error for chat ${chatId}:`, err);
-      await ctx.reply("Failed to process image document. Please try again.").catch(() => {});
+      log.error("telegram-bot", `Document handling error for chat ${chatId}:`, err);
+      await ctx.reply("Failed to process document. Please try again.").catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath);
       }
