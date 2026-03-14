@@ -10,7 +10,7 @@ codex_reasoning_effort = xhigh
 codex_sandbox = read-only
 external_review_tool = codex
 
-max_iterations = 50
+max_iterations = 10
 iteration_delay_ms = 2000
 plans_dir = .ralphex/plans
 
