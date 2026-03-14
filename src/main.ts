@@ -5,10 +5,12 @@ import { createDiscordBot } from "./discord-bot.js";
 import { log, setLogLevel } from "./logger.js";
 import { startMetricsServer, stopMetricsServer } from "./metrics.js";
 import { startBotWithRetry } from "./bot-startup.js";
+import { getVersion } from "./version.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
 
 async function main(): Promise<void> {
+  log.info("main", `Bot version: ${getVersion()}`);
   log.info("main", "Loading config...");
   const config = loadConfig();
   if (config.logLevel) {
