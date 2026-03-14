@@ -119,7 +119,7 @@ export class MessageQueue {
       // Mid-turn collect: buffer the message
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
-        if (cleanup) state.collectCleanups.push(cleanup);
+        state.collectCleanups.push(cleanup ?? (() => {}));
 
         // Write inject file so PreToolUse hook can deliver mid-turn
         this.writeInject(chatId, state);
