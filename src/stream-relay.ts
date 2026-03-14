@@ -200,8 +200,8 @@ export async function relayStream(
 
       if (text !== null) {
         // Insert paragraph break when text resumes after a tool-use block
-        if (sawNonTextBlock && accumulated.length > 0) {
-          if (!accumulated.endsWith("\n\n")) {
+        if (sawNonTextBlock) {
+          if (accumulated.length > 0 && !accumulated.endsWith("\n\n")) {
             accumulated += accumulated.endsWith("\n") ? "\n" : "\n\n";
           }
           sawNonTextBlock = false;
