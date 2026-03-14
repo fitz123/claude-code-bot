@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, TELEGRAM_FILE_SIZE_LIMIT, buildReactionContext } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -842,6 +842,14 @@ describe("extensionForDocument", () => {
   it("prefers filename extension over MIME type", () => {
     assert.strictEqual(extensionForDocument("data.tsv", "text/plain"), ".tsv");
   });
+
+  it("sanitizes path separators from filename extension", () => {
+    assert.strictEqual(extensionForDocument("evil.../../etc/passwd", "text/plain"), ".etcpasswd");
+  });
+
+  it("sanitizes special characters from filename extension", () => {
+    assert.strictEqual(extensionForDocument("file.tx t", "text/plain"), ".txt");
+  });
 });
 
 describe("formatFileSize", () => {
@@ -904,12 +912,6 @@ describe("formatDocumentMeta", () => {
       formatDocumentMeta(undefined, undefined, undefined),
       "[Document: unknown]",
     );
-  });
-});
-
-describe("TELEGRAM_FILE_SIZE_LIMIT", () => {
-  it("is 20 MB", () => {
-    assert.strictEqual(TELEGRAM_FILE_SIZE_LIMIT, 20 * 1024 * 1024);
   });
 });
 

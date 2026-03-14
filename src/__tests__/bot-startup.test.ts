@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { GrammyError, BotError } from "grammy";
+import { GrammyError } from "grammy";
 import { is409ConflictError, startBotWithRetry } from "../bot-startup.js";
 
 describe("is409ConflictError", () => {
@@ -149,5 +149,27 @@ describe("startBotWithRetry", () => {
     );
     // 3 retries before final throw: delays for attempts 1, 2, 3
     assert.deepStrictEqual(delays, [1000, 2000, 4000]);
+  });
+
+  it("caps backoff delay at 60 seconds", async () => {
+    const delays: number[] = [];
+    const trackingSleep = async (ms: number) => { delays.push(ms); };
+
+    await assert.rejects(
+      () =>
+        startBotWithRetry(
+          async () => {
+            throw new GrammyError(
+              "Conflict",
+              { ok: false, error_code: 409, description: "Conflict" } as any,
+              "getUpdates",
+              {},
+            );
+          },
+          { maxRetries: 4, baseDelayMs: 30000, sleep: trackingSleep },
+        ),
+    );
+    // 30000, 60000 (capped from 60000), 60000 (capped from 120000)
+    assert.deepStrictEqual(delays, [30000, 60000, 60000]);
   });
 });

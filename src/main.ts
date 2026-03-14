@@ -61,14 +61,15 @@ async function main(): Promise<void> {
     telegramBot = bot;
     messageQueues.push(messageQueue);
 
-    // Startup timeout — if onStart doesn't fire within 30s, exit for launchd restart
+    // Startup timeout — if onStart doesn't fire, exit for launchd restart.
+    // Set to 120s to accommodate the 409-retry backoff window (~75s worst case).
     let startedSuccessfully = false;
     const startupTimeout = setTimeout(() => {
       if (!startedSuccessfully) {
-        log.error("main", "Telegram startup timed out after 30s — exiting for launchd restart");
+        log.error("main", "Telegram startup timed out after 120s — exiting for launchd restart");
         process.exit(1);
       }
-    }, 30_000);
+    }, 120_000);
 
     log.info("main", "Starting Telegram bot polling...");
     // bot.start() blocks until stopped — run it without awaiting.
