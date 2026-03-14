@@ -769,7 +769,7 @@ export function createTelegramBot(
       const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
       const messageText = prefix + reactionText;
 
-      logReaction({
+      await logReaction({
         ts: new Date(ctx.messageReaction.date * 1000).toISOString(),
         chatId,
         topicId,
