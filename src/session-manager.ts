@@ -7,6 +7,7 @@ import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
+import { injectDirForChat, cleanupInjectDir } from "./inject-file.js";
 
 const LOG_DIR = "/Users/ninja/.openclaw/logs";
 const OUTBOX_BASE = "/tmp/bot-outbox";
@@ -42,6 +43,8 @@ export interface ActiveSession {
   restartCount: number;
   /** Per-session outbox directory for file delivery. */
   outboxPath: string;
+  /** Per-session inject directory for mid-turn message delivery. */
+  injectDir: string;
 }
 
 export interface SessionHealth {
@@ -176,6 +179,11 @@ export class SessionManager {
     rmSync(outboxPath, { recursive: true, force: true });
     mkdirSync(outboxPath, { recursive: true });
 
+    // Clean and recreate inject directory for mid-turn message delivery
+    const injectPath = injectDirForChat(chatId);
+    cleanupInjectDir(injectPath);
+    mkdirSync(injectPath, { recursive: true });
+
     // Spawn the claude subprocess
     const child = spawnClaudeSession({
       agent,
@@ -183,6 +191,7 @@ export class SessionManager {
       resume,
       includePartialMessages: true,
       outboxPath,
+      injectDir: injectPath,
     });
 
     // Verify the subprocess actually started
@@ -226,6 +235,7 @@ export class SessionManager {
       lastSuccessAt: null,
       restartCount,
       outboxPath,
+      injectDir: injectPath,
     };
 
     this.active.set(chatId, session);
@@ -419,9 +429,14 @@ export class SessionManager {
     this.active.delete(chatId);
     sessionsActive.dec();
 
-    // Clean up outbox directory
+    // Clean up outbox and inject directories
     try {
       rmSync(session.outboxPath, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+    try {
+      cleanupInjectDir(session.injectDir);
     } catch {
       // Ignore cleanup errors
     }
