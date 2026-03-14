@@ -27,14 +27,15 @@ crons:
   # ══════════════════════════════════════════
 
   - name: workspace-health
-    enabled: false
+    enabled: true
     schedule: "30 3 * * *"
     prompt: >
       Ежедневный прогон skill workspace-health. Прочитай SKILL.md:
       ~/.minime/workspace/.claude/skills/workspace-health/SKILL.md и выполни полный pipeline
-      (git sync -> upstream sync -> size audit -> fact verification -> content quality -> cleanup -> commit fixes).
+      (git sync -> upstream sync -> size audit -> hook integrity -> config check -> orphan scan -> fact verification -> content quality -> CC docs compliance -> ADR compliance -> cleanup -> commit fixes).
       НЕ пушь — backup-git сделает push позже.
-      Выведи финальный отчёт.
+      Если ВСЁ в порядке (0 ошибок, 0 warnings, 0 findings) — НЕ выводи отчёт, просто заверши сессию молча.
+      Выводи отчёт ТОЛЬКО если есть проблемы, warnings или findings, требующие внимания.
     agentId: main
     deliveryChatId: 306600687
     timeout: 900000
