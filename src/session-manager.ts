@@ -12,7 +12,7 @@ import { injectDirForChat, cleanupInjectDir } from "./inject-file.js";
 const LOG_DIR = "/Users/ninja/.openclaw/logs";
 const OUTBOX_BASE = "/tmp/bot-outbox";
 const STARTUP_TIMEOUT_MS = 10_000;
-const RESPONSE_ACTIVITY_TIMEOUT_MS = 300_000; // 5 minutes with no events = hung
+const RESPONSE_ACTIVITY_TIMEOUT_MS = 900_000; // 15 minutes with no events = hung
 const CRASH_BACKOFF_BASE_MS = 5_000; // Base delay for crash backoff
 const MAX_CRASH_BACKOFF_MS = 60_000; // Maximum backoff delay (1 minute)
 export const MAX_CRASH_RESTARTS = 5; // Block session after this many consecutive crashes
