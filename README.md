@@ -230,9 +230,13 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | Voice | Transcribed locally via whisper-cli, transcript echoed back and sent to Claude |
 | Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
 | Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
+| Non-image document | Downloaded to temp file (max 20 MB). Metadata header (filename, MIME type, size) and file path sent to Claude. Supports PDF, TXT, CSV, JSON, XML, HTML, ZIP, GZ, and others. |
+| Reaction | Emoji reactions on bot messages are forwarded to Claude as context (e.g. `[Reaction: 👍 on message 123]`). Reaction removals are also forwarded. Bot must be admin in groups to receive reaction events. |
 | File output | Claude is told about a per-session outbox directory via system prompt. Files written or copied there are sent to the user after the response completes: images as photos, others as documents. The outbox is cleaned up after delivery. |
 
-In group chats, the bot only responds to messages that @mention the bot or reply to the bot (configurable via `requireMention` in bindings). Every message sent to Claude is prefixed with source context (e.g. `[Chat: HQ Forum | From: John (@johndoe)]`) using the binding's `label` and the sender's Telegram profile.
+The bot subscribes to `message` and `message_reaction` update types only.
+
+In group chats, the bot only responds to messages that @mention the bot or reply to the bot (configurable via `requireMention` in bindings). Every message sent to Claude is prefixed with source context (e.g. `[Chat: HQ Forum | Topic: 591 | From: John (@johndoe)]` for forum topics, or `[Chat: HQ Forum | From: John (@johndoe)]` without topic) using the binding's `label` and the sender's Telegram profile.
 
 ## Bot Commands
 

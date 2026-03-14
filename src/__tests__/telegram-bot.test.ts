@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -228,6 +228,18 @@ describe("buildSourcePrefix", () => {
   it("returns empty string when no label and no from", () => {
     const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
     assert.strictEqual(buildSourcePrefix(binding, undefined), "");
+  });
+
+  it("includes topicId between chat and from when present", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "Minime HQ", topicId: 591 };
+    const from = { first_name: "User", username: "user" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: Minime HQ | Topic: 591 | From: User (@user)]\n");
+  });
+
+  it("omits topic field when topicId is undefined", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", label: "DM Chat" };
+    const from = { first_name: "Alice" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: DM Chat | From: Alice]\n");
   });
 });
 
@@ -771,5 +783,175 @@ describe("buildForwardContext", () => {
   it("handles unknown forward type", () => {
     const result = buildForwardContext({ type: "something_new" });
     assert.strictEqual(result, "[Forwarded from Unknown]\n");
+  });
+});
+
+describe("extensionForDocument", () => {
+  it("extracts extension from filename", () => {
+    assert.strictEqual(extensionForDocument("report.pdf", "application/pdf"), ".pdf");
+  });
+
+  it("extracts extension from filename with multiple dots", () => {
+    assert.strictEqual(extensionForDocument("my.data.csv", "text/csv"), ".csv");
+  });
+
+  it("falls back to MIME type when no filename", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/pdf"), ".pdf");
+  });
+
+  it("falls back to MIME type when filename has no extension", () => {
+    assert.strictEqual(extensionForDocument("Makefile", "text/plain"), ".txt");
+  });
+
+  it("returns .bin for unknown MIME type and no filename", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/octet-stream"), ".bin");
+  });
+
+  it("returns .bin when both are undefined", () => {
+    assert.strictEqual(extensionForDocument(undefined, undefined), ".bin");
+  });
+
+  it("maps text/csv to .csv", () => {
+    assert.strictEqual(extensionForDocument(undefined, "text/csv"), ".csv");
+  });
+
+  it("maps application/json to .json", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/json"), ".json");
+  });
+
+  it("maps application/xml to .xml", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/xml"), ".xml");
+  });
+
+  it("maps text/xml to .xml", () => {
+    assert.strictEqual(extensionForDocument(undefined, "text/xml"), ".xml");
+  });
+
+  it("maps text/html to .html", () => {
+    assert.strictEqual(extensionForDocument(undefined, "text/html"), ".html");
+  });
+
+  it("maps application/zip to .zip", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/zip"), ".zip");
+  });
+
+  it("maps application/gzip to .gz", () => {
+    assert.strictEqual(extensionForDocument(undefined, "application/gzip"), ".gz");
+  });
+
+  it("prefers filename extension over MIME type", () => {
+    assert.strictEqual(extensionForDocument("data.tsv", "text/plain"), ".tsv");
+  });
+
+  it("sanitizes path separators from filename extension", () => {
+    assert.strictEqual(extensionForDocument("evil.../../etc/passwd", "text/plain"), ".etcpasswd");
+  });
+
+  it("sanitizes special characters from filename extension", () => {
+    assert.strictEqual(extensionForDocument("file.tx t", "text/plain"), ".txt");
+  });
+});
+
+describe("formatFileSize", () => {
+  it("formats bytes", () => {
+    assert.strictEqual(formatFileSize(512), "512 B");
+  });
+
+  it("formats kilobytes", () => {
+    assert.strictEqual(formatFileSize(1536), "1.5 KB");
+  });
+
+  it("formats megabytes", () => {
+    assert.strictEqual(formatFileSize(2.5 * 1024 * 1024), "2.5 MB");
+  });
+
+  it("formats zero bytes", () => {
+    assert.strictEqual(formatFileSize(0), "0 B");
+  });
+
+  it("formats exactly 1 KB", () => {
+    assert.strictEqual(formatFileSize(1024), "1.0 KB");
+  });
+
+  it("formats exactly 1 MB", () => {
+    assert.strictEqual(formatFileSize(1024 * 1024), "1.0 MB");
+  });
+});
+
+describe("formatDocumentMeta", () => {
+  it("formats full metadata", () => {
+    assert.strictEqual(
+      formatDocumentMeta("report.pdf", "application/pdf", 1536),
+      "[Document: report.pdf | Type: application/pdf | Size: 1.5 KB]",
+    );
+  });
+
+  it("handles missing filename", () => {
+    assert.strictEqual(
+      formatDocumentMeta(undefined, "text/plain", 100),
+      "[Document: unknown | Type: text/plain | Size: 100 B]",
+    );
+  });
+
+  it("handles missing MIME type", () => {
+    assert.strictEqual(
+      formatDocumentMeta("data.bin", undefined, 2048),
+      "[Document: data.bin | Size: 2.0 KB]",
+    );
+  });
+
+  it("handles missing file size", () => {
+    assert.strictEqual(
+      formatDocumentMeta("notes.txt", "text/plain", undefined),
+      "[Document: notes.txt | Type: text/plain]",
+    );
+  });
+
+  it("handles all undefined", () => {
+    assert.strictEqual(
+      formatDocumentMeta(undefined, undefined, undefined),
+      "[Document: unknown]",
+    );
+  });
+});
+
+describe("buildReactionContext", () => {
+  it("formats a single added emoji", () => {
+    assert.strictEqual(
+      buildReactionContext(123, ["👍"], []),
+      "[Reaction: 👍 on message 123]",
+    );
+  });
+
+  it("formats a single removed emoji", () => {
+    assert.strictEqual(
+      buildReactionContext(456, [], ["👎"]),
+      "[Reaction removed: 👎 on message 456]",
+    );
+  });
+
+  it("formats multiple added emojis", () => {
+    assert.strictEqual(
+      buildReactionContext(789, ["👍", "❤️"], []),
+      "[Reaction: 👍 on message 789]\n[Reaction: ❤️ on message 789]",
+    );
+  });
+
+  it("formats both added and removed emojis", () => {
+    assert.strictEqual(
+      buildReactionContext(100, ["👍"], ["👎"]),
+      "[Reaction: 👍 on message 100]\n[Reaction removed: 👎 on message 100]",
+    );
+  });
+
+  it("returns empty string when no emojis", () => {
+    assert.strictEqual(buildReactionContext(100, [], []), "");
+  });
+
+  it("handles large message IDs", () => {
+    assert.strictEqual(
+      buildReactionContext(9999999, ["🔥"], []),
+      "[Reaction: 🔥 on message 9999999]",
+    );
   });
 });

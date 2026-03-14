@@ -81,6 +81,10 @@ export function buildSourcePrefix(
     parts.push(`Chat: ${binding.label}`);
   }
 
+  if (binding.topicId !== undefined) {
+    parts.push(`Topic: ${binding.topicId}`);
+  }
+
   if (from) {
     const name = from.first_name.replace(/[\n\r]/g, " ");
     const sender = from.username
@@ -215,6 +219,80 @@ export function buildForwardContext(
   }
 
   return `[Forwarded from ${origin}]\n`;
+}
+
+/**
+ * Build reaction context lines for forwarding to the agent.
+ * Produces lines like `[Reaction: 👍 on message 123]` for added emojis
+ * and `[Reaction removed: 👎 on message 123]` for removed emojis.
+ */
+export function buildReactionContext(
+  messageId: number,
+  emojiAdded: string[],
+  emojiRemoved: string[],
+): string {
+  const lines: string[] = [];
+  for (const emoji of emojiAdded) {
+    lines.push(`[Reaction: ${emoji} on message ${messageId}]`);
+  }
+  for (const emoji of emojiRemoved) {
+    lines.push(`[Reaction removed: ${emoji} on message ${messageId}]`);
+  }
+  return lines.join("\n");
+}
+
+/** Telegram Bot API file download limit (20 MB). */
+export const TELEGRAM_FILE_SIZE_LIMIT = 20 * 1024 * 1024;
+
+/**
+ * Derive a file extension for a document.
+ * Prefers the original filename extension; falls back to a MIME-based lookup.
+ */
+export function extensionForDocument(filename?: string, mimeType?: string): string {
+  if (filename) {
+    const dotIdx = filename.lastIndexOf(".");
+    if (dotIdx > 0) {
+      // Sanitize: keep only alphanumeric chars and dots to prevent path traversal
+      return filename.slice(dotIdx).replace(/[^a-zA-Z0-9.]/g, "");
+    }
+  }
+  switch (mimeType) {
+    case "application/pdf": return ".pdf";
+    case "text/plain": return ".txt";
+    case "text/csv": return ".csv";
+    case "application/json": return ".json";
+    case "application/xml":
+    case "text/xml": return ".xml";
+    case "text/html": return ".html";
+    case "application/zip": return ".zip";
+    case "application/gzip": return ".gz";
+    default: return ".bin";
+  }
+}
+
+/**
+ * Format a byte count as a human-readable string (e.g. "1.2 MB").
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * Build a metadata line for a document attachment.
+ * Example: `[Document: report.pdf | Type: application/pdf | Size: 1.2 MB]`
+ */
+export function formatDocumentMeta(
+  filename?: string,
+  mimeType?: string,
+  fileSize?: number,
+): string {
+  const parts: string[] = [];
+  parts.push(`Document: ${filename ?? "unknown"}`);
+  if (mimeType) parts.push(`Type: ${mimeType}`);
+  if (fileSize !== undefined) parts.push(`Size: ${formatFileSize(fileSize)}`);
+  return `[${parts.join(" | ")}]`;
 }
 
 /**
@@ -578,7 +656,7 @@ export function createTelegramBot(
     }
   });
 
-  // Handle document messages with image MIME types
+  // Handle document messages (images and general files)
   bot.on("message:document", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
@@ -586,7 +664,6 @@ export function createTelegramBot(
     if (!binding) return;
 
     const doc = ctx.msg.document;
-    if (!isImageMimeType(doc.mime_type)) return;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
 
@@ -595,6 +672,13 @@ export function createTelegramBot(
       return;
     }
 
+    // Telegram Bot API limits file downloads to 20 MB
+    if (doc.file_size !== undefined && doc.file_size > TELEGRAM_FILE_SIZE_LIMIT) {
+      await ctx.reply("File is too large (max 20 MB for bot downloads).").catch(() => {});
+      return;
+    }
+
+    const isImage = isImageMimeType(doc.mime_type);
     messagesReceived.inc({ type: "document" });
 
     const key = sessionKey(chatId, topicId);
@@ -604,7 +688,9 @@ export function createTelegramBot(
       const file = await ctx.api.getFile(doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-      const ext = imageExtensionForMime(doc.mime_type);
+      const ext = isImage
+        ? imageExtensionForMime(doc.mime_type)
+        : extensionForDocument(doc.file_name, doc.mime_type);
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);
 
@@ -613,9 +699,18 @@ export function createTelegramBot(
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       const context = prefix + replyCtx + fwdCtx;
       const caption = ctx.msg.caption ?? "";
-      const messageText = caption.trimEnd()
-        ? `${context}${caption.trimEnd()}\n\n${tempPath}`
-        : `${context}${tempPath}`;
+
+      let messageText: string;
+      if (isImage) {
+        messageText = caption.trimEnd()
+          ? `${context}${caption.trimEnd()}\n\n${tempPath}`
+          : `${context}${tempPath}`;
+      } else {
+        const meta = formatDocumentMeta(doc.file_name, doc.mime_type, doc.file_size);
+        messageText = caption.trimEnd()
+          ? `${context}${caption.trimEnd()}\n\n${meta}\n${tempPath}`
+          : `${context}${meta}\n${tempPath}`;
+      }
 
       const pathToClean = tempPath;
       tempPath = null;
@@ -623,11 +718,45 @@ export function createTelegramBot(
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
-      log.error("telegram-bot", `Document image handling error for chat ${chatId}:`, err);
-      await ctx.reply("Failed to process image document. Please try again.").catch(() => {});
+      log.error("telegram-bot", `Document handling error for chat ${chatId}:`, err);
+      await ctx.reply("Failed to process document. Please try again.").catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath);
       }
+    }
+  });
+
+  // Handle message reactions — forward as contextual info to the agent.
+  // Note: Telegram's MessageReactionUpdated does not include message_thread_id,
+  // so reactions in forum topics resolve to the chat-level binding. This is a
+  // Telegram API limitation — topicId is unavailable for reaction events.
+  bot.on("message_reaction", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const binding = resolveBinding(chatId, config.bindings);
+    if (!binding) return;
+
+    try {
+      if (isStaleMessage(ctx.messageReaction.date * 1000, maxMessageAgeMs)) {
+        log.debug("telegram-bot", `Discarding stale reaction for chat ${chatId} (age: ${Math.round((Date.now() - ctx.messageReaction.date * 1000) / 1000)}s)`);
+        return;
+      }
+
+      const { emojiAdded, emojiRemoved } = ctx.reactions();
+      if (emojiAdded.length === 0 && emojiRemoved.length === 0) return;
+
+      messagesReceived.inc({ type: "reaction" });
+
+      const messageId = ctx.messageReaction.message_id;
+      const user = ctx.messageReaction.user;
+      const from = user ? { first_name: user.first_name, username: user.username } : undefined;
+      const prefix = buildSourcePrefix(binding, from);
+      const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
+      const messageText = prefix + reactionText;
+
+      const key = sessionKey(chatId);
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
+    } catch (err) {
+      log.error("telegram-bot", `Reaction handling error for chat ${chatId}:`, err);
     }
   });
 
