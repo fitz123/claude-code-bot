@@ -91,6 +91,27 @@ describe("markdownToHtml", () => {
       );
     });
 
+    it("handles language tags with non-word characters (c++)", () => {
+      assert.strictEqual(
+        markdownToHtml("```c++\nint x = 0;\n```"),
+        '<pre><code class="language-c++">int x = 0;</code></pre>',
+      );
+    });
+
+    it("handles language tags with hyphens (objective-c)", () => {
+      assert.strictEqual(
+        markdownToHtml("```objective-c\n@interface Foo\n```"),
+        '<pre><code class="language-objective-c">@interface Foo</code></pre>',
+      );
+    });
+
+    it("escapes HTML in language tags to prevent injection", () => {
+      assert.strictEqual(
+        markdownToHtml('```" onclick="alert(1)\ncode\n```'),
+        '<pre><code class="language-&quot; onclick=&quot;alert(1)">code</code></pre>',
+      );
+    });
+
     it("escapes HTML inside code blocks", () => {
       assert.strictEqual(
         markdownToHtml("```\na < b && c > d\n```"),
@@ -118,6 +139,27 @@ describe("markdownToHtml", () => {
       assert.strictEqual(
         markdownToHtml("[click](https://example.com)"),
         '<a href="https://example.com">click</a>',
+      );
+    });
+
+    it("handles URLs containing parentheses (e.g. Wikipedia)", () => {
+      assert.strictEqual(
+        markdownToHtml("[wiki](https://en.wikipedia.org/wiki/Foo_(bar))"),
+        '<a href="https://en.wikipedia.org/wiki/Foo_(bar)">wiki</a>',
+      );
+    });
+
+    it("handles URLs with multiple parenthesized groups", () => {
+      assert.strictEqual(
+        markdownToHtml("[link](https://example.com/a(b)c(d))"),
+        '<a href="https://example.com/a(b)c(d)">link</a>',
+      );
+    });
+
+    it("handles URLs with truly nested parentheses", () => {
+      assert.strictEqual(
+        markdownToHtml("[x](https://example.com/a(b(c)d)e)"),
+        '<a href="https://example.com/a(b(c)d)e">x</a>',
       );
     });
   });
