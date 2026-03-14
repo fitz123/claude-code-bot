@@ -2,7 +2,10 @@ node_modules/
 dist/
 data/
 *.log
-.ralphex/
+# ralphex runtime (worktrees, progress) — not tracked
+# plans, config, scripts, prompts — tracked
+.ralphex/worktrees/
+.ralphex/progress/
 config.yaml.bak
 
 # Dolt database files (added by bd init)
