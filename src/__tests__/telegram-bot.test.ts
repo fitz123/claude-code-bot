@@ -92,6 +92,7 @@ describe("resolveBinding with topicId", () => {
     const binding = resolveBinding(-100999, topicBindings, 999);
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "general");
+    assert.strictEqual(binding.topicId, 999);
   });
 
   it("falls back to chatId-only binding when no topicId provided", () => {

@@ -556,6 +556,9 @@ export class SessionManager {
       this.active.delete(chatId);
       sessionsActive.dec();
 
+      // Clean up inject directory (stale files would confuse next spawn)
+      try { cleanupInjectDir(session.injectDir); } catch { /* ignore */ }
+
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
         sessionCrashes.inc({ agent_id: session.agentId });
         // Increment crash count for backoff (survives active.delete)
