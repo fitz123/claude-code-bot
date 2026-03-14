@@ -96,6 +96,10 @@ else
     split_pos=$(echo "$chunk" | grep -b -o $'\n\n' | tail -1 | cut -d: -f1 || echo "")
 
     if [ -n "$split_pos" ] && [ "$split_pos" -gt 100 ]; then
+      # Walk back to start of newline run (matches stream-relay.ts behavior)
+      while [ "$split_pos" -gt 0 ] && [ "${remaining:$((split_pos - 1)):1}" = $'\n' ]; do
+        split_pos=$((split_pos - 1))
+      done
       send_message "${remaining:0:$split_pos}"
       remaining="${remaining:$((split_pos + 2))}"
     else
