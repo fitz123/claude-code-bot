@@ -4,12 +4,13 @@
  * Falls back gracefully — only converts patterns it recognizes.
  */
 
-/** Escape HTML special characters (<, >, &). */
+/** Escape HTML special characters (<, >, &, "). */
 export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /** Convert inline markdown (bold, italic, code, links) to HTML. */
@@ -25,15 +26,20 @@ function convertInline(text: string): string {
   // Step 2: Escape HTML in remaining text
   processed = escapeHtml(processed);
 
-  // Step 3: Convert markdown patterns (order matters — bold before italic)
+  // Step 3: Convert markdown patterns (order matters — bold+italic before bold before italic)
+  // Bold+Italic: ***text*** (must come before bold to avoid overlapping tags)
+  processed = processed.replace(/\*\*\*(.+?)\*\*\*/g, "<b><i>$1</i></b>");
   // Bold: **text**
   processed = processed.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
   // Italic: *text* (single asterisks only, after bold is already consumed)
   processed = processed.replace(/\*([^*\n]+)\*/g, "<i>$1</i>");
   // Strikethrough: ~~text~~
   processed = processed.replace(/~~(.+?)~~/g, "<s>$1</s>");
-  // Links: [text](url)
-  processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  // Links: [text](url) — only http/https URLs
+  processed = processed.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+    (_, text, url) => `<a href="${url.replace(/"/g, "&quot;")}">${text}</a>`,
+  );
 
   // Step 4: Restore inline code spans
   processed = processed.replace(/\x00CODE(\d+)\x00/g, (_, i: string) => codeSpans[Number(i)]);

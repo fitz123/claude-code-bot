@@ -239,7 +239,7 @@ In group chats, the bot only responds to messages that @mention the bot or reply
 | Command | Description |
 |---------|-------------|
 | `/start` | Show bot info and bound agent |
-| `/reset` | Close current session and clear message queue; next message starts fresh |
+| `/reset` | Close current session and clear message queue; prior context may be partially retained |
 | `/status` | Show active sessions, memory, uptime, and subprocess health (PID, alive/dead, processing duration, last success, restart count) |
 
 On Telegram, commands are auto-registered via `setMyCommands` on startup. On Discord, the same commands are available as slash commands, registered per-guild on startup (instant propagation).

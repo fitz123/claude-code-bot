@@ -32,10 +32,13 @@ export function createTelegramAdapter(
       try {
         const sent = await ctx.reply(html, { ...threadOpts, parse_mode: "HTML" });
         return String(sent.message_id);
-      } catch {
-        // Fallback to plain text if Telegram rejects the HTML
-        const sent = await ctx.reply(text, { ...threadOpts });
-        return String(sent.message_id);
+      } catch (err) {
+        // Only fall back to plain text for HTML parse errors; re-throw everything else
+        if (err instanceof Error && /can't parse entities|Bad Request/.test(err.message)) {
+          const sent = await ctx.reply(text, { ...threadOpts });
+          return String(sent.message_id);
+        }
+        throw err;
       }
     },
 
@@ -44,9 +47,13 @@ export function createTelegramAdapter(
       const html = markdownToHtml(text);
       try {
         await ctx.api.editMessageText(chatId, Number(messageId), html, { parse_mode: "HTML" });
-      } catch {
-        // Fallback to plain text if Telegram rejects the HTML
-        await ctx.api.editMessageText(chatId, Number(messageId), text);
+      } catch (err) {
+        // Only fall back to plain text for HTML parse errors; re-throw everything else
+        if (err instanceof Error && /can't parse entities|Bad Request/.test(err.message)) {
+          await ctx.api.editMessageText(chatId, Number(messageId), text);
+          return;
+        }
+        throw err;
       }
     },
 
