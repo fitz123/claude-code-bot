@@ -1,5 +1,6 @@
 import { type Context, InputFile } from "grammy";
 import type { PlatformContext, TelegramBinding } from "./types.js";
+import { markdownToHtml } from "./markdown-html.js";
 
 /** Telegram platform constants. */
 const TELEGRAM_MAX_MSG_LENGTH = 4096;
@@ -27,13 +28,33 @@ export function createTelegramAdapter(
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
-      const sent = await ctx.reply(text, { ...threadOpts });
-      return String(sent.message_id);
+      const html = markdownToHtml(text);
+      try {
+        const sent = await ctx.reply(html, { ...threadOpts, parse_mode: "HTML" });
+        return String(sent.message_id);
+      } catch (err) {
+        // Only fall back to plain text for HTML parse errors; re-throw everything else
+        if (err instanceof Error && /can't parse entities|message is too long/.test(err.message)) {
+          const sent = await ctx.reply(text, { ...threadOpts });
+          return String(sent.message_id);
+        }
+        throw err;
+      }
     },
 
     async editMessage(messageId: string, text: string): Promise<void> {
       if (!chatId) return;
-      await ctx.api.editMessageText(chatId, Number(messageId), text);
+      const html = markdownToHtml(text);
+      try {
+        await ctx.api.editMessageText(chatId, Number(messageId), html, { parse_mode: "HTML" });
+      } catch (err) {
+        // Only fall back to plain text for HTML parse errors; re-throw everything else
+        if (err instanceof Error && /can't parse entities|message is too long/.test(err.message)) {
+          await ctx.api.editMessageText(chatId, Number(messageId), text);
+          return;
+        }
+        throw err;
+      }
     },
 
     async sendTyping(): Promise<void> {

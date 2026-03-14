@@ -7,10 +7,12 @@ import type { TelegramBinding } from "../types.js";
 function mockContext(opts: {
   chatId?: number;
   threadId?: number;
+  failOnHtml?: boolean;
 } = {}): any {
   const chatId = opts.chatId ?? 12345;
+  const failOnHtml = opts.failOnHtml ?? false;
   const sentMessages: Array<{ text: string; opts: any }> = [];
-  const editedMessages: Array<{ chatId: number; msgId: number; text: string }> = [];
+  const editedMessages: Array<{ chatId: number; msgId: number; text: string; opts?: any }> = [];
   const chatActions: Array<{ chatId: number; action: string; opts: any }> = [];
   let nextMsgId = 100;
 
@@ -18,13 +20,19 @@ function mockContext(opts: {
     chat: chatId !== undefined ? { id: chatId } : undefined,
     message: opts.threadId ? { message_thread_id: opts.threadId } : {},
     async reply(text: string, replyOpts: any = {}) {
+      if (failOnHtml && replyOpts.parse_mode === "HTML") {
+        throw new Error("Bad Request: can't parse entities");
+      }
       const id = nextMsgId++;
       sentMessages.push({ text, opts: replyOpts });
       return { message_id: id };
     },
     api: {
-      async editMessageText(cId: number, msgId: number, text: string) {
-        editedMessages.push({ chatId: cId, msgId, text });
+      async editMessageText(cId: number, msgId: number, text: string, editOpts?: any) {
+        if (failOnHtml && editOpts?.parse_mode === "HTML") {
+          throw new Error("Bad Request: can't parse entities");
+        }
+        editedMessages.push({ chatId: cId, msgId, text, opts: editOpts });
       },
       async sendChatAction(cId: number, action: string, actionOpts: any) {
         chatActions.push({ chatId: cId, action, opts: actionOpts });
@@ -113,6 +121,56 @@ describe("createTelegramAdapter", () => {
       await adapter.sendMessage("No thread");
       assert.strictEqual(ctx._sentMessages[0].opts.message_thread_id, undefined);
     });
+
+    it("sends with parse_mode HTML", async () => {
+      const ctx = mockContext();
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendMessage("**bold**");
+      assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, "HTML");
+      assert.strictEqual(ctx._sentMessages[0].text, "<b>bold</b>");
+    });
+
+    it("falls back to plain text when HTML parse fails", async () => {
+      const ctx = mockContext({ failOnHtml: true });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      const id = await adapter.sendMessage("**bold**");
+      assert.strictEqual(id, "100");
+      assert.strictEqual(ctx._sentMessages.length, 1);
+      // Fallback sends original text without parse_mode
+      assert.strictEqual(ctx._sentMessages[0].text, "**bold**");
+      assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
+    });
+
+    it("falls back to plain text when message is too long after HTML expansion", async () => {
+      const ctx = mockContext();
+      // Simulate Telegram rejecting HTML that exceeded length limit
+      const originalReply = ctx.reply.bind(ctx);
+      let callCount = 0;
+      ctx.reply = async (text: string, opts: any = {}) => {
+        callCount++;
+        if (callCount === 1 && opts.parse_mode === "HTML") {
+          throw new Error("Bad Request: message is too long");
+        }
+        return originalReply(text, opts);
+      };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      const id = await adapter.sendMessage("test & text");
+      assert.strictEqual(id, "100");
+      // Fallback sends original text without parse_mode
+      assert.strictEqual(ctx._sentMessages[0].text, "test & text");
+      assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
+    });
+
+    it("re-throws non-HTML errors instead of falling back", async () => {
+      const ctx = mockContext();
+      // Override reply to throw a network error
+      ctx.reply = async () => { throw new Error("network timeout"); };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await assert.rejects(
+        () => adapter.sendMessage("hello"),
+        { message: "network timeout" },
+      );
+    });
   });
 
   describe("editMessage", () => {
@@ -124,6 +182,53 @@ describe("createTelegramAdapter", () => {
       assert.strictEqual(ctx._editedMessages[0].chatId, 12345);
       assert.strictEqual(ctx._editedMessages[0].msgId, 50);
       assert.strictEqual(ctx._editedMessages[0].text, "Updated text");
+    });
+
+    it("edits with parse_mode HTML", async () => {
+      const ctx = mockContext();
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.editMessage("50", "**bold**");
+      assert.strictEqual(ctx._editedMessages[0].text, "<b>bold</b>");
+      assert.strictEqual(ctx._editedMessages[0].opts?.parse_mode, "HTML");
+    });
+
+    it("falls back to plain text when HTML parse fails", async () => {
+      const ctx = mockContext({ failOnHtml: true });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.editMessage("50", "**bold**");
+      assert.strictEqual(ctx._editedMessages.length, 1);
+      // Fallback sends original text without parse_mode
+      assert.strictEqual(ctx._editedMessages[0].text, "**bold**");
+      assert.strictEqual(ctx._editedMessages[0].opts, undefined);
+    });
+
+    it("falls back to plain text when edited message is too long after HTML expansion", async () => {
+      const ctx = mockContext();
+      const originalEdit = ctx.api.editMessageText.bind(ctx.api);
+      let callCount = 0;
+      ctx.api.editMessageText = async (cId: number, msgId: number, text: string, opts?: any) => {
+        callCount++;
+        if (callCount === 1 && opts?.parse_mode === "HTML") {
+          throw new Error("Bad Request: message is too long");
+        }
+        return originalEdit(cId, msgId, text, opts);
+      };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.editMessage("50", "test & text");
+      assert.strictEqual(ctx._editedMessages.length, 1);
+      assert.strictEqual(ctx._editedMessages[0].text, "test & text");
+      assert.strictEqual(ctx._editedMessages[0].opts, undefined);
+    });
+
+    it("re-throws non-HTML errors instead of falling back", async () => {
+      const ctx = mockContext();
+      // Override editMessageText to throw a network error
+      ctx.api.editMessageText = async () => { throw new Error("network timeout"); };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await assert.rejects(
+        () => adapter.editMessage("50", "hello"),
+        { message: "network timeout" },
+      );
     });
 
     it("is a no-op when chatId is undefined", async () => {
@@ -162,12 +267,13 @@ describe("createTelegramAdapter", () => {
   });
 
   describe("replyError", () => {
-    it("sends error text as a reply", async () => {
+    it("sends error text as a reply without parse_mode", async () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
       await adapter.replyError("Something went wrong");
       assert.strictEqual(ctx._sentMessages.length, 1);
       assert.strictEqual(ctx._sentMessages[0].text, "Something went wrong");
+      assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
     });
   });
 });
