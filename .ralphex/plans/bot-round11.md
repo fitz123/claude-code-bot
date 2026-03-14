@@ -142,14 +142,14 @@ The message "Next message starts a fresh conversation" is false — context surv
 
 **What we want:** `buildReplyContext()` accepts the optional `quote` field (`TextQuote`). When `quote.text` is present, it replaces the full message text in the reply context. The format should clearly indicate it's a quote: `[Reply to User, quoting: "selected text"]` with the quoted text on the `>` line instead of the full message.
 
-- [ ] When user selects text and replies, only the selected quote appears in agent context
-- [ ] `buildReplyContext()` accepts a `quote` parameter with the `TextQuote` shape
-- [ ] All call sites pass `ctx.message.quote` to `buildReplyContext()`
-- [ ] Full message text is still shown when no quote is present (backward compatible)
-- [ ] Quote text is truncated at the same limit as regular reply text
-- [ ] Tests for reply with quote vs without quote
-- [ ] Tests for quote truncation
-- [ ] Verify existing tests pass
+- [x] When user selects text and replies, only the selected quote appears in agent context
+- [x] `buildReplyContext()` accepts a `quote` parameter with the `TextQuote` shape
+- [x] All call sites pass `ctx.message.quote` to `buildReplyContext()`
+- [x] Full message text is still shown when no quote is present (backward compatible)
+- [x] Quote text is truncated at the same limit as regular reply text
+- [x] Tests for reply with quote vs without quote
+- [x] Tests for quote truncation
+- [x] Verify existing tests pass
 
 ### Task 3: Fix /reset message to accurately describe behavior (bot-yve, P3)
 
