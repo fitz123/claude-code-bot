@@ -135,15 +135,15 @@ Both already accept optional `topicId` — the reaction handler just doesn't pas
 - Modify: `src/telegram-bot.ts`
 - Modify: `src/telegram-adapter.ts`
 
-- [ ] Cache module: `setThread(chatId, messageId, topicId)` + `getThread(chatId, messageId)`, 10K cap with clear, skip undefined topicId
-- [ ] All message handlers (text, voice, photo, document, commands) call `setThread()` BEFORE stale-message checks
-- [ ] Reaction handler looks up `getThread(chatId, messageId)` and passes topicId to `resolveBinding`, `sessionKey`, and adapter
-- [ ] `createTelegramAdapter` accepts optional `threadIdOverride` parameter: `threadIdOverride ?? ctx.message?.message_thread_id`
-- [ ] Reaction handler passes cached topicId as third arg to `createTelegramAdapter`
-- [ ] JSONL reaction logger: `appendFileSync` to `~/.openclaw/logs/reactions.jsonl`, fields: `ts, chatId, topicId, messageId, userId, username, added[], removed[]`, wrapped in try/catch
-- [ ] Reaction handler calls `logReaction()` after building reaction data
-- [ ] Update comment block at reaction handler explaining the cache workaround
-- [ ] Add tests for cache: round-trip, miss returns undefined, undefined topicId skipped, eviction at 10K+1, key isolation across chats
-- [ ] Add tests for reaction log: writes valid JSONL, does not throw on write error
-- [ ] Verify existing tests pass
-- [ ] `npx tsc --noEmit` passes
+- [x] Cache module: `setThread(chatId, messageId, topicId)` + `getThread(chatId, messageId)`, 10K cap with clear, skip undefined topicId
+- [x] All message handlers (text, voice, photo, document, commands) call `setThread()` BEFORE stale-message checks
+- [x] Reaction handler looks up `getThread(chatId, messageId)` and passes topicId to `resolveBinding`, `sessionKey`, and adapter
+- [x] `createTelegramAdapter` accepts optional `threadIdOverride` parameter: `threadIdOverride ?? ctx.message?.message_thread_id`
+- [x] Reaction handler passes cached topicId as third arg to `createTelegramAdapter`
+- [x] JSONL reaction logger: `appendFileSync` to `~/.openclaw/logs/reactions.jsonl`, fields: `ts, chatId, topicId, messageId, userId, username, added[], removed[]`, wrapped in try/catch
+- [x] Reaction handler calls `logReaction()` after building reaction data
+- [x] Update comment block at reaction handler explaining the cache workaround
+- [x] Add tests for cache: round-trip, miss returns undefined, undefined topicId skipped, eviction at 10K+1, key isolation across chats
+- [x] Add tests for reaction log: writes valid JSONL, does not throw on write error
+- [x] Verify existing tests pass
+- [x] `npx tsc --noEmit` passes
