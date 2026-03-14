@@ -157,7 +157,7 @@ The message "Next message starts a fresh conversation" is false — context surv
 
 **What we want:** The `/reset` response message accurately describes what happens. Something like: "Session restarted. Prior context may be partially retained." Also update the Discord `/reset` handler (discord-bot.ts) with the same corrected message. Document the actual session lifecycle (create → compact → reset → resume) in a code comment near the `/reset` handler so future developers understand the behavior.
 
-- [ ] `/reset` response in Telegram accurately describes that context may be retained
-- [ ] `/reset` response in Discord matches the Telegram message
-- [ ] Code comment near `/reset` handler explains session lifecycle (create/compact/reset/resume)
-- [ ] Verify existing tests pass
+- [x] `/reset` response in Telegram accurately describes that context may be retained
+- [x] `/reset` response in Discord matches the Telegram message
+- [x] Code comment near `/reset` handler explains session lifecycle (create/compact/reset/resume)
+- [x] Verify existing tests pass
