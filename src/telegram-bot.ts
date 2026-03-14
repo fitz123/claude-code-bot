@@ -81,6 +81,10 @@ export function buildSourcePrefix(
     parts.push(`Chat: ${binding.label}`);
   }
 
+  if (binding.topicId !== undefined) {
+    parts.push(`Topic: ${binding.topicId}`);
+  }
+
   if (from) {
     const name = from.first_name.replace(/[\n\r]/g, " ");
     const sender = from.username

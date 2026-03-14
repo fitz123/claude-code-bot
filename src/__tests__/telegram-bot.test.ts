@@ -229,6 +229,18 @@ describe("buildSourcePrefix", () => {
     const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
     assert.strictEqual(buildSourcePrefix(binding, undefined), "");
   });
+
+  it("includes topicId between chat and from when present", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "Minime HQ", topicId: 591 };
+    const from = { first_name: "User", username: "user" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: Minime HQ | Topic: 591 | From: User (@user)]\n");
+  });
+
+  it("omits topic field when topicId is undefined", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", label: "DM Chat" };
+    const from = { first_name: "Alice" };
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: DM Chat | From: Alice]\n");
+  });
 });
 
 describe("imageExtensionForMime", () => {
