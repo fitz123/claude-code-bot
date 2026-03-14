@@ -40,10 +40,14 @@ function mockContext(opts: {
       },
     },
     async replyWithPhoto(_file: any, opts: any) {
+      const id = nextMsgId++;
       sentMessages.push({ text: "[photo]", opts });
+      return { message_id: id };
     },
     async replyWithDocument(_file: any, opts: any) {
+      const id = nextMsgId++;
       sentMessages.push({ text: "[document]", opts });
+      return { message_id: id };
     },
     // Expose internals for assertions
     _sentMessages: sentMessages,
