@@ -631,6 +631,67 @@ describe("buildReplyContext", () => {
     });
     assert.strictEqual(result, "[Reply to Pat]\n> line one line two line three\n");
   });
+
+  it("uses quote text instead of full message when quote is provided", () => {
+    const result = buildReplyContext(
+      {
+        from: { first_name: "Alice", username: "alice42" },
+        text: "This is a very long message that the user did not select",
+      },
+      { text: "selected part" },
+    );
+    assert.strictEqual(result, "[Reply to Alice (@alice42), quoting]\n> selected part\n");
+  });
+
+  it("shows quoting in header without sender when quote is provided", () => {
+    const result = buildReplyContext(
+      { text: "Full message here" },
+      { text: "just this bit" },
+    );
+    assert.strictEqual(result, "[Reply, quoting]\n> just this bit\n");
+  });
+
+  it("truncates quote text at 200 chars", () => {
+    const longQuote = "Q".repeat(250);
+    const result = buildReplyContext(
+      { from: { first_name: "Zoe" }, text: "original" },
+      { text: longQuote },
+    );
+    assert.strictEqual(result, `[Reply to Zoe, quoting]\n> ${"Q".repeat(200)}...\n`);
+  });
+
+  it("does not truncate quote text at exactly 200 chars", () => {
+    const exactQuote = "R".repeat(200);
+    const result = buildReplyContext(
+      { from: { first_name: "Max" }, text: "original" },
+      { text: exactQuote },
+    );
+    assert.strictEqual(result, `[Reply to Max, quoting]\n> ${"R".repeat(200)}\n`);
+  });
+
+  it("falls back to full text when quote is undefined", () => {
+    const result = buildReplyContext(
+      { from: { first_name: "Bob" }, text: "full message" },
+      undefined,
+    );
+    assert.strictEqual(result, "[Reply to Bob]\n> full message\n");
+  });
+
+  it("falls back to full text when quote has empty text", () => {
+    const result = buildReplyContext(
+      { from: { first_name: "Eve" }, text: "original text" },
+      { text: "" },
+    );
+    assert.strictEqual(result, "[Reply to Eve]\n> original text\n");
+  });
+
+  it("collapses newlines in quote text", () => {
+    const result = buildReplyContext(
+      { from: { first_name: "Dan" }, text: "full msg" },
+      { text: "line one\nline two" },
+    );
+    assert.strictEqual(result, "[Reply to Dan, quoting]\n> line one line two\n");
+  });
 });
 
 describe("buildForwardContext", () => {

@@ -123,6 +123,8 @@ const REPLY_TRUNCATE_LIMIT = 200;
 /**
  * Build reply context string when a user replies to a message.
  * Returns formatted context or empty string if not a real reply.
+ * When `quote` is provided (user selected text before replying),
+ * the quoted text is used instead of the full reply message.
  */
 export function buildReplyContext(
   replyTo?: {
@@ -136,19 +138,27 @@ export function buildReplyContext(
     general_forum_topic_hidden?: unknown;
     general_forum_topic_unhidden?: unknown;
   },
+  quote?: {
+    text: string;
+    is_manual?: boolean;
+  },
 ): string {
   if (!replyTo) return "";
   if (isForumServiceMessage(replyTo)) return "";
+
+  const hasQuote = quote?.text != null && quote.text.length > 0;
 
   let header = "[Reply]";
   if (replyTo.from) {
     const name = replyTo.from.first_name.replace(/[\n\r]/g, " ");
     const uname = replyTo.from.username?.replace(/[\n\r]/g, "") ?? "";
     const sender = uname ? `${name} (@${uname})` : name;
-    header = `[Reply to ${sender}]`;
+    header = hasQuote ? `[Reply to ${sender}, quoting]` : `[Reply to ${sender}]`;
+  } else if (hasQuote) {
+    header = "[Reply, quoting]";
   }
 
-  const replyText = replyTo.text ?? replyTo.caption ?? "";
+  const replyText = hasQuote ? quote!.text : (replyTo.text ?? replyTo.caption ?? "");
   if (!replyText) return header + "\n";
 
   const cleaned = replyText.replace(/[\n\r]/g, " ").trim();
@@ -443,7 +453,7 @@ export function createTelegramBot(
 
     const key = sessionKey(chatId, topicId);
     const prefix = buildSourcePrefix(binding, ctx.from);
-    const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+    const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
     const fwdCtx = buildForwardContext(ctx.message.forward_origin);
     const messageText = prefix + replyCtx + fwdCtx + ctx.message.text;
 
@@ -489,7 +499,7 @@ export function createTelegramBot(
 
       // Send transcript text to Claude session
       const prefix = buildSourcePrefix(binding, ctx.from);
-      const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       messageQueue.enqueue(key, binding.agentId, `${prefix}${replyCtx}${fwdCtx}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
 
@@ -540,7 +550,7 @@ export function createTelegramBot(
 
       // Build message: caption (if any) + image file path
       const prefix = buildSourcePrefix(binding, ctx.from);
-      const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       const context = prefix + replyCtx + fwdCtx;
       const caption = ctx.msg.caption ?? "";
@@ -594,7 +604,7 @@ export function createTelegramBot(
       await downloadFile(url, tempPath);
 
       const prefix = buildSourcePrefix(binding, ctx.from);
-      const replyCtx = buildReplyContext(ctx.message.reply_to_message);
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       const context = prefix + replyCtx + fwdCtx;
       const caption = ctx.msg.caption ?? "";
