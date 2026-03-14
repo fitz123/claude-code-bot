@@ -251,7 +251,10 @@ export const TELEGRAM_FILE_SIZE_LIMIT = 20 * 1024 * 1024;
 export function extensionForDocument(filename?: string, mimeType?: string): string {
   if (filename) {
     const dotIdx = filename.lastIndexOf(".");
-    if (dotIdx > 0) return filename.slice(dotIdx);
+    if (dotIdx > 0) {
+      // Sanitize: keep only alphanumeric chars and dots to prevent path traversal
+      return filename.slice(dotIdx).replace(/[^a-zA-Z0-9.]/g, "");
+    }
   }
   switch (mimeType) {
     case "application/pdf": return ".pdf";
@@ -723,31 +726,38 @@ export function createTelegramBot(
     }
   });
 
-  // Handle message reactions — forward as contextual info to the agent
+  // Handle message reactions — forward as contextual info to the agent.
+  // Note: Telegram's MessageReactionUpdated does not include message_thread_id,
+  // so reactions in forum topics resolve to the chat-level binding. This is a
+  // Telegram API limitation — topicId is unavailable for reaction events.
   bot.on("message_reaction", async (ctx) => {
     const chatId = ctx.chat.id;
     const binding = resolveBinding(chatId, config.bindings);
     if (!binding) return;
 
-    if (isStaleMessage(ctx.messageReaction.date * 1000, maxMessageAgeMs)) {
-      log.debug("telegram-bot", `Discarding stale reaction for chat ${chatId} (age: ${Math.round((Date.now() - ctx.messageReaction.date * 1000) / 1000)}s)`);
-      return;
+    try {
+      if (isStaleMessage(ctx.messageReaction.date * 1000, maxMessageAgeMs)) {
+        log.debug("telegram-bot", `Discarding stale reaction for chat ${chatId} (age: ${Math.round((Date.now() - ctx.messageReaction.date * 1000) / 1000)}s)`);
+        return;
+      }
+
+      const { emojiAdded, emojiRemoved } = ctx.reactions();
+      if (emojiAdded.length === 0 && emojiRemoved.length === 0) return;
+
+      messagesReceived.inc({ type: "reaction" });
+
+      const messageId = ctx.messageReaction.message_id;
+      const user = ctx.messageReaction.user;
+      const from = user ? { first_name: user.first_name, username: user.username } : undefined;
+      const prefix = buildSourcePrefix(binding, from);
+      const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
+      const messageText = prefix + reactionText;
+
+      const key = sessionKey(chatId);
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
+    } catch (err) {
+      log.error("telegram-bot", `Reaction handling error for chat ${chatId}:`, err);
     }
-
-    const { emojiAdded, emojiRemoved } = ctx.reactions();
-    if (emojiAdded.length === 0 && emojiRemoved.length === 0) return;
-
-    messagesReceived.inc({ type: "reaction" });
-
-    const messageId = ctx.messageReaction.message_id;
-    const user = ctx.messageReaction.user;
-    const from = user ? { first_name: user.first_name, username: user.username } : undefined;
-    const prefix = buildSourcePrefix(binding, from);
-    const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
-    const messageText = prefix + reactionText;
-
-    const key = sessionKey(chatId);
-    messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
   });
 
   // Global error handler
