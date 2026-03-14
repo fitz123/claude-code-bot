@@ -33,8 +33,9 @@ bindings:
     streamingUpdates: false
     typingIndicator: false
     topics:
-      - topicId: 591
+      - topicId: 1667
         agentId: coder
+        label: ЦИАН
 
 sessionDefaults:
   idleTimeoutMs: 3600000 # 1hr
