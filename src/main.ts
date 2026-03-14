@@ -77,6 +77,7 @@ async function main(): Promise<void> {
     startBotWithRetry(
       () =>
         bot.start({
+          allowed_updates: ["message", "message_reaction"],
           onStart: async (botInfo) => {
             startedSuccessfully = true;
             clearTimeout(startupTimeout);
