@@ -14,6 +14,8 @@ unset CLAUDECODE
 # Read OAuth token from Keychain for Claude CLI subprocess
 export CLAUDE_CODE_OAUTH_TOKEN=$(security find-generic-password -s claude-code-oauth-token -w)
 
+# grammY debug logging — diagnose silent polling stops (bot-ac3)
+export DEBUG=grammy:error,grammy:bot
 # Claude Code subprocess environment
 export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export CLAUDE_CODE_DISABLE_CRON=1
