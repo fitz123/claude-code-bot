@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ describe("reaction-log", () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it("writes valid JSONL to disk", () => {
+  it("writes valid JSONL to disk", async () => {
     const entry = {
       ts: "2026-03-15T12:00:00.000Z",
       chatId: -100999,
@@ -25,7 +25,7 @@ describe("reaction-log", () => {
       removed: [],
     };
 
-    logReaction(entry, testDir);
+    await logReaction(entry, testDir);
 
     const content = readFileSync(testPath, "utf-8").trim();
     const parsed = JSON.parse(content);
@@ -39,12 +39,12 @@ describe("reaction-log", () => {
     assert.strictEqual(parsed.ts, "2026-03-15T12:00:00.000Z");
   });
 
-  it("writes multiple entries as separate lines", () => {
+  it("writes multiple entries as separate lines", async () => {
     const entry1 = { ts: "2026-03-15T12:00:00.000Z", chatId: -100, topicId: undefined, messageId: 1, userId: 1, username: "a", added: ["\ud83d\udc4d"], removed: [] };
     const entry2 = { ts: "2026-03-15T12:01:00.000Z", chatId: -200, topicId: 10, messageId: 2, userId: 2, username: "b", added: [], removed: ["\ud83d\udc4e"] };
 
-    logReaction(entry1, testDir);
-    logReaction(entry2, testDir);
+    await logReaction(entry1, testDir);
+    await logReaction(entry2, testDir);
 
     const lines = readFileSync(testPath, "utf-8").trim().split("\n");
     assert.strictEqual(lines.length, 2);
@@ -52,9 +52,9 @@ describe("reaction-log", () => {
     assert.strictEqual(JSON.parse(lines[1]).chatId, -200);
   });
 
-  it("does not throw on unwritable path", () => {
-    assert.doesNotThrow(() => {
-      logReaction({
+  it("does not throw on unwritable path", async () => {
+    await assert.doesNotReject(async () => {
+      await logReaction({
         ts: "2026-03-15T12:00:00.000Z",
         chatId: -100,
         topicId: undefined,

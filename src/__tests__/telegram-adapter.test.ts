@@ -1,7 +1,8 @@
-import { describe, it } from "node:test";
+import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTelegramAdapter } from "../telegram-adapter.js";
 import type { TelegramBinding } from "../types.js";
+import { getThread, clearThreadCache } from "../message-thread-cache.js";
 
 /** Create a minimal mock of grammy Context for testing. */
 function mockContext(opts: {
@@ -58,6 +59,8 @@ const defaultBinding: TelegramBinding = {
 };
 
 describe("createTelegramAdapter", () => {
+  afterEach(() => clearThreadCache());
+
   describe("platform constants", () => {
     it("sets Telegram-specific limits", () => {
       const ctx = mockContext();
@@ -170,6 +173,28 @@ describe("createTelegramAdapter", () => {
         () => adapter.sendMessage("hello"),
         { message: "network timeout" },
       );
+    });
+
+    it("caches sent message_id for topic routing", async () => {
+      const ctx = mockContext({ chatId: 12345, threadId: 42 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendMessage("Bot reply");
+      // The sent message (id 100) should be cached with topicId 42
+      assert.strictEqual(getThread(12345, 100), 42);
+    });
+
+    it("caches sent message_id on HTML fallback path", async () => {
+      const ctx = mockContext({ chatId: 12345, threadId: 42, failOnHtml: true });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendMessage("**bold**");
+      assert.strictEqual(getThread(12345, 100), 42);
+    });
+
+    it("does not cache when no threadId", async () => {
+      const ctx = mockContext({ chatId: 12345 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendMessage("No topic");
+      assert.strictEqual(getThread(12345, 100), undefined);
     });
   });
 

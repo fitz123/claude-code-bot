@@ -1,11 +1,12 @@
 /**
  * Append-only JSONL logger for reaction events.
  *
- * Writes to ~/.openclaw/logs/reactions.jsonl. Failures are silently caught
- * so logging never disrupts the message flow.
+ * Writes to ~/.openclaw/logs/reactions.jsonl. Failures are caught and logged
+ * to stderr so logging never disrupts the message flow but persistent failures
+ * are still detectable operationally.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { mkdir, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -25,18 +26,19 @@ export interface ReactionLogEntry {
 
 /**
  * Append a reaction event to the JSONL log file.
- * Wrapped in try/catch — never throws.
+ * Never throws — errors are logged to stderr.
  *
  * @param entry - The reaction event data
  * @param logDir - Override log directory (for testing)
  */
-export function logReaction(entry: ReactionLogEntry, logDir?: string): void {
+export async function logReaction(entry: ReactionLogEntry, logDir?: string): Promise<void> {
   try {
     const dir = logDir ?? LOG_DIR;
     const path = logDir ? join(dir, "reactions.jsonl") : LOG_PATH;
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(path, JSON.stringify(entry) + "\n");
-  } catch {
-    // Intentionally swallowed — logging must never break message flow
+    await mkdir(dir, { recursive: true });
+    await appendFile(path, JSON.stringify(entry) + "\n");
+  } catch (err) {
+    // Never throw — logging must not break message flow — but surface failures
+    console.error("reaction-log: failed to write:", err);
   }
 }
