@@ -19,7 +19,7 @@ export function createTelegramAdapter(
 ): PlatformContext {
   const chatId = ctx.chat?.id;
   const threadId = threadIdOverride ?? ctx.message?.message_thread_id;
-  const threadOpts = threadId ? { message_thread_id: threadId } : {};
+  const threadOpts = threadId != null ? { message_thread_id: threadId } : {};
 
   return {
     maxMessageLength: TELEGRAM_MAX_MSG_LENGTH,
@@ -63,7 +63,7 @@ export function createTelegramAdapter(
       await ctx.api.sendChatAction(
         chatId,
         "typing",
-        threadId ? { message_thread_id: threadId } : undefined,
+        threadId != null ? { message_thread_id: threadId } : undefined,
       );
     },
 

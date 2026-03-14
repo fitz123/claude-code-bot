@@ -12,8 +12,6 @@ import { homedir } from "node:os";
 const LOG_DIR = join(homedir(), ".openclaw", "logs");
 const LOG_PATH = join(LOG_DIR, "reactions.jsonl");
 
-let dirEnsured = false;
-
 export interface ReactionLogEntry {
   ts: string;
   chatId: number;
@@ -28,14 +26,16 @@ export interface ReactionLogEntry {
 /**
  * Append a reaction event to the JSONL log file.
  * Wrapped in try/catch — never throws.
+ *
+ * @param entry - The reaction event data
+ * @param logDir - Override log directory (for testing)
  */
-export function logReaction(entry: ReactionLogEntry): void {
+export function logReaction(entry: ReactionLogEntry, logDir?: string): void {
   try {
-    if (!dirEnsured) {
-      mkdirSync(LOG_DIR, { recursive: true });
-      dirEnsured = true;
-    }
-    appendFileSync(LOG_PATH, JSON.stringify(entry) + "\n");
+    const dir = logDir ?? LOG_DIR;
+    const path = logDir ? join(dir, "reactions.jsonl") : LOG_PATH;
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(path, JSON.stringify(entry) + "\n");
   } catch {
     // Intentionally swallowed — logging must never break message flow
   }

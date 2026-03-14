@@ -18,7 +18,7 @@ function mockContext(opts: {
 
   return {
     chat: chatId !== undefined ? { id: chatId } : undefined,
-    message: opts.threadId ? { message_thread_id: opts.threadId } : {},
+    message: opts.threadId != null ? { message_thread_id: opts.threadId } : {},
     async reply(text: string, replyOpts: any = {}) {
       if (failOnHtml && replyOpts.parse_mode === "HTML") {
         throw new Error("Bad Request: can't parse entities");
@@ -263,6 +263,43 @@ describe("createTelegramAdapter", () => {
       const adapter = createTelegramAdapter(ctx, defaultBinding);
       await adapter.sendTyping();
       assert.strictEqual(ctx._chatActions.length, 0);
+    });
+  });
+
+  describe("threadIdOverride", () => {
+    it("uses threadIdOverride when provided", async () => {
+      const ctx = mockContext(); // no threadId on ctx.message
+      const adapter = createTelegramAdapter(ctx, defaultBinding, 99);
+      await adapter.sendMessage("Hello");
+      assert.strictEqual(ctx._sentMessages[0].opts.message_thread_id, 99);
+    });
+
+    it("threadIdOverride takes precedence over ctx.message.message_thread_id", async () => {
+      const ctx = mockContext({ threadId: 42 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding, 99);
+      await adapter.sendMessage("Hello");
+      assert.strictEqual(ctx._sentMessages[0].opts.message_thread_id, 99);
+    });
+
+    it("falls back to ctx.message.message_thread_id when threadIdOverride is undefined", async () => {
+      const ctx = mockContext({ threadId: 42 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding, undefined);
+      await adapter.sendMessage("Hello");
+      assert.strictEqual(ctx._sentMessages[0].opts.message_thread_id, 42);
+    });
+
+    it("handles threadIdOverride of 0 (General topic)", async () => {
+      const ctx = mockContext();
+      const adapter = createTelegramAdapter(ctx, defaultBinding, 0);
+      await adapter.sendMessage("Hello");
+      assert.strictEqual(ctx._sentMessages[0].opts.message_thread_id, 0);
+    });
+
+    it("sendTyping uses threadIdOverride", async () => {
+      const ctx = mockContext();
+      const adapter = createTelegramAdapter(ctx, defaultBinding, 55);
+      await adapter.sendTyping();
+      assert.strictEqual(ctx._chatActions[0].opts.message_thread_id, 55);
     });
   });
 
