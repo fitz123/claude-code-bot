@@ -36,13 +36,29 @@ if ! [[ "$count" =~ ^[0-9]+$ ]] || [[ "$count" -eq 0 ]]; then
   exit 0
 fi
 
-# Update cumulative ack count
+# Update cumulative ack count (best-effort — lock failure does not prevent delivery)
 ack_file="$dir/ack"
-prev=0
-[[ -f "$ack_file" ]] && prev=$(< "$ack_file")
-# Validate prev is a non-negative integer (guards against corrupted ack file)
-if ! [[ "$prev" =~ ^[0-9]+$ ]]; then prev=0; fi
-echo $(( prev + count )) > "$ack_file"
+_lockdir="$dir/ack.lock"
+_lock_acquired=1
+_lock_tries=0
+while ! mkdir "$_lockdir" 2>/dev/null; do
+  _lock_tries=$(( _lock_tries + 1 ))
+  if [[ $_lock_tries -ge 50 ]]; then
+    # Lock held too long — give up rather than force-remove (another hook
+    # process may legitimately hold it during parallel tool calls)
+    _lock_acquired=0
+    break
+  fi
+  sleep 0.01
+done
+if [[ $_lock_acquired -eq 1 ]]; then
+  prev=0
+  [[ -f "$ack_file" ]] && prev=$(< "$ack_file")
+  # Validate prev is a non-negative integer (guards against corrupted ack file)
+  if ! [[ "$prev" =~ ^[0-9]+$ ]]; then prev=0; fi
+  echo $(( prev + count )) > "$ack_file"
+  rmdir "$_lockdir" 2>/dev/null
+fi
 
 # Frame the message so the agent recognizes it as live user input
 framed="LIVE MESSAGE from the user (sent while you were working — read carefully and adjust your approach):

@@ -31,6 +31,9 @@ interface ChatQueueState {
   /** Cleanup callbacks for collected messages */
   collectCleanups: CleanupFn[];
 
+  /** Deferred cleanups for messages consumed by hook mid-turn (temp files still in use) */
+  deferredCleanups: CleanupFn[];
+
   /** Whether a message is currently being processed */
   busy: boolean;
 
@@ -95,6 +98,7 @@ export class MessageQueue {
         debounceTimer: null,
         collectBuffer: [],
         collectCleanups: [],
+        deferredCleanups: [],
         busy: false,
         latestPlatform: null,
         agentId,
@@ -116,6 +120,21 @@ export class MessageQueue {
     state.latestPlatform = platform;
 
     if (state.busy) {
+      // Refresh ack state before cap check so consumed messages free up space
+      this.refreshAck(chatId, state);
+
+      // Compact: remove entries already consumed by inject hook to bound array growth.
+      // Without this, arrays grow unbounded during long turns with continuous message flow.
+      // Cleanups are deferred — temp files may still be in use by the active turn
+      // (e.g. Claude reading an image path delivered via additionalContext).
+      if (state.injectConsumed > 0) {
+        const consumed = state.injectConsumed;
+        state.collectBuffer.splice(0, consumed);
+        const consumedCleanups = state.collectCleanups.splice(0, consumed);
+        state.deferredCleanups.push(...consumedCleanups);
+        state.injectConsumed = 0;
+      }
+
       // Mid-turn collect: buffer the message
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
@@ -190,6 +209,10 @@ export class MessageQueue {
     // If queue was cleared during processing (e.g., /reset), stop here
     if (this.queues.get(chatId) !== state) return;
 
+    // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
+    for (const fn of state.deferredCleanups) fn();
+    state.deferredCleanups = [];
+
     state.busy = false;
 
     // Drain collect buffer if messages arrived during processing
@@ -221,6 +244,16 @@ export class MessageQueue {
 
     // Loop to drain messages that arrive during processing (avoids recursion)
     while (state.collectBuffer.length > 0) {
+      // Dedup messages consumed by hook during previous drain iteration
+      const loopConsumed = this.finalizeInject(chatId, state);
+      if (loopConsumed > 0) {
+        state.collectBuffer.splice(0, loopConsumed);
+        const loopCleanups = state.collectCleanups.splice(0, loopConsumed);
+        for (const fn of loopCleanups) fn();
+        log.debug("message-queue", `Deduped ${loopConsumed} inject-consumed message(s) for ${chatId} (drain loop)`);
+      }
+      if (state.collectBuffer.length === 0) break;
+
       const collected = state.collectBuffer.splice(0);
       const cleanups = state.collectCleanups.splice(0);
       const prompt = buildCollectPrompt(collected);
@@ -248,6 +281,10 @@ export class MessageQueue {
 
       // If queue was cleared during processing, stop draining
       if (this.queues.get(chatId) !== state) return;
+
+      // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
+      for (const fn of state.deferredCleanups) fn();
+      state.deferredCleanups = [];
 
       state.busy = false;
     }
@@ -277,6 +314,7 @@ export class MessageQueue {
       }
       for (const fn of state.pendingCleanups) fn();
       for (const fn of state.collectCleanups) fn();
+      for (const fn of state.deferredCleanups) fn();
       this.queues.delete(chatId);
     }
     // Clean up inject files (safe even if no state)
@@ -291,6 +329,7 @@ export class MessageQueue {
       }
       for (const fn of state.pendingCleanups) fn();
       for (const fn of state.collectCleanups) fn();
+      for (const fn of state.deferredCleanups) fn();
       try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
     }
     this.queues.clear();
@@ -311,6 +350,23 @@ export class MessageQueue {
   }
 
   /**
+   * Refresh injectConsumed from the hook's ack file.
+   * Called before cap checks to ensure consumed messages free up buffer space.
+   */
+  private refreshAck(chatId: string, state: ChatQueueState): void {
+    try {
+      const dir = injectDirForChat(chatId);
+      const ackCount = readAckCount(dir);
+      if (ackCount > state.injectLastAck) {
+        state.injectConsumed += ackCount - state.injectLastAck;
+        state.injectLastAck = ackCount;
+      }
+    } catch {
+      // Non-critical — stale count just means slightly conservative cap check
+    }
+  }
+
+  /**
    * Write un-consumed collect buffer messages to the inject file.
    * Called each time a mid-turn message is enqueued.
    */
@@ -319,11 +375,7 @@ export class MessageQueue {
       const dir = injectDirForChat(chatId);
 
       // Check for new ack updates from hook (messages consumed since last check)
-      const ackCount = readAckCount(dir);
-      if (ackCount > state.injectLastAck) {
-        state.injectConsumed += ackCount - state.injectLastAck;
-        state.injectLastAck = ackCount;
-      }
+      this.refreshAck(chatId, state);
 
       // Write all un-consumed messages to inject file
       const toInject = state.collectBuffer.slice(state.injectConsumed);

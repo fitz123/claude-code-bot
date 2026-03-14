@@ -587,6 +587,24 @@ describe("relayStream paragraph breaks across tool-use", () => {
     assert.strictEqual(sends[0].text, "Result here");
   });
 
+  it("does not insert break when tool_use is before first text arriving in multiple deltas", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    // Tool use before first text, text arrives in multiple deltas — no spurious \n\n
+    async function* toolFirstMultiDelta(): AsyncGenerator<StreamLine> {
+      yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", id: "t1", name: "Read" } } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { type: "content_block_stop" } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "text" } } } as unknown as StreamEvent;
+      yield { type: "stream_event", event: { delta: { type: "text_delta", text: "Result" } } } as StreamEvent;
+      yield { type: "stream_event", event: { delta: { type: "text_delta", text: " here" } } } as StreamEvent;
+      yield { type: "result", result: "Result here", session_id: "test" } as ResultMessage;
+    }
+
+    await relayStream(toolFirstMultiDelta(), platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Result here");
+  });
+
   it("preserves paragraph breaks with streaming edits enabled", async () => {
     const { platform, edits } = mockPlatform({ streamingUpdates: true });
     const stream = fakeStreamWithTools(["Before tool", "tool_use", "After tool"]);
