@@ -31,7 +31,7 @@ crons:
     schedule: "30 3 * * *"
     prompt: >
       Ежедневный прогон skill workspace-health. Прочитай SKILL.md:
-      ~/.openclaw/workspace/skills/workspace-health/SKILL.md и выполни полный pipeline
+      ~/.minime/workspace/.claude/skills/workspace-health/SKILL.md и выполни полный pipeline
       (git sync -> upstream sync -> size audit -> fact verification -> content quality -> cleanup -> commit fixes).
       НЕ пушь — backup-git сделает push позже.
       Выведи финальный отчёт.
@@ -44,8 +44,8 @@ crons:
     schedule: "0 4 * * *"
     prompt: >
       Ежедневный backup. Прочитай SKILL.md:
-      ~/.openclaw/workspace/skills/backup-git/SKILL.md и выполни pipeline:
-      1. Запусти: bash ~/.openclaw/workspace/skills/backup-git/scripts/git-backup.sh ~/.openclaw/workspace
+      ~/.minime/workspace/.claude/skills/backup-git/SKILL.md и выполни pipeline:
+      1. Запусти: bash ~/.minime/workspace/.claude/skills/backup-git/scripts/git-backup.sh ~/.minime/workspace
       2. Прочитай JSON из stdout.
       3. Если status=ok: выведи '💾 Backup — pushed <commit> (<message>)'.
       4. Если status=no_changes: ответь NO_REPLY.
@@ -64,7 +64,7 @@ crons:
     prompt: >
       Run collector-v1 CIAN background collection silently.
       Run this command:
-      cd /Users/ninja/.openclaw/workspace/scripts/collector-v1 && uv run python collector.py --mode collect --source cian 2>&1 | tail -50
+      cd /Users/ninja/.minime/workspace/scripts/collector-v1 && uv run python collector.py --mode collect --source cian 2>&1 | tail -50
       If command succeeds, respond NO_REPLY.
       If command fails, output: '⚠️ collector-v1-collect failed. Check logs in scripts/collector-v1.'
     agentId: main
@@ -77,7 +77,7 @@ crons:
     prompt: >
       Run collector-v1 liveness check (live, no dry-run) silently.
       Run this command:
-      cd /Users/ninja/.openclaw/workspace/scripts/collector-v1 && uv run python collector.py --mode liveness 2>&1 | tail -50
+      cd /Users/ninja/.minime/workspace/scripts/collector-v1 && uv run python collector.py --mode liveness 2>&1 | tail -50
       If command succeeds, respond NO_REPLY.
       If command fails, output: '⚠️ collector-v1-liveness failed. Check logs.'
     agentId: main
@@ -94,7 +94,7 @@ crons:
       python3 - <<'PY'
       import sqlite3, sys
       from pathlib import Path
-      base=Path('/Users/ninja/.openclaw/workspace/scripts/collector-v1')
+      base=Path('/Users/ninja/.minime/workspace/scripts/collector-v1')
       sys.path.insert(0, str(base))
       from filter_engine import filter_listings
       from config import CollectorConfig
@@ -151,7 +151,7 @@ crons:
     schedule: "every 600"
     prompt: >
       Ensure continuous MOV encode daemon is running.
-      Run: /Users/ninja/.openclaw/workspace/scripts/video_encode_daemon_ensure.sh
+      Run: /Users/ninja/.minime/workspace/scripts/video_encode_daemon_ensure.sh
       If output starts with 'already_running' or 'started', respond NO_REPLY.
       If command fails, output: '⚠️ Encode daemon supervisor error: <error details>'
     agentId: main
@@ -166,10 +166,10 @@ crons:
   - name: int__beads-morning-standup
     schedule: "0 9 * * *"
     prompt: |
-      Morning standup для Ninja. Workspace: /Users/ninja/.openclaw/workspace
+      Morning standup для Ninja. Workspace: /Users/ninja/.minime/workspace
 
       1. Запусти команды:
-         - cd /Users/ninja/.openclaw/workspace && bd ready --json
+         - cd /Users/ninja/.minime/workspace && bd ready --json
          - bd list --overdue --json
          - bd list --due-before tomorrow --json
 
@@ -201,10 +201,10 @@ crons:
   - name: int__beads-evening-review
     schedule: "30 22 * * *"
     prompt: |
-      Evening review для Ninja. Workspace: /Users/ninja/.openclaw/workspace
+      Evening review для Ninja. Workspace: /Users/ninja/.minime/workspace
 
       1. Запусти команды:
-         - cd /Users/ninja/.openclaw/workspace && bd list --status closed --closed-after $(date -v-1d +%Y-%m-%d) --json
+         - cd /Users/ninja/.minime/workspace && bd list --status closed --closed-after $(date -v-1d +%Y-%m-%d) --json
          - bd ready --json
          - bd list --overdue --json
          - bd list --due-before $(date -v+2d +%Y-%m-%d) --json
@@ -241,10 +241,10 @@ crons:
   - name: int__beads-weekly-review
     schedule: "0 10 * * 1"
     prompt: |
-      Weekly review для Ninja. Workspace: /Users/ninja/.openclaw/workspace
+      Weekly review для Ninja. Workspace: /Users/ninja/.minime/workspace
 
       1. Запусти команды:
-         - cd /Users/ninja/.openclaw/workspace && bd list --status closed --closed-after $(date -v-7d +%Y-%m-%d) --json
+         - cd /Users/ninja/.minime/workspace && bd list --status closed --closed-after $(date -v-7d +%Y-%m-%d) --json
          - bd ready --json
          - bd list --overdue --json
          - bd stale --json
@@ -275,16 +275,16 @@ crons:
     prompt: |
       ВИТАМИНКА для Юли — combined scheduler + sender.
 
-      1. Прочитай ~/.openclaw/workspace/reference/vitaminka-yulia-cron.md — разделы 2, 3, 4.
+      1. Прочитай ~/.minime/workspace/reference/vitaminka-yulia-cron.md — разделы 2, 3, 4.
       2. Выбери случайную тему (1-20): python3 -c "import random; print(random.randint(1,20))"
-      3. Проверь дедупликацию: tail -3 ~/.openclaw/workspace/reference/vitaminka-log.jsonl
+      3. Проверь дедупликацию: tail -3 ~/.minime/workspace/reference/vitaminka-log.jsonl
          Если тема совпадает с последними 3 — выбери другую.
       4. Найди веб-факт по теме через поиск.
       5. Напиши 2-4 предложения в стиле Антона (тёплый, с юмором). Контекст о Юле — из документа.
          ВАЖНО: кот Бастер Китон — ПОЛОСАТЫЙ ТАББИ, не рыжий.
          НЕ упоминать что это автоматическое/запланированное.
       6. Отправь сообщение Юле: /Users/ninja/.openclaw/bot/scripts/deliver.sh 1320328600 <<< '<сообщение>'
-      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.openclaw/workspace/reference/vitaminka-log.jsonl
+      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.minime/workspace/reference/vitaminka-log.jsonl
 
       После отправки ответь NO_REPLY.
       Если файл vitaminka-yulia-cron.md не найден — выведи ошибку.
@@ -299,15 +299,15 @@ crons:
     prompt: |
       ВИТАМИНКА для Анны — combined scheduler + sender.
 
-      1. Прочитай ~/.openclaw/workspace/reference/vitaminka-anna-cron.md — разделы 2, 3, 4.
+      1. Прочитай ~/.minime/workspace/reference/vitaminka-anna-cron.md — разделы 2, 3, 4.
       2. Выбери случайную тему (1-20): python3 -c "import random; print(random.randint(1,20))"
-      3. Проверь дедупликацию: tail -3 ~/.openclaw/workspace/reference/vitaminka-anna-log.jsonl
+      3. Проверь дедупликацию: tail -3 ~/.minime/workspace/reference/vitaminka-anna-log.jsonl
          Если тема совпадает с последними 3 — выбери другую.
       4. Найди веб-факт по теме через поиск.
       5. Напиши 2-4 предложения в стиле Антона (тёплый, с юмором). Контекст об Анне — из документа.
          НЕ упоминать что это автоматическое/запланированное.
       6. Отправь сообщение Анне: /Users/ninja/.openclaw/bot/scripts/deliver.sh 7418988410 <<< '<сообщение>'
-      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.openclaw/workspace/reference/vitaminka-anna-log.jsonl
+      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.minime/workspace/reference/vitaminka-anna-log.jsonl
 
       После отправки ответь NO_REPLY.
       Если файл vitaminka-anna-cron.md не найден — выведи ошибку.
@@ -374,7 +374,7 @@ crons:
     schedule: "0 4 * * 6"
     prompt: >
       Выполни weekly brew upgrade + refresh firewall rule для node.
-      Run: /Users/ninja/.openclaw/workspace/scripts/brew-weekly-upgrade.sh
+      Run: /Users/ninja/.minime/workspace/scripts/brew-weekly-upgrade.sh
       Wait for completion (may take several minutes).
       If command succeeds, respond NO_REPLY.
       If command fails, output: '⚠️ brew-weekly-upgrade failed. Проверь логи и ручной запуск.'
