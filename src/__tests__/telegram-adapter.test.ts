@@ -140,6 +140,17 @@ describe("createTelegramAdapter", () => {
       assert.strictEqual(ctx._sentMessages[0].text, "**bold**");
       assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
     });
+
+    it("re-throws non-HTML errors instead of falling back", async () => {
+      const ctx = mockContext();
+      // Override reply to throw a network error
+      ctx.reply = async () => { throw new Error("network timeout"); };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await assert.rejects(
+        () => adapter.sendMessage("hello"),
+        { message: "network timeout" },
+      );
+    });
   });
 
   describe("editMessage", () => {
@@ -169,6 +180,17 @@ describe("createTelegramAdapter", () => {
       // Fallback sends original text without parse_mode
       assert.strictEqual(ctx._editedMessages[0].text, "**bold**");
       assert.strictEqual(ctx._editedMessages[0].opts, undefined);
+    });
+
+    it("re-throws non-HTML errors instead of falling back", async () => {
+      const ctx = mockContext();
+      // Override editMessageText to throw a network error
+      ctx.api.editMessageText = async () => { throw new Error("network timeout"); };
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await assert.rejects(
+        () => adapter.editMessage("50", "hello"),
+        { message: "network timeout" },
+      );
     });
 
     it("is a no-op when chatId is undefined", async () => {
@@ -207,12 +229,13 @@ describe("createTelegramAdapter", () => {
   });
 
   describe("replyError", () => {
-    it("sends error text as a reply", async () => {
+    it("sends error text as a reply without parse_mode", async () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
       await adapter.replyError("Something went wrong");
       assert.strictEqual(ctx._sentMessages.length, 1);
       assert.strictEqual(ctx._sentMessages[0].text, "Something went wrong");
+      assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
     });
   });
 });

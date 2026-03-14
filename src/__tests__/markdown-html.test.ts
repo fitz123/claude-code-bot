@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 import { markdownToHtml, escapeHtml } from "../markdown-html.js";
 
 describe("escapeHtml", () => {
-  it("escapes <, >, and &", () => {
+  it("escapes <, >, &, and double quotes", () => {
     assert.strictEqual(escapeHtml("a < b > c & d"), "a &lt; b &gt; c &amp; d");
+    assert.strictEqual(escapeHtml('<a href="x">'), "&lt;a href=&quot;x&quot;&gt;");
   });
 
   it("returns plain text unchanged", () => {
     assert.strictEqual(escapeHtml("hello world"), "hello world");
+  });
+
+  it("escapes double quotes", () => {
+    assert.strictEqual(escapeHtml('a "b" c'), "a &quot;b&quot; c");
   });
 });
 
@@ -23,6 +28,12 @@ describe("markdownToHtml", () => {
         markdownToHtml("**a** and **b**"),
         "<b>a</b> and <b>b</b>",
       );
+    });
+  });
+
+  describe("bold+italic", () => {
+    it("converts ***text*** to properly nested <b><i>text</i></b>", () => {
+      assert.strictEqual(markdownToHtml("***bold italic***"), "<b><i>bold italic</i></b>");
     });
   });
 
