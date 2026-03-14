@@ -369,7 +369,12 @@ export function createTelegramBot(
     );
   });
 
-  // /reset command — close current session, next message creates fresh
+  // /reset command — close current session.
+  // Session lifecycle: create → compact → reset → resume. The reset kills the
+  // Claude subprocess but the session file (with compacted conversation history)
+  // remains on disk. When the next message arrives, getOrCreateSession() finds
+  // the file and resumes with --resume, so prior context may be partially
+  // retained through the compaction summary.
   bot.command("reset", async (ctx) => {
     const topicId = ctx.message?.message_thread_id;
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
@@ -381,7 +386,7 @@ export function createTelegramBot(
     const key = sessionKey(ctx.chat.id, topicId);
     messageQueue.clear(key);
     await sessionManager.closeSession(key);
-    await ctx.reply("Session reset. Next message starts a fresh conversation.");
+    await ctx.reply("Session restarted. Prior context may be partially retained.");
   });
 
   // /status command — active sessions, memory, uptime, subprocess health

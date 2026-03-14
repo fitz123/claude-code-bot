@@ -331,10 +331,15 @@ export async function createDiscordBot(
           );
           break;
         }
+        // Session lifecycle: create → compact → reset → resume. The reset
+        // kills the Claude subprocess but the session file (with compacted
+        // conversation history) remains on disk. When the next message arrives,
+        // getOrCreateSession() finds the file and resumes with --resume, so
+        // prior context may be partially retained through the compaction summary.
         case "reset": {
           messageQueue.clear(key);
           await sessionManager.closeSession(key);
-          await interaction.reply("Session reset. Next message starts a fresh conversation.");
+          await interaction.reply("Session restarted. Prior context may be partially retained.");
           break;
         }
         case "status": {
