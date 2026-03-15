@@ -240,10 +240,10 @@ The cache is small (max 10K entries, key="chatId:msgId", value=topicId number). 
 
 What we want: on graceful shutdown (SIGTERM/SIGINT), the cache is written to disk. On startup, it's restored. The file should be in a persistent location (not /tmp). If the file is missing or corrupt, the bot starts with an empty cache (no crash). This is a simple serialize/deserialize — no external dependencies.
 
-- [ ] Cache is written to disk on SIGTERM/SIGINT (graceful shutdown)
-- [ ] Cache is restored from disk on startup
-- [ ] File location is persistent (e.g. `~/.openclaw/bot/data/thread-cache.json`)
-- [ ] Missing or corrupt file results in empty cache, not a crash
-- [ ] The 10K cap still applies after restore (don't load unbounded data)
-- [ ] Add tests for save/restore (round-trip, corrupt file handling, missing file)
-- [ ] Existing tests pass
+- [x] Cache is written to disk on SIGTERM/SIGINT (graceful shutdown)
+- [x] Cache is restored from disk on startup
+- [x] File location is persistent (e.g. `~/.openclaw/bot/data/thread-cache.json`)
+- [x] Missing or corrupt file results in empty cache, not a crash
+- [x] The 10K cap still applies after restore (don't load unbounded data)
+- [x] Add tests for save/restore (round-trip, corrupt file handling, missing file)
+- [x] Existing tests pass

@@ -6,6 +6,7 @@ import { log, setLogLevel } from "./logger.js";
 import { startMetricsServer, stopMetricsServer } from "./metrics.js";
 import { startBotWithRetry } from "./bot-startup.js";
 import { createWatchdog, type Watchdog } from "./polling-watchdog.js";
+import { restoreThreadCache, saveThreadCache } from "./message-thread-cache.js";
 import { getVersion } from "./version.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
@@ -24,6 +25,9 @@ async function main(): Promise<void> {
     startMetricsServer(config.metricsPort);
   }
 
+  // Restore message-thread cache from disk (survives restarts)
+  restoreThreadCache();
+
   const sessionManager = new SessionManager(config);
   log.info("main", "Session manager initialized");
 
@@ -41,6 +45,7 @@ async function main(): Promise<void> {
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
     for (const mq of messageQueues) mq.clearAll();
+    saveThreadCache();
     await stopMetricsServer();
     await sessionManager.closeAll();
     log.info("main", "All sessions closed. Exiting.");
