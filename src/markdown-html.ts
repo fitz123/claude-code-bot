@@ -88,6 +88,46 @@ function convertInline(text: string): string {
   return processed;
 }
 
+/** Parse markdown table rows into cells, compute column widths, render with box-drawing chars. */
+function formatTable(tableLines: string[]): string {
+  // Parse cells from each row
+  const rows = tableLines
+    .filter((l) => !isTableSeparator(l))
+    .map((line) =>
+      line.split("|").map((c) => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length + 1)
+    )
+    // remove empty leading/trailing from split
+    .map((cells) => {
+      // "|a|b|" splits to ["", "a", "b", ""] — trim empty edges
+      if (cells.length > 0 && cells[0] === "") cells.shift();
+      if (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
+      return cells;
+    });
+
+  if (rows.length === 0) return escapeHtml(tableLines.join("\n"));
+
+  // Column widths
+  const numCols = Math.max(...rows.map((r) => r.length));
+  const widths: number[] = new Array(numCols).fill(0);
+  for (const row of rows) {
+    for (let c = 0; c < numCols; c++) {
+      widths[c] = Math.max(widths[c], (row[c] || "").length);
+    }
+  }
+
+  const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - s.length));
+  const sep = "─" + widths.map((w) => "─".repeat(w + 2)).join("┼") + "─";
+
+  const out: string[] = [];
+  for (let r = 0; r < rows.length; r++) {
+    const cells = rows[r];
+    const line = " " + cells.map((c, ci) => ` ${pad(c, widths[ci])} `).join("│") + " ";
+    out.push(escapeHtml(line));
+    if (r === 0) out.push(escapeHtml(sep)); // header separator
+  }
+  return out.join("\n");
+}
+
 /**
  * Convert markdown tables to <pre> blocks, then apply inline conversion to non-table text.
  * A table is: a header row (contains |), a separator row (only |, -, :, spaces with ---),
@@ -134,7 +174,7 @@ function convertSegment(text: string): string {
         tableLines.push(lines[i]);
         i++;
       }
-      result += `<pre>${escapeHtml(tableLines.join("\n"))}</pre>`;
+      result += `<pre>${formatTable(tableLines)}</pre>`;
     } else {
       const textLines: string[] = [];
       while (i < lines.length && !inTable[i]) {
