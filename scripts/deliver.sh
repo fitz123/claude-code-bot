@@ -85,8 +85,8 @@ send_message() {
   ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
 
   if [ "$ok" != "True" ]; then
-    # Retry without parse_mode using original unformatted text
-    text_json=$(echo "$ORIGINAL_MESSAGE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+    # Retry without parse_mode using the same chunk as plain text
+    text_json=$(echo "$text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
     response=$(curl -s -X POST "${API}/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$(build_payload "$text_json")")
