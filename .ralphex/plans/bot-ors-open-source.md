@@ -9,7 +9,7 @@ Prepare the bot for public GitHub release by removing all personal data (hardcod
 ```bash
 cd /Users/user/.openclaw/bot && npx tsc --noEmit && npm test
 # Verify no personal data leaked:
-grep -rn "<redacted-user-id>\|7418988410\|1320328600\|/Users/user" src/ scripts/ --include='*.ts' --include='*.sh' | grep -v node_modules | grep -v '.ralphex/' | grep -v 'config.yaml' | grep -v 'crons.yaml'
+grep -rn "<redacted-user-id>\|7418988410\|1320328600\|/Users/user\|User DM\|Contact DM\|Contact DM" src/ scripts/ --include='*.ts' --include='*.sh' | grep -v node_modules | grep -v '.ralphex/' | grep -v 'config.yaml' | grep -v 'crons.yaml'
 ```
 
 ## Reference: Hardcoded paths in source files
@@ -26,7 +26,10 @@ const DEFAULT_STORE_PATH = "/Users/user/.openclaw/bot/data/sessions.json";
 // src/cron-runner.ts:16
 const LOG_DIR = "/Users/user/.openclaw/logs";
 
-// src/cli-capabilities.ts:16 and :73
+// src/cron-runner.ts:132 (inside runClaude function)
+env.HOME = "/Users/user";
+
+// src/cli-capabilities.ts:16 (detectCapabilities) and :73 (verifyAuth)
 env.HOME = "/Users/user";
 ```
 
@@ -48,6 +51,8 @@ LOG_DIR="/Users/user/.openclaw/logs"
 # scripts/generate-plists.ts:14-15
 const LAUNCH_AGENTS_DIR = "/Users/user/Library/LaunchAgents";
 const LOG_DIR = "/Users/user/.openclaw/logs";
+// scripts/generate-plists.ts:216 (plist template, HOME env var in generated XML)
+// <string>/Users/user</string>
 ```
 
 ## Reference: Personal IDs in source and tests
@@ -56,11 +61,12 @@ const LOG_DIR = "/Users/user/.openclaw/logs";
 // src/cron-runner.ts:18
 const NINJA_CHAT_ID = <redacted-user-id>;
 
-// src/__tests__/bindings.test.ts — uses real IDs throughout:
-// <redacted-user-id>, 7418988410, 1320328600, -1003894624477
+// src/__tests__/bindings.test.ts — uses real IDs and personal labels:
+// <redacted-user-id>, 7418988410, 1320328600
+// Labels: "User DM", "Contact DM", "Contact DM"
 // Also hardcoded paths: /Users/user/.openclaw/workspace*
 
-// src/__tests__/telegram-bot.test.ts — same real IDs
+// src/__tests__/telegram-bot.test.ts — same real IDs and labels
 // src/__tests__/cron-runner.test.ts — <redacted-user-id>
 // src/__tests__/cli-protocol.test.ts — /Users/user/.openclaw/workspace
 ```
@@ -121,7 +127,9 @@ Files affected: `session-manager.ts`, `session-store.ts`, `cron-runner.ts`, `cli
 - [ ] Shell scripts derive BOT_DIR from script location (`dirname "$0"`), HOME from `$HOME`
 - [ ] Voice binary paths use env vars (`FFMPEG_BIN`, `WHISPER_BIN`, `WHISPER_MODEL`) with current values as defaults
 - [ ] generate-plists.ts uses `os.homedir()` for LaunchAgents dir and log dir
-- [ ] `env.HOME = "/Users/user"` in cli-capabilities.ts replaced with `os.homedir()`
+- [ ] `env.HOME = "/Users/user"` in cli-capabilities.ts (2 occurrences: detectCapabilities + verifyAuth) replaced with `os.homedir()`
+- [ ] `env.HOME = "/Users/user"` in cron-runner.ts:132 (runClaude) replaced with `os.homedir()`
+- [ ] generate-plists.ts:216 plist template HOME value uses `os.homedir()` at generation time
 - [ ] `NINJA_CHAT_ID` constant in cron-runner.ts replaced with config-driven fallback chat ID
 - [ ] All existing tests pass
 - [ ] Add test verifying path resolution uses homedir (at least one)
@@ -135,9 +143,10 @@ Test files contain real personal Telegram IDs (<redacted-user-id>, 7418988410, 1
 Files: `src/__tests__/bindings.test.ts`, `src/__tests__/telegram-bot.test.ts`, `src/__tests__/cron-runner.test.ts`, `src/__tests__/cli-protocol.test.ts`.
 
 - [ ] No real Telegram user ID (<redacted-user-id>, 7418988410, 1320328600) in any test file
-- [ ] No real group ID (-1003894624477) in any test file
 - [ ] No `/Users/user/` path in any test file
+- [ ] No personal name labels ("User DM", "Contact DM", "Contact DM") in any test file
 - [ ] Test IDs are obviously fake (e.g. 111111111, 222222222)
+- [ ] Test labels are generic (e.g. "User1 DM", "User2 DM")
 - [ ] All tests pass with new fixture IDs
 
 ### Task 3: Config templates and gitignore (bot-ors, P2)
@@ -148,8 +157,8 @@ Files: `src/__tests__/bindings.test.ts`, `src/__tests__/telegram-bot.test.ts`, `
 
 - [ ] `config.yaml.example` exists with placeholder IDs (e.g. `YOUR_CHAT_ID`), generic agent names, generic workspace paths
 - [ ] `crons.yaml.example` exists with 1-2 example cron entries using placeholder values
-- [ ] `config.yaml` added to `.gitignore`
-- [ ] `crons.yaml` added to `.gitignore`
+- [ ] `config.yaml` added to `.gitignore` and untracked with `git rm --cached config.yaml` (file stays locally)
+- [ ] `crons.yaml` added to `.gitignore` and untracked with `git rm --cached crons.yaml` (file stays locally)
 - [ ] `SOAK-TEST.md` removed or redacted (contains personal deployment logs with real chat IDs)
 - [ ] No personal Telegram IDs, Discord guild IDs, or real names in any tracked file
 - [ ] README.md line with `/Users/user/` example path updated to generic
