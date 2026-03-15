@@ -10,7 +10,8 @@ import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
 import { setThread, getThread } from "./message-thread-cache.js";
-import { recordMessage } from "./message-content-index.js";
+import { recordMessage, lookupMessage } from "./message-content-index.js";
+import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
 
 // Re-export for backward compatibility (tests import from here)
@@ -237,20 +238,24 @@ export function buildForwardContext(
 
 /**
  * Build reaction context lines for forwarding to the agent.
- * Produces lines like `[Reaction: 👍 on message 123]` for added emojis
- * and `[Reaction removed: 👎 on message 123]` for removed emojis.
+ * When a MessageRecord is available, includes author and text preview.
+ * On cache miss, falls back to message ID only (previous behavior).
  */
 export function buildReactionContext(
   messageId: number,
   emojiAdded: string[],
   emojiRemoved: string[],
+  content?: MessageRecord,
 ): string {
+  const target = content
+    ? `message by ${content.from}: "${content.preview}"`
+    : `message ${messageId}`;
   const lines: string[] = [];
   for (const emoji of emojiAdded) {
-    lines.push(`[Reaction: ${emoji} on message ${messageId}]`);
+    lines.push(`[Reaction: ${emoji} on ${target}]`);
   }
   for (const emoji of emojiRemoved) {
-    lines.push(`[Reaction removed: ${emoji} on message ${messageId}]`);
+    lines.push(`[Reaction removed: ${emoji} on ${target}]`);
   }
   return lines.join("\n");
 }
@@ -788,7 +793,8 @@ export function createTelegramBot(
       const user = ctx.messageReaction.user;
       const from = user ? { first_name: user.first_name, username: user.username } : undefined;
       const prefix = buildSourcePrefix(binding, from);
-      const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
+      const content = lookupMessage(chatId, messageId);
+      const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved, content);
       const messageText = prefix + reactionText;
 
       void logReaction({

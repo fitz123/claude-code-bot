@@ -115,11 +115,11 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 **What we want:** When a reaction arrives and content is found in the index, the agent sees who wrote the message and what it said. Cache miss gracefully degrades to current behavior.
 
-- [ ] When content available, reaction context includes author and text preview: `[Reaction: 👎 on message by @minitinyme_bot: "Доброе утро! Всё норм..."]`
-- [ ] When content unavailable (cache miss): `[Reaction: 👎 on message 3742]` (current behavior, unchanged)
-- [ ] Reaction handler in `telegram-bot.ts` calls `lookupMessage(chatId, messageId)` and passes result to `buildReactionContext`
-- [ ] Add tests for both cache-hit and cache-miss formatting
-- [ ] Verify existing tests pass
+- [x] When content available, reaction context includes author and text preview: `[Reaction: 👎 on message by @minitinyme_bot: "Доброе утро! Всё норм..."]`
+- [x] When content unavailable (cache miss): `[Reaction: 👎 on message 3742]` (current behavior, unchanged)
+- [x] Reaction handler in `telegram-bot.ts` calls `lookupMessage(chatId, messageId)` and passes result to `buildReactionContext`
+- [x] Add tests for both cache-hit and cache-miss formatting
+- [x] Verify existing tests pass
 
 ## Reference: Bot restart mechanism
 
