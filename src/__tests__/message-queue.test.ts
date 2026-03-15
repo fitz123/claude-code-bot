@@ -166,7 +166,7 @@ describe("MessageQueue debounce", () => {
     const platform = mockPlatform();
 
     queue.enqueue("chat1", "main", "msg1", platform);
-    queue.enqueue("chat2", "yulia", "msg2", platform);
+    queue.enqueue("chat2", "agent-b", "msg2", platform);
 
     await wait(80);
 
@@ -355,7 +355,7 @@ describe("MessageQueue clear", () => {
     const platform = mockPlatform();
 
     queue.enqueue("chat1", "main", "msg1", platform);
-    queue.enqueue("chat2", "yulia", "msg2", platform);
+    queue.enqueue("chat2", "agent-b", "msg2", platform);
 
     queue.clearAll();
 

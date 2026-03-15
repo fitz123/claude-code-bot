@@ -142,12 +142,12 @@ Test files contain real personal Telegram IDs (<redacted-user-id>, 7418988410, 1
 
 Files: `src/__tests__/bindings.test.ts`, `src/__tests__/telegram-bot.test.ts`, `src/__tests__/cron-runner.test.ts`, `src/__tests__/cli-protocol.test.ts`.
 
-- [ ] No real Telegram user ID (<redacted-user-id>, 7418988410, 1320328600) in any test file
-- [ ] No `/Users/user/` path in any test file
-- [ ] No personal name labels ("User DM", "Contact DM", "Contact DM") in any test file
-- [ ] Test IDs are obviously fake (e.g. 111111111, 222222222)
-- [ ] Test labels are generic (e.g. "User1 DM", "User2 DM")
-- [ ] All tests pass with new fixture IDs
+- [x] No real Telegram user ID (<redacted-user-id>, 7418988410, 1320328600) in any test file
+- [x] No `/Users/user/` path in any test file
+- [x] No personal name labels ("User DM", "Contact DM", "Contact DM") in any test file
+- [x] Test IDs are obviously fake (e.g. 111111111, 222222222)
+- [x] Test labels are generic (e.g. "User1 DM", "User2 DM")
+- [x] All tests pass with new fixture IDs
 
 ### Task 3: Config templates and gitignore (bot-ors, P2)
 

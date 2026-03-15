@@ -4,30 +4,30 @@ import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensi
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
-  { chatId: <redacted-user-id>, agentId: "main", kind: "dm", label: "User DM" },
-  { chatId: 1320328600, agentId: "yulia", kind: "dm", label: "Contact DM" },
-  { chatId: 7418988410, agentId: "anna", kind: "dm", label: "Contact DM" },
+  { chatId: 111111111, agentId: "main", kind: "dm", label: "User1 DM" },
+  { chatId: 222222222, agentId: "agent-b", kind: "dm", label: "User2 DM" },
+  { chatId: 333333333, agentId: "agent-c", kind: "dm", label: "User3 DM" },
   { chatId: -1003783997959, agentId: "cyber-architect", kind: "group", label: "Cyber Architect Group" },
 ];
 
 describe("resolveBinding", () => {
-  it("resolves User DM binding", () => {
-    const binding = resolveBinding(<redacted-user-id>, testBindings);
+  it("resolves User1 DM binding", () => {
+    const binding = resolveBinding(111111111, testBindings);
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "main");
     assert.strictEqual(binding.kind, "dm");
   });
 
-  it("resolves Contact DM binding", () => {
-    const binding = resolveBinding(1320328600, testBindings);
+  it("resolves User2 DM binding", () => {
+    const binding = resolveBinding(222222222, testBindings);
     assert.ok(binding);
-    assert.strictEqual(binding.agentId, "yulia");
+    assert.strictEqual(binding.agentId, "agent-b");
   });
 
-  it("resolves Contact DM binding", () => {
-    const binding = resolveBinding(7418988410, testBindings);
+  it("resolves User3 DM binding", () => {
+    const binding = resolveBinding(333333333, testBindings);
     assert.ok(binding);
-    assert.strictEqual(binding.agentId, "anna");
+    assert.strictEqual(binding.agentId, "agent-c");
   });
 
   it("resolves group binding with negative chatId", () => {
@@ -115,7 +115,7 @@ describe("resolveBinding with topicId", () => {
   });
 
   it("existing bindings without topicId still work (backward compatible)", () => {
-    const binding = resolveBinding(<redacted-user-id>, testBindings);
+    const binding = resolveBinding(111111111, testBindings);
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "main");
   });
@@ -123,7 +123,7 @@ describe("resolveBinding with topicId", () => {
 
 describe("isAuthorized", () => {
   it("authorizes known DM chat", () => {
-    assert.strictEqual(isAuthorized(<redacted-user-id>, testBindings), true);
+    assert.strictEqual(isAuthorized(111111111, testBindings), true);
   });
 
   it("authorizes known group chat", () => {
@@ -139,7 +139,7 @@ describe("isAuthorized", () => {
   });
 
   it("handles empty bindings", () => {
-    assert.strictEqual(isAuthorized(<redacted-user-id>, []), false);
+    assert.strictEqual(isAuthorized(111111111, []), false);
   });
 });
 
@@ -210,9 +210,9 @@ describe("buildSourcePrefix", () => {
   });
 
   it("includes sender without username", () => {
-    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", label: "User DM" };
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm", label: "User1 DM" };
     const from = { first_name: "Alice" };
-    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: User DM | From: Alice]\n");
+    assert.strictEqual(buildSourcePrefix(binding, from), "[Chat: User1 DM | From: Alice]\n");
   });
 
   it("omits chat label when binding has no label", () => {
@@ -260,11 +260,11 @@ describe("buildSourcePrefix", () => {
 
   it("DM binding without topicId shows no Topic field", () => {
     const bindings: TelegramBinding[] = [
-      { chatId: 100, agentId: "main", kind: "dm", label: "User DM" },
+      { chatId: 100, agentId: "main", kind: "dm", label: "User1 DM" },
     ];
     const binding = resolveBinding(100, bindings);
     assert.ok(binding);
-    assert.strictEqual(buildSourcePrefix(binding, { first_name: "Ninja" }), "[Chat: User DM | From: Ninja]\n");
+    assert.strictEqual(buildSourcePrefix(binding, { first_name: "User1" }), "[Chat: User1 DM | From: User1]\n");
   });
 });
 
