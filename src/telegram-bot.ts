@@ -248,7 +248,7 @@ export function buildReactionContext(
   content?: MessageRecord,
 ): string {
   const target = content
-    ? `message by ${content.from}: "${content.preview}"`
+    ? `message by ${content.from.replace(/[\n\r]/g, " ")}: "${content.preview.replace(/[\n\r]/g, " ")}"`
     : `message ${messageId}`;
   const lines: string[] = [];
   for (const emoji of emojiAdded) {
