@@ -7,7 +7,7 @@ const testBindings: TelegramBinding[] = [
   { chatId: 111111111, agentId: "main", kind: "dm", label: "User1 DM" },
   { chatId: 222222222, agentId: "agent-b", kind: "dm", label: "User2 DM" },
   { chatId: 333333333, agentId: "agent-c", kind: "dm", label: "User3 DM" },
-  { chatId: -1003783997959, agentId: "cyber-architect", kind: "group", label: "Cyber Architect Group" },
+  { chatId: -1009999999999, agentId: "cyber-architect", kind: "group", label: "Test Group" },
 ];
 
 describe("resolveBinding", () => {
@@ -31,7 +31,7 @@ describe("resolveBinding", () => {
   });
 
   it("resolves group binding with negative chatId", () => {
-    const binding = resolveBinding(-1003783997959, testBindings);
+    const binding = resolveBinding(-1009999999999, testBindings);
     assert.ok(binding);
     assert.strictEqual(binding.agentId, "cyber-architect");
     assert.strictEqual(binding.kind, "group");
@@ -53,7 +53,7 @@ describe("sessionKey", () => {
   });
 
   it("works with negative chatId (group)", () => {
-    assert.strictEqual(sessionKey(-1003783997959, 99), "-1003783997959:99");
+    assert.strictEqual(sessionKey(-1009999999999, 99), "-1009999999999:99");
   });
 
   it("accepts string chatId", () => {
@@ -127,7 +127,7 @@ describe("isAuthorized", () => {
   });
 
   it("authorizes known group chat", () => {
-    assert.strictEqual(isAuthorized(-1003783997959, testBindings), true);
+    assert.strictEqual(isAuthorized(-1009999999999, testBindings), true);
   });
 
   it("rejects unknown chatId", () => {

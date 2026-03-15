@@ -26,4 +26,4 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$BOT_DIR"
-exec /opt/homebrew/bin/npx tsx src/main.ts
+exec npx tsx src/main.ts

@@ -10,7 +10,7 @@ import { mkdir, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const LOG_DIR = join(homedir(), ".openclaw", "logs");
+const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".openclaw", "logs");
 const LOG_PATH = join(LOG_DIR, "reactions.jsonl");
 
 export interface ReactionLogEntry {
