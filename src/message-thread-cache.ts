@@ -13,9 +13,8 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { join } from "node:path";
 import { log } from "./logger.js";
 
 const MAX_CACHE_SIZE = 10_000;
@@ -80,14 +79,14 @@ export function restoreThreadCache(path: string = DEFAULT_CACHE_PATH): void {
   try {
     const data = readFileSync(path, "utf8");
     const parsed = JSON.parse(data);
+    cache.clear();
     if (!Array.isArray(parsed)) {
       log.warn("thread-cache", `Invalid cache format in ${path} (not an array), starting empty`);
       return;
     }
-    cache.clear();
     let loaded = 0;
     for (const entry of parsed) {
-      if (loaded >= MAX_CACHE_SIZE) break;
+      if (loaded >= MAX_CACHE_SIZE - 1) break;
       if (!Array.isArray(entry) || entry.length !== 2) continue;
       const [key, value] = entry;
       if (typeof key !== "string" || typeof value !== "number") continue;

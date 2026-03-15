@@ -114,6 +114,15 @@ describe("message-thread-cache persistence", () => {
     assert.strictEqual(threadCacheSize(), 0);
   });
 
+  it("non-array JSON clears pre-existing cache entries", () => {
+    setThread(-100, 1, 10);
+    setThread(-100, 2, 20);
+    assert.strictEqual(threadCacheSize(), 2);
+    writeFileSync(cachePath, JSON.stringify({ key: "value" }), "utf8");
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 0);
+  });
+
   it("invalid entries are skipped during restore", () => {
     const entries = [
       ["-100:1", 10],       // valid
@@ -139,7 +148,8 @@ describe("message-thread-cache persistence", () => {
     writeFileSync(cachePath, JSON.stringify(entries), "utf8");
 
     restoreThreadCache(cachePath);
-    assert.strictEqual(threadCacheSize(), 10_000);
+    // Caps at MAX_CACHE_SIZE - 1 to leave room for new entries without triggering full eviction
+    assert.strictEqual(threadCacheSize(), 9_999);
   });
 
   it("save creates parent directories if missing", () => {

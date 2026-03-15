@@ -14,10 +14,14 @@ BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CHAT_ID="${1:?Usage: deliver.sh <chat_id> [--thread <thread_id>] [message]}"
 shift
 
+# Validate chat_id is numeric (prevents JSON injection)
+[[ "$CHAT_ID" =~ ^-?[0-9]+$ ]] || { echo "[deliver] Error: invalid chat_id: $CHAT_ID" >&2; exit 1; }
+
 THREAD_ID=""
 if [ "${1:-}" = "--thread" ]; then
   THREAD_ID="${2:-}"
   shift 2
+  [[ -z "$THREAD_ID" || "$THREAD_ID" =~ ^[0-9]+$ ]] || { echo "[deliver] Error: invalid thread_id: $THREAD_ID" >&2; exit 1; }
 fi
 
 # Get message from args or stdin
@@ -34,6 +38,7 @@ fi
 
 # Convert markdown to HTML (same converter as the bot's interactive path)
 PARSE_MODE=""
+ORIGINAL_MESSAGE="$MESSAGE"
 TSX_BIN="$BOT_DIR/node_modules/.bin/tsx"
 CONVERTER="$BOT_DIR/src/markdown-html-cli.ts"
 if [ -x "$TSX_BIN" ] && [ -f "$CONVERTER" ]; then
@@ -41,6 +46,8 @@ if [ -x "$TSX_BIN" ] && [ -f "$CONVERTER" ]; then
   if [ -n "$HTML_MESSAGE" ]; then
     MESSAGE="$HTML_MESSAGE"
     PARSE_MODE="HTML"
+  else
+    echo "[deliver] warn: HTML converter returned empty output, sending plain text" >&2
   fi
 fi
 
@@ -78,7 +85,8 @@ send_message() {
   ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
 
   if [ "$ok" != "True" ]; then
-    # Retry without parse_mode in case of parse errors
+    # Retry without parse_mode using original unformatted text
+    text_json=$(echo "$ORIGINAL_MESSAGE" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
     response=$(curl -s -X POST "${API}/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$(build_payload "$text_json")")

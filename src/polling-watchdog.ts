@@ -82,9 +82,7 @@ export function createWatchdog(deps: WatchdogDeps): Watchdog {
       });
     }, intervalMs);
     // Don't prevent process exit
-    if (timer && typeof timer === "object" && "unref" in timer) {
-      timer.unref();
-    }
+    if (timer) (timer as NodeJS.Timeout).unref();
     log.info(
       "watchdog",
       `Started (threshold: ${Math.round(thresholdMs / 1000)}s, interval: ${Math.round(intervalMs / 1000)}s)`,

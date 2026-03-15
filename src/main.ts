@@ -45,7 +45,7 @@ async function main(): Promise<void> {
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
     for (const mq of messageQueues) mq.clearAll();
-    saveThreadCache();
+    if (telegramBot) saveThreadCache();
     await stopMetricsServer();
     await sessionManager.closeAll();
     log.info("main", "All sessions closed. Exiting.");
