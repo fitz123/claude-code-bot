@@ -50,6 +50,13 @@ function convertLinks(text: string): string {
   return result;
 }
 
+/** Check if a line is a markdown table separator (e.g. |---|---| or | :---: | :--- |). */
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim();
+  // Must contain both | and --- ; must consist entirely of |, -, :, and whitespace
+  return trimmed.includes("|") && /---/.test(trimmed) && /^[\s|:\-]+$/.test(trimmed);
+}
+
 /** Convert inline markdown (bold, italic, code, links) to HTML. */
 function convertInline(text: string): string {
   // Step 1: Extract inline code spans to protect their content from further conversion
@@ -82,6 +89,66 @@ function convertInline(text: string): string {
 }
 
 /**
+ * Convert markdown tables to <pre> blocks, then apply inline conversion to non-table text.
+ * A table is: a header row (contains |), a separator row (only |, -, :, spaces with ---),
+ * and zero or more body rows (contain |).
+ */
+function convertSegment(text: string): string {
+  const lines = text.split("\n");
+  const inTable: boolean[] = new Array(lines.length).fill(false);
+
+  // Find separator lines and mark table boundaries
+  for (let i = 0; i < lines.length; i++) {
+    if (!isTableSeparator(lines[i])) continue;
+    // Need a header row immediately above
+    if (i === 0 || !lines[i - 1].includes("|")) continue;
+
+    // Mark header row (directly above separator)
+    inTable[i - 1] = true;
+    // Mark separator
+    inTable[i] = true;
+    // Expand downward for body rows
+    let down = i + 1;
+    while (down < lines.length && lines[down].includes("|")) {
+      inTable[down] = true;
+      down++;
+    }
+  }
+
+  // Fast path: no tables found
+  if (!inTable.includes(true)) {
+    return convertInline(text);
+  }
+
+  // Build output: group consecutive table/non-table lines
+  let result = "";
+  let i = 0;
+  let firstGroup = true;
+  while (i < lines.length) {
+    if (!firstGroup) result += "\n";
+    firstGroup = false;
+
+    if (inTable[i]) {
+      const tableLines: string[] = [];
+      while (i < lines.length && inTable[i]) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      result += `<pre>${escapeHtml(tableLines.join("\n"))}</pre>`;
+    } else {
+      const textLines: string[] = [];
+      while (i < lines.length && !inTable[i]) {
+        textLines.push(lines[i]);
+        i++;
+      }
+      result += convertInline(textLines.join("\n"));
+    }
+  }
+
+  return result;
+}
+
+/**
  * Convert markdown to Telegram-compatible HTML.
  *
  * Splits on fenced code blocks first, then converts inline markdown in
@@ -94,8 +161,8 @@ export function markdownToHtml(md: string): string {
   let match: RegExpExecArray | null;
 
   while ((match = codeBlockRe.exec(md)) !== null) {
-    // Convert text before the code block
-    result += convertInline(md.slice(lastIndex, match.index));
+    // Convert text before the code block (tables → <pre>, then inline)
+    result += convertSegment(md.slice(lastIndex, match.index));
 
     // Convert the code block itself
     const lang = escapeHtml(match[1].trim());
@@ -107,7 +174,7 @@ export function markdownToHtml(md: string): string {
     lastIndex = match.index + match[0].length;
   }
 
-  // Convert remaining text after last code block
-  result += convertInline(md.slice(lastIndex));
+  // Convert remaining text after last code block (tables → <pre>, then inline)
+  result += convertSegment(md.slice(lastIndex));
   return result;
 }

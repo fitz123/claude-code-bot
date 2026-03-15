@@ -196,6 +196,64 @@ describe("markdownToHtml", () => {
     });
   });
 
+  describe("tables", () => {
+    it("converts basic markdown table to <pre> block", () => {
+      const input = "| Name | Age |\n| --- | --- |\n| Alice | 30 |";
+      const expected = "<pre>| Name | Age |\n| --- | --- |\n| Alice | 30 |</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("converts table without leading pipes", () => {
+      const input = "Name | Age\n--- | ---\nAlice | 30";
+      const expected = "<pre>Name | Age\n--- | ---\nAlice | 30</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("handles table with alignment colons in separator", () => {
+      const input = "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |";
+      const expected = "<pre>| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("HTML-escapes content inside table <pre>", () => {
+      const input = "| A < B | C > D |\n|---|---|\n| x & y | z |";
+      const expected = "<pre>| A &lt; B | C &gt; D |\n|---|---|\n| x &amp; y | z |</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("preserves formatting chars as literal text in table pre block", () => {
+      const input = "| **bold** | *italic* |\n|---|---|\n| ~~strike~~ | `code` |";
+      const expected = "<pre>| **bold** | *italic* |\n|---|---|\n| ~~strike~~ | `code` |</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("does not affect non-table text with pipes", () => {
+      assert.strictEqual(markdownToHtml("cat foo | grep bar"), "cat foo | grep bar");
+    });
+
+    it("does not affect single pipe expression", () => {
+      assert.strictEqual(markdownToHtml("a | b"), "a | b");
+    });
+
+    it("does not double-process table inside code block", () => {
+      const input = "```\n| A | B |\n|---|---|\n| 1 | 2 |\n```";
+      const expected = "<pre>| A | B |\n|---|---|\n| 1 | 2 |</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("handles table with surrounding text", () => {
+      const input = "before\n| A | B |\n|---|---|\n| 1 | 2 |\nafter";
+      const expected = "before\n<pre>| A | B |\n|---|---|\n| 1 | 2 |</pre>\nafter";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("handles table with blank lines around it", () => {
+      const input = "before\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nafter";
+      const expected = "before\n\n<pre>| A | B |\n|---|---|\n| 1 | 2 |</pre>\n\nafter";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+  });
+
   describe("plain text", () => {
     it("passes through text without markdown unchanged", () => {
       assert.strictEqual(markdownToHtml("hello world"), "hello world");
