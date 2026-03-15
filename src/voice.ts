@@ -64,7 +64,7 @@ export async function transcribeAudio(filePath: string): Promise<string> {
       "-f", wavPath,
       "--no-timestamps",
       "--no-prints",
-      "--language", "ru",
+      "--language", process.env.WHISPER_LANGUAGE ?? "auto",
     ], { timeout: 120_000 });
     return stdout.trim();
   } finally {

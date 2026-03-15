@@ -85,7 +85,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot
 1. Edit `crons.yaml` — add a new entry:
    ```yaml
    - name: my-task
-     schedule: "30 9 * * *"       # cron syntax, Europe/Moscow
+     schedule: "30 9 * * *"       # cron syntax, local timezone
      prompt: >
        Do the thing.
      agentId: main                # must match an agent in config.yaml
@@ -119,7 +119,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    agents:
      new-agent:
        id: new-agent
-       workspaceCwd: ~/.openclaw/workspace-new
+       workspaceCwd: /Users/YOU/.openclaw/workspace-new
        model: claude-opus-4-6
        fallbackModel: claude-sonnet-4-6
        maxTurns: 250  # max agentic loops per message (omit for unlimited)
@@ -299,9 +299,11 @@ Available metrics:
 ### Voice transcription requirements
 
 Voice transcription requires:
-- `ffmpeg` installed at `/opt/homebrew/bin/ffmpeg` (converts Opus-in-OGG to WAV)
-- `whisper-cli` installed at `/opt/homebrew/bin/whisper-cli`
-- Whisper model at `/opt/homebrew/share/whisper-cpp/ggml-medium.bin`
+- `ffmpeg` (converts Opus-in-OGG to WAV)
+- `whisper-cli` (whisper.cpp CLI)
+- Whisper model file (e.g. `ggml-medium.bin`)
+
+Default paths assume Homebrew on Apple Silicon. Override with env vars: `FFMPEG_BIN`, `WHISPER_BIN`, `WHISPER_MODEL`, `WHISPER_LANGUAGE` (default: `auto`).
 
 ### Common issues
 

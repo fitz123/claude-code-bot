@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Ensure HOME and PATH are set (launchd context may not have them)
 export HOME="${HOME:-$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')}"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 # Claude Code subprocess must NOT inherit CLAUDECODE
 unset CLAUDECODE
