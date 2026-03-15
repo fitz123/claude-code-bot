@@ -6,11 +6,11 @@ import { resolveBinding, isAuthorized } from "../telegram-bot.js";
 import { buildSpawnArgs } from "../cli-protocol.js";
 import type { TelegramBinding, AgentConfig, BotConfig } from "../types.js";
 
-// Production bindings from config.yaml
+// Test bindings (fake IDs for testing)
 const BINDINGS: TelegramBinding[] = [
-  { chatId: 306600687, agentId: "main", kind: "dm", label: "Ninja DM" },
-  { chatId: 1320328600, agentId: "yulia", kind: "dm", label: "Yulia DM" },
-  { chatId: 7418988410, agentId: "anna", kind: "dm", label: "Anna DM" },
+  { chatId: 111111111, agentId: "main", kind: "dm", label: "User1 DM" },
+  { chatId: 222222222, agentId: "agent-b", kind: "dm", label: "User2 DM" },
+  { chatId: 333333333, agentId: "agent-c", kind: "dm", label: "User3 DM" },
   { chatId: -1003783997959, agentId: "cyber-architect", kind: "group", label: "Cyber Architect Group" },
 ];
 
@@ -23,16 +23,16 @@ const AGENTS: Record<string, AgentConfig> = {
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
-  yulia: {
-    id: "yulia",
-    workspaceCwd: "/tmp/test-workspace-yulia",
+  "agent-b": {
+    id: "agent-b",
+    workspaceCwd: "/tmp/test-workspace-b",
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
-  anna: {
-    id: "anna",
-    workspaceCwd: "/tmp/test-workspace-anna",
+  "agent-c": {
+    id: "agent-c",
+    workspaceCwd: "/tmp/test-workspace-c",
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
@@ -51,24 +51,24 @@ describe("Binding verification: all 4 bindings present", () => {
     assert.strictEqual(BINDINGS.length, 4);
   });
 
-  it("Ninja DM → main agent", () => {
-    const b = resolveBinding(306600687, BINDINGS);
+  it("User1 DM → main agent", () => {
+    const b = resolveBinding(111111111, BINDINGS);
     assert.ok(b);
     assert.strictEqual(b.agentId, "main");
     assert.strictEqual(b.kind, "dm");
   });
 
-  it("Yulia DM → yulia agent", () => {
-    const b = resolveBinding(1320328600, BINDINGS);
+  it("User2 DM → agent-b", () => {
+    const b = resolveBinding(222222222, BINDINGS);
     assert.ok(b);
-    assert.strictEqual(b.agentId, "yulia");
+    assert.strictEqual(b.agentId, "agent-b");
     assert.strictEqual(b.kind, "dm");
   });
 
-  it("Anna DM → anna agent", () => {
-    const b = resolveBinding(7418988410, BINDINGS);
+  it("User3 DM → agent-c", () => {
+    const b = resolveBinding(333333333, BINDINGS);
     assert.ok(b);
-    assert.strictEqual(b.agentId, "anna");
+    assert.strictEqual(b.agentId, "agent-c");
     assert.strictEqual(b.kind, "dm");
   });
 
@@ -157,21 +157,21 @@ describe("Session isolation: different chats get different sessions", () => {
     assert.strictEqual(unique.size, cwds.length, "Duplicate workspaceCwd in agents");
   });
 
-  it("Ninja and Yulia resolve to different agents and workspaces", () => {
-    const ninja = resolveBinding(306600687, BINDINGS)!;
-    const yulia = resolveBinding(1320328600, BINDINGS)!;
-    assert.notStrictEqual(ninja.agentId, yulia.agentId);
-    assert.notStrictEqual(AGENTS[ninja.agentId].workspaceCwd, AGENTS[yulia.agentId].workspaceCwd);
+  it("User1 and User2 resolve to different agents and workspaces", () => {
+    const user1 = resolveBinding(111111111, BINDINGS)!;
+    const user2 = resolveBinding(222222222, BINDINGS)!;
+    assert.notStrictEqual(user1.agentId, user2.agentId);
+    assert.notStrictEqual(AGENTS[user1.agentId].workspaceCwd, AGENTS[user2.agentId].workspaceCwd);
   });
 
   it("spawn args for different agents produce different --add-dir values", () => {
-    const ninjaAgent = AGENTS["main"];
-    const yuliaAgent = AGENTS["yulia"];
-    const ninjaArgs = buildSpawnArgs({ agent: ninjaAgent, sessionId: "a" });
-    const yuliaArgs = buildSpawnArgs({ agent: yuliaAgent, sessionId: "b" });
+    const user1Agent = AGENTS["main"];
+    const user2Agent = AGENTS["agent-b"];
+    const user1Args = buildSpawnArgs({ agent: user1Agent, sessionId: "a" });
+    const user2Args = buildSpawnArgs({ agent: user2Agent, sessionId: "b" });
 
-    const ninjaDir = ninjaArgs[ninjaArgs.indexOf("--add-dir") + 1];
-    const yuliaDir = yuliaArgs[yuliaArgs.indexOf("--add-dir") + 1];
-    assert.notStrictEqual(ninjaDir, yuliaDir);
+    const user1Dir = user1Args[user1Args.indexOf("--add-dir") + 1];
+    const user2Dir = user2Args[user2Args.indexOf("--add-dir") + 1];
+    assert.notStrictEqual(user1Dir, user2Dir);
   });
 });

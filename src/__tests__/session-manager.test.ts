@@ -25,15 +25,15 @@ const testConfig: BotConfig = {
       workspaceCwd: "/tmp/test-workspace",
       model: "claude-opus-4-6",
     },
-    yulia: {
-      id: "yulia",
-      workspaceCwd: "/tmp/test-workspace-yulia",
+    "agent-b": {
+      id: "agent-b",
+      workspaceCwd: "/tmp/test-workspace-b",
       model: "claude-opus-4-6",
     },
   },
   bindings: [
     { chatId: 123, agentId: "main", kind: "dm" },
-    { chatId: 456, agentId: "yulia", kind: "dm" },
+    { chatId: 456, agentId: "agent-b", kind: "dm" },
   ],
   sessionDefaults: {
     idleTimeoutMs: 100, // Short for testing
@@ -185,7 +185,7 @@ describe("SessionManager agentId mismatch detection", () => {
     });
 
     const manager = new SessionManager(testConfig, TEST_STORE_PATH);
-    const result = manager.resolveStoredSession("chat-1", "yulia");
+    const result = manager.resolveStoredSession("chat-1", "agent-b");
 
     assert.strictEqual(result.resume, false, "should not resume mismatched session");
     assert.notStrictEqual(result.sessionId, "old-session-id", "should generate a fresh sessionId");
@@ -1068,7 +1068,7 @@ describe("SessionManager.getSessionHealth", () => {
     const session = {
       child,
       sessionId: "no-pid-test",
-      agentId: "yulia",
+      agentId: "agent-b",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       lastActivity: Date.now(),
@@ -1082,7 +1082,7 @@ describe("SessionManager.getSessionHealth", () => {
     const health = manager.getSessionHealth("nopid-chat");
     assert.ok(health);
     assert.strictEqual(health.pid, null);
-    assert.strictEqual(health.agentId, "yulia");
+    assert.strictEqual(health.agentId, "agent-b");
   });
 });
 

@@ -65,7 +65,7 @@ describe("SessionStore", () => {
     store1.setSession("456", {
       sessionId: "uuid-2",
       chatId: "456",
-      agentId: "yulia",
+      agentId: "agent-b",
       lastActivity: 2000,
     });
 
@@ -74,7 +74,7 @@ describe("SessionStore", () => {
     const session = store2.getSession("456");
     assert.ok(session);
     assert.strictEqual(session!.sessionId, "uuid-2");
-    assert.strictEqual(session!.agentId, "yulia");
+    assert.strictEqual(session!.agentId, "agent-b");
   });
 
   it("deletes a session", () => {
@@ -107,7 +107,7 @@ describe("SessionStore", () => {
     store.setSession("b", {
       sessionId: "u2",
       chatId: "b",
-      agentId: "yulia",
+      agentId: "agent-b",
       lastActivity: 2,
     });
 

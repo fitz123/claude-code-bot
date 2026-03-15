@@ -34,16 +34,16 @@ describe("cron-runner", () => {
 
   describe("buildDeliverCommand", () => {
     it("builds command without thread", () => {
-      const cmd = buildDeliverCommand(306600687);
+      const cmd = buildDeliverCommand(111111111);
       assert.ok(cmd.includes("deliver.sh"));
-      assert.ok(cmd.endsWith("306600687"));
+      assert.ok(cmd.endsWith("111111111"));
       assert.ok(!cmd.includes("--thread"));
     });
 
     it("builds command with thread ID", () => {
-      const cmd = buildDeliverCommand(306600687, 12345);
+      const cmd = buildDeliverCommand(111111111, 12345);
       assert.ok(cmd.includes("deliver.sh"));
-      assert.ok(cmd.includes("306600687"));
+      assert.ok(cmd.includes("111111111"));
       assert.ok(cmd.includes("--thread 12345"));
     });
 
