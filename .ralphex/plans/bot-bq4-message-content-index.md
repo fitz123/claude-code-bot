@@ -83,15 +83,15 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 **What we want:** An append-only sidecar index that maps `message_id` → `{from, preview, direction, timestamp}`. Preview is first 150 characters of plain text. The module follows the same pattern as `message-thread-cache.ts`: in-memory Map, persist to disk, tolerant restore.
 
-- [ ] New module `src/message-content-index.ts` exports `recordMessage(chatId, messageId, from, text, direction)` and `lookupMessage(chatId, messageId)`
-- [ ] In-memory Map with 10K cap. Eviction: remove oldest entries (FIFO), NOT full clear() — reactions arrive after messages, full wipe would destroy needed context
-- [ ] `preview` field stores first 150 characters of text
-- [ ] `direction` field: `"in"` for incoming, `"out"` for outgoing
-- [ ] Persistence to `data/message-content-index.json`, same `[key, value][]` format
-- [ ] Tolerant restore: missing file → empty, corrupt → empty, never throws
-- [ ] `saveMessageIndex()` and `restoreMessageIndex()` exported
-- [ ] Add tests covering: record + lookup, cap eviction, persistence round-trip, corrupt file, missing file
-- [ ] Verify existing tests pass
+- [x] New module `src/message-content-index.ts` exports `recordMessage(chatId, messageId, from, text, direction)` and `lookupMessage(chatId, messageId)`
+- [x] In-memory Map with 10K cap. Eviction: remove oldest entries (FIFO), NOT full clear() — reactions arrive after messages, full wipe would destroy needed context
+- [x] `preview` field stores first 150 characters of text
+- [x] `direction` field: `"in"` for incoming, `"out"` for outgoing
+- [x] Persistence to `data/message-content-index.json`, same `[key, value][]` format
+- [x] Tolerant restore: missing file → empty, corrupt → empty, never throws
+- [x] `saveMessageIndex()` and `restoreMessageIndex()` exported
+- [x] Add tests covering: record + lookup, cap eviction, persistence round-trip, corrupt file, missing file
+- [x] Verify existing tests pass
 
 ### Task 2: Populate index from all message paths (bot-bq4, P2)
 
