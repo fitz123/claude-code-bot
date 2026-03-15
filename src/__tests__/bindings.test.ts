@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { resolveBinding, isAuthorized } from "../telegram-bot.js";
 import { buildSpawnArgs } from "../cli-protocol.js";
@@ -14,32 +14,32 @@ const BINDINGS: TelegramBinding[] = [
   { chatId: -1003783997959, agentId: "cyber-architect", kind: "group", label: "Cyber Architect Group" },
 ];
 
-// Production agents from config.yaml
+// Test agents with generic paths
 const AGENTS: Record<string, AgentConfig> = {
   main: {
     id: "main",
-    workspaceCwd: "/Users/user/.openclaw/workspace",
+    workspaceCwd: "/tmp/test-workspace",
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
   yulia: {
     id: "yulia",
-    workspaceCwd: "/Users/user/.openclaw/workspace-yulia",
+    workspaceCwd: "/tmp/test-workspace-yulia",
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
   anna: {
     id: "anna",
-    workspaceCwd: "/Users/user/.openclaw/workspace-anna",
+    workspaceCwd: "/tmp/test-workspace-anna",
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
   "cyber-architect": {
     id: "cyber-architect",
-    workspaceCwd: "/Users/user/.openclaw/workspace-cyber-architect",
+    workspaceCwd: "/tmp/test-workspace-cyber-architect",
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
@@ -81,6 +81,19 @@ describe("Binding verification: all 4 bindings present", () => {
 });
 
 describe("Workspace verification: each cwd exists with CLAUDE.md", () => {
+  before(() => {
+    for (const agent of Object.values(AGENTS)) {
+      mkdirSync(agent.workspaceCwd, { recursive: true });
+      writeFileSync(resolve(agent.workspaceCwd, "CLAUDE.md"), "# Test");
+    }
+  });
+
+  after(() => {
+    for (const agent of Object.values(AGENTS)) {
+      rmSync(agent.workspaceCwd, { recursive: true, force: true });
+    }
+  });
+
   for (const [agentId, agent] of Object.entries(AGENTS)) {
     it(`${agentId} workspace exists: ${agent.workspaceCwd}`, () => {
       assert.ok(existsSync(agent.workspaceCwd), `Directory missing: ${agent.workspaceCwd}`);

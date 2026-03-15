@@ -121,18 +121,18 @@ All TypeScript source files and shell scripts use `/Users/user/` as a hardcoded 
 
 Files affected: `session-manager.ts`, `session-store.ts`, `cron-runner.ts`, `cli-capabilities.ts`, `voice.ts`, `scripts/run-cron.sh`, `scripts/start-bot.sh`, `scripts/deliver.sh`, `scripts/generate-plists.ts`.
 
-- [ ] No `/Users/user/` string appears in any `.ts` or `.sh` file under `src/` or `scripts/`
-- [ ] LOG_DIR derived from `os.homedir()` or a `LOG_DIR` env var with sensible default
-- [ ] Session store default path derived relative to bot directory or `os.homedir()`
-- [ ] Shell scripts derive BOT_DIR from script location (`dirname "$0"`), HOME from `$HOME`
-- [ ] Voice binary paths use env vars (`FFMPEG_BIN`, `WHISPER_BIN`, `WHISPER_MODEL`) with current values as defaults
-- [ ] generate-plists.ts uses `os.homedir()` for LaunchAgents dir and log dir
-- [ ] `env.HOME = "/Users/user"` in cli-capabilities.ts (2 occurrences: detectCapabilities + verifyAuth) replaced with `os.homedir()`
-- [ ] `env.HOME = "/Users/user"` in cron-runner.ts:132 (runClaude) replaced with `os.homedir()`
-- [ ] generate-plists.ts:216 plist template HOME value uses `os.homedir()` at generation time
-- [ ] `NINJA_CHAT_ID` constant in cron-runner.ts replaced with config-driven fallback chat ID
-- [ ] All existing tests pass
-- [ ] Add test verifying path resolution uses homedir (at least one)
+- [x] No `/Users/user/` string appears in any `.ts` or `.sh` file under `src/` or `scripts/`
+- [x] LOG_DIR derived from `os.homedir()` or a `LOG_DIR` env var with sensible default
+- [x] Session store default path derived relative to bot directory or `os.homedir()`
+- [x] Shell scripts derive BOT_DIR from script location (`dirname "$0"`), HOME from `$HOME`
+- [x] Voice binary paths use env vars (`FFMPEG_BIN`, `WHISPER_BIN`, `WHISPER_MODEL`) with current values as defaults
+- [x] generate-plists.ts uses `os.homedir()` for LaunchAgents dir and log dir
+- [x] `env.HOME = "/Users/user"` in cli-capabilities.ts (2 occurrences: detectCapabilities + verifyAuth) replaced with `os.homedir()`
+- [x] `env.HOME = "/Users/user"` in cron-runner.ts:132 (runClaude) replaced with `os.homedir()`
+- [x] generate-plists.ts:216 plist template HOME value uses `os.homedir()` at generation time
+- [x] `NINJA_CHAT_ID` constant in cron-runner.ts replaced with config-driven fallback chat ID
+- [x] All existing tests pass
+- [x] Add test verifying path resolution uses homedir (at least one)
 
 ### Task 2: Sanitize test fixtures — replace personal IDs and paths (bot-ors, P2)
 

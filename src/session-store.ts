@@ -1,8 +1,10 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { SessionState } from "./types.js";
 
-const DEFAULT_STORE_PATH = "/Users/user/.openclaw/bot/data/sessions.json";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_STORE_PATH = resolve(__dirname, "..", "data", "sessions.json");
 
 export type SessionStoreData = Record<string, SessionState>;
 

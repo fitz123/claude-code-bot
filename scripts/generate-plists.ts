@@ -4,15 +4,17 @@
 // Output: ~/Library/LaunchAgents/ai.openclaw.cron.<name>.plist
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
 const CRONS_PATH = resolve(BOT_DIR, "crons.yaml");
-const LAUNCH_AGENTS_DIR = "/Users/user/Library/LaunchAgents";
-const LOG_DIR = "/Users/user/.openclaw/logs";
+const HOME = homedir();
+const LAUNCH_AGENTS_DIR = join(HOME, "Library", "LaunchAgents");
+const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".openclaw", "logs");
 const RUN_CRON_SCRIPT = resolve(BOT_DIR, "scripts", "run-cron.sh");
 
 const dryRun = process.argv.includes("--dry-run");
@@ -213,7 +215,7 @@ ${scheduleSection}
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
-        <string>/Users/user</string>
+        <string>${HOME}</string>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
