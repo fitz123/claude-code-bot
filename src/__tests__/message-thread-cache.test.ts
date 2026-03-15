@@ -1,6 +1,9 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { setThread, getThread, clearThreadCache, threadCacheSize } from "../message-thread-cache.js";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { setThread, getThread, clearThreadCache, threadCacheSize, saveThreadCache, restoreThreadCache } from "../message-thread-cache.js";
 
 describe("message-thread-cache", () => {
   beforeEach(() => {
@@ -59,6 +62,100 @@ describe("message-thread-cache", () => {
 
   it("handles topicId 0 (General topic)", () => {
     setThread(-100, 1, 0);
+    assert.strictEqual(getThread(-100, 1), 0);
+  });
+});
+
+describe("message-thread-cache persistence", () => {
+  let tmpDir: string;
+  let cachePath: string;
+
+  beforeEach(() => {
+    clearThreadCache();
+    tmpDir = mkdtempSync(join(tmpdir(), "thread-cache-test-"));
+    cachePath = join(tmpDir, "thread-cache.json");
+  });
+
+  afterEach(() => {
+    clearThreadCache();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("round-trip: save then restore preserves entries", () => {
+    setThread(-100, 1, 10);
+    setThread(-100, 2, 20);
+    setThread(-200, 5, 30);
+    saveThreadCache(cachePath);
+
+    clearThreadCache();
+    assert.strictEqual(threadCacheSize(), 0);
+
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 3);
+    assert.strictEqual(getThread(-100, 1), 10);
+    assert.strictEqual(getThread(-100, 2), 20);
+    assert.strictEqual(getThread(-200, 5), 30);
+  });
+
+  it("missing file results in empty cache, no crash", () => {
+    restoreThreadCache(join(tmpDir, "nonexistent.json"));
+    assert.strictEqual(threadCacheSize(), 0);
+  });
+
+  it("corrupt file results in empty cache, no crash", () => {
+    writeFileSync(cachePath, "not valid json {{{", "utf8");
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 0);
+  });
+
+  it("non-array JSON results in empty cache, no crash", () => {
+    writeFileSync(cachePath, JSON.stringify({ key: "value" }), "utf8");
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 0);
+  });
+
+  it("invalid entries are skipped during restore", () => {
+    const entries = [
+      ["-100:1", 10],       // valid
+      "not-an-array",       // invalid: not an array
+      ["-100:2"],           // invalid: wrong length
+      ["-100:3", "text"],   // invalid: value not a number
+      [42, 10],             // invalid: key not a string
+      ["-200:1", 20],       // valid
+    ];
+    writeFileSync(cachePath, JSON.stringify(entries), "utf8");
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 2);
+    assert.strictEqual(getThread(-100, 1), 10);
+    assert.strictEqual(getThread(-200, 1), 20);
+  });
+
+  it("restore respects 10K cap", () => {
+    // Create a file with 11K entries
+    const entries: [string, number][] = [];
+    for (let i = 0; i < 11_000; i++) {
+      entries.push([`-1:${i}`, 5]);
+    }
+    writeFileSync(cachePath, JSON.stringify(entries), "utf8");
+
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 10_000);
+  });
+
+  it("save creates parent directories if missing", () => {
+    const nestedPath = join(tmpDir, "sub", "dir", "cache.json");
+    setThread(-100, 1, 10);
+    saveThreadCache(nestedPath);
+    assert.ok(existsSync(nestedPath));
+    const data = JSON.parse(readFileSync(nestedPath, "utf8"));
+    assert.strictEqual(data.length, 1);
+  });
+
+  it("preserves topicId 0 through save/restore", () => {
+    setThread(-100, 1, 0);
+    saveThreadCache(cachePath);
+    clearThreadCache();
+    restoreThreadCache(cachePath);
     assert.strictEqual(getThread(-100, 1), 0);
   });
 });
