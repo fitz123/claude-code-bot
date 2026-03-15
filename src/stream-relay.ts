@@ -138,6 +138,12 @@ export async function relayStream(
   let finalSent = false;
   let sawNonTextBlock = false;
 
+  // Take over pre-stream typing if active (clean handoff from message queue)
+  if (platform.preStreamTypingTimer) {
+    clearInterval(platform.preStreamTypingTimer);
+    platform.preStreamTypingTimer = undefined;
+  }
+
   // Send typing indicator periodically (if enabled)
   if (platform.typingIndicator) {
     typingTimer = setInterval(() => {

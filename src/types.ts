@@ -127,6 +127,9 @@ export interface PlatformContext {
 
   /** Whether to send typing indicators (default true). */
   readonly typingIndicator: boolean;
+
+  /** Pre-stream typing timer set by message queue, cleared by relayStream on handoff. */
+  preStreamTypingTimer?: ReturnType<typeof setInterval>;
 }
 
 // CLI Protocol types
