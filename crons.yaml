@@ -20,7 +20,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 600000
-    maxBudget: 1.00
+
 
   # ══════════════════════════════════════════
   # WORKSPACE & BACKUP (2 crons, nightly)
@@ -39,7 +39,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 900000
-    maxBudget: 1.00
+
 
   - name: backup-git
     schedule: "0 4 * * *"
@@ -54,7 +54,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 300000
-    maxBudget: 0.50
+
 
   # ══════════════════════════════════════════
   # COLLECTOR / DATA PIPELINE (3 crons)
@@ -71,7 +71,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 1500000
-    maxBudget: 0.50
+
 
   - name: collector-v1-liveness
     schedule: "0 4 * * *"
@@ -84,7 +84,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 1200000
-    maxBudget: 0.50
+
 
   - name: collector-v1-coverage-daily
     schedule: "20 9 * * *"
@@ -142,7 +142,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 240000
-    maxBudget: 0.50
+
 
   # ══════════════════════════════════════════
   # INFRASTRUCTURE SCRIPTS (3 crons)
@@ -158,7 +158,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 120000
-    maxBudget: 0.20
+
 
   # ══════════════════════════════════════════
   # DAILY TASK MANAGEMENT (3 crons)
@@ -197,7 +197,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 300000
-    maxBudget: 0.50
+
 
   - name: int__beads-evening-review
     schedule: "30 22 * * *"
@@ -237,7 +237,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 600000
-    maxBudget: 1.00
+
 
   - name: int__beads-weekly-review
     schedule: "0 10 * * 1"
@@ -264,58 +264,58 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 300000
-    maxBudget: 0.50
+
 
   # ══════════════════════════════════════════
   # VITAMINKA SCHEDULERS (2 crons, daily 10:00)
   # ══════════════════════════════════════════
 
   - name: int__vitaminka-scheduler-yulia
-    enabled: false
+    enabled: true
     schedule: "0 10 * * *"
     prompt: |
       ВИТАМИНКА для Юли — combined scheduler + sender.
 
-      1. Прочитай ~/.minime/workspace/reference/vitaminka-yulia-cron.md — разделы 2, 3, 4.
+      1. Прочитай ~/.minime/workspace-yulia/reference/vitaminka-cron.md — разделы 2, 3, 4.
       2. Выбери случайную тему (1-20): python3 -c "import random; print(random.randint(1,20))"
-      3. Проверь дедупликацию: tail -3 ~/.minime/workspace/reference/vitaminka-log.jsonl
+      3. Проверь дедупликацию: tail -3 ~/.minime/workspace-yulia/reference/vitaminka-log.jsonl
          Если тема совпадает с последними 3 — выбери другую.
       4. Найди веб-факт по теме через поиск.
-      5. Напиши 2-4 предложения в стиле Антона (тёплый, с юмором). Контекст о Юле — из документа.
+      5. Напиши 2-4 предложения в стиле Антона (тёплый, с юмором). Контекст о Юле — из документа и из memory.
          ВАЖНО: кот Бастер Китон — ПОЛОСАТЫЙ ТАББИ, не рыжий.
          НЕ упоминать что это автоматическое/запланированное.
       6. Отправь сообщение Юле: /Users/ninja/.openclaw/bot/scripts/deliver.sh 1320328600 <<< '<сообщение>'
-      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.minime/workspace/reference/vitaminka-log.jsonl
+      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.minime/workspace-yulia/reference/vitaminka-log.jsonl
 
       После отправки ответь NO_REPLY.
-      Если файл vitaminka-yulia-cron.md не найден — выведи ошибку.
-    agentId: main
+      Если файл vitaminka-cron.md не найден — выведи ошибку.
+    agentId: yulia
     deliveryChatId: 306600687
     timeout: 180000
-    maxBudget: 0.50
+
 
   - name: int__vitaminka-scheduler-anna
-    enabled: false
+    enabled: true
     schedule: "0 10 * * *"
     prompt: |
       ВИТАМИНКА для Анны — combined scheduler + sender.
 
-      1. Прочитай ~/.minime/workspace/reference/vitaminka-anna-cron.md — разделы 2, 3, 4.
+      1. Прочитай ~/.minime/workspace-anna/reference/vitaminka-cron.md — разделы 2, 3, 4.
       2. Выбери случайную тему (1-20): python3 -c "import random; print(random.randint(1,20))"
-      3. Проверь дедупликацию: tail -3 ~/.minime/workspace/reference/vitaminka-anna-log.jsonl
+      3. Проверь дедупликацию: tail -3 ~/.minime/workspace-anna/reference/vitaminka-log.jsonl
          Если тема совпадает с последними 3 — выбери другую.
       4. Найди веб-факт по теме через поиск.
-      5. Напиши 2-4 предложения в стиле Антона (тёплый, с юмором). Контекст об Анне — из документа.
+      5. Напиши 2-4 предложения в стиле Антона (тёплый, с юмором). Контекст об Анне — из документа и из memory.
          НЕ упоминать что это автоматическое/запланированное.
       6. Отправь сообщение Анне: /Users/ninja/.openclaw/bot/scripts/deliver.sh 7418988410 <<< '<сообщение>'
-      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.minime/workspace/reference/vitaminka-anna-log.jsonl
+      7. Запиши в лог: echo '{"date":"<today>","topic":<N>,"sent":true}' >> ~/.minime/workspace-anna/reference/vitaminka-log.jsonl
 
       После отправки ответь NO_REPLY.
-      Если файл vitaminka-anna-cron.md не найден — выведи ошибку.
-    agentId: main
+      Если файл vitaminka-cron.md не найден — выведи ошибку.
+    agentId: anna
     deliveryChatId: 306600687
     timeout: 600000
-    maxBudget: 0.50
+
 
   # ══════════════════════════════════════════
   # MONITORING & SECURITY (2 crons)
@@ -336,7 +336,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 120000
-    maxBudget: 0.20
+
 
   - name: tg-306600687__bedtime-reminder
     schedule: "15 23 * * *"
@@ -365,7 +365,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 300000
-    maxBudget: 0.50
+
 
   # ══════════════════════════════════════════
   # WEEKLY TASKS (3 crons)
@@ -382,7 +382,7 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 2400000
-    maxBudget: 0.50
+
 
   - name: tg-1003783997959__cyber-weekly-morning-status
     enabled: false
@@ -409,7 +409,7 @@ crons:
     agentId: cyber-architect
     deliveryChatId: -1003783997959
     timeout: 300000
-    maxBudget: 0.50
+
 
   # ══════════════════════════════════════════
   # SYSTEM (1 cron)
@@ -424,4 +424,4 @@ crons:
     agentId: main
     deliveryChatId: 306600687
     timeout: 300000
-    maxBudget: 0.50
+
