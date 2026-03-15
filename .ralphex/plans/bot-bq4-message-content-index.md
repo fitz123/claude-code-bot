@@ -173,16 +173,16 @@ The `platform` adapter with `sendTyping()` is available at `enqueue()` time — 
 
 **What we want:** On SIGTERM, inject "shutdown starting" into all active sessions, then wait (with configurable timeout) for active turns to finish. Sessions that resume after restart see the shutdown message as the last context → understand restart happened → don't re-trigger. Shutdown logs which sessions finished vs timed out, for observability.
 
-- [ ] On SIGTERM/SIGINT, bot injects a shutdown notification into all active sessions
-- [ ] Bot waits for active turns to complete, with a configurable timeout (default 60s)
-- [ ] Sessions that finish before timeout complete gracefully
-- [ ] Sessions that exceed timeout are force-closed
-- [ ] Each session's shutdown outcome is logged: finished naturally vs timed out, with session key and duration
-- [ ] Shutdown timeout is configurable (env var or config field)
-- [ ] After timeout/completion, existing shutdown sequence runs (save caches, close, exit)
-- [ ] Restart loop is broken: resumed session sees "shutdown starting" as last message, does not re-trigger restart
-- [ ] Add tests: shutdown notification injection, wait with timeout, logging of outcomes
-- [ ] Verify existing tests pass
+- [x] On SIGTERM/SIGINT, bot injects a shutdown notification into all active sessions
+- [x] Bot waits for active turns to complete, with a configurable timeout (default 60s)
+- [x] Sessions that finish before timeout complete gracefully
+- [x] Sessions that exceed timeout are force-closed
+- [x] Each session's shutdown outcome is logged: finished naturally vs timed out, with session key and duration
+- [x] Shutdown timeout is configurable (env var or config field)
+- [x] After timeout/completion, existing shutdown sequence runs (save caches, close, exit)
+- [x] Restart loop is broken: resumed session sees "shutdown starting" as last message, does not re-trigger restart
+- [x] Add tests: shutdown notification injection, wait with timeout, logging of outcomes
+- [x] Verify existing tests pass
 
 ### Task 5: Typing indicator during processing gaps (bot-dgs, P2)
 
