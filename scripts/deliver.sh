@@ -7,6 +7,10 @@
 
 set -euo pipefail
 
+# Resolve project root for HTML converter
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 CHAT_ID="${1:?Usage: deliver.sh <chat_id> [--thread <thread_id>] [message]}"
 shift
 
@@ -26,6 +30,18 @@ fi
 if [ -z "$MESSAGE" ]; then
   echo "[deliver] Error: empty message" >&2
   exit 1
+fi
+
+# Convert markdown to HTML (same converter as the bot's interactive path)
+PARSE_MODE=""
+TSX_BIN="$BOT_DIR/node_modules/.bin/tsx"
+CONVERTER="$BOT_DIR/src/markdown-html-cli.ts"
+if [ -x "$TSX_BIN" ] && [ -f "$CONVERTER" ]; then
+  HTML_MESSAGE=$("$TSX_BIN" "$CONVERTER" <<< "$MESSAGE" 2>/dev/null) || HTML_MESSAGE=""
+  if [ -n "$HTML_MESSAGE" ]; then
+    MESSAGE="$HTML_MESSAGE"
+    PARSE_MODE="HTML"
+  fi
 fi
 
 # Token from Keychain
@@ -56,13 +72,13 @@ send_message() {
   local response
   response=$(curl -s -X POST "${API}/sendMessage" \
     -H "Content-Type: application/json" \
-    -d "$(build_payload "$text_json" "Markdown")")
+    -d "$(build_payload "$text_json" "$PARSE_MODE")")
 
   local ok
   ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
 
   if [ "$ok" != "True" ]; then
-    # Retry without parse_mode in case of markdown errors
+    # Retry without parse_mode in case of parse errors
     response=$(curl -s -X POST "${API}/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$(build_payload "$text_json")")

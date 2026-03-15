@@ -189,12 +189,12 @@ The converter already splits on fenced code blocks first. Tables need similar ex
 
 What we want: markdown tables are detected and wrapped in `<pre>` tags with content HTML-escaped. Alignment preserved. Non-table text containing `|` (e.g. shell pipes) should not be false-positived.
 
-- [ ] Markdown tables with header separator (`|---|`) are converted to `<pre>` blocks
-- [ ] Table content is HTML-escaped inside `<pre>` (no XSS)
-- [ ] Non-table text containing `|` is not affected (e.g. `a | b` without table structure)
-- [ ] Tables inside fenced code blocks are not double-processed
-- [ ] Add tests for table conversion (basic table, table with formatting in cells, non-table pipes, table inside code block)
-- [ ] Existing tests pass
+- [x] Markdown tables with header separator (`|---|`) are converted to `<pre>` blocks
+- [x] Table content is HTML-escaped inside `<pre>` (no XSS)
+- [x] Non-table text containing `|` is not affected (e.g. `a | b` without table structure)
+- [x] Tables inside fenced code blocks are not double-processed
+- [x] Add tests for table conversion (basic table, table with formatting in cells, non-table pipes, table inside code block)
+- [x] Existing tests pass
 
 ### Task 2: deliver.sh uses same HTML converter as bot (bot-a3q, P2)
 
@@ -206,13 +206,13 @@ deliver.sh is used by: cron-runner.ts, notify-openclaw.sh, and cron agents calli
 
 What we want: deliver.sh pipes text through the markdownToHtml converter, sends with `parse_mode: "HTML"`, falls back to plain text on failure (same pattern as telegram-adapter.ts). A CLI entry point exposes markdownToHtml for shell scripts.
 
-- [ ] CLI wrapper exists that reads stdin markdown and outputs HTML (e.g. `npx tsx src/markdown-html-cli.ts`)
-- [ ] deliver.sh pipes text through the converter before sending
-- [ ] deliver.sh sends with `parse_mode: "HTML"` instead of `"Markdown"`
-- [ ] Fallback to plain text (no parse_mode) on HTML parse error still works
-- [ ] Existing callers (cron-runner.ts, notify-openclaw.sh) produce correct output
-- [ ] Add test for CLI wrapper (echo markdown | cli → HTML output)
-- [ ] Existing tests pass
+- [x] CLI wrapper exists that reads stdin markdown and outputs HTML (e.g. `npx tsx src/markdown-html-cli.ts`)
+- [x] deliver.sh pipes text through the converter before sending
+- [x] deliver.sh sends with `parse_mode: "HTML"` instead of `"Markdown"`
+- [x] Fallback to plain text (no parse_mode) on HTML parse error still works
+- [x] Existing callers (cron-runner.ts, notify-openclaw.sh) produce correct output
+- [x] Add test for CLI wrapper (echo markdown | cli → HTML output)
+- [x] Existing tests pass
 
 ### Task 3: Polling liveness watchdog (bot-ac3, P1)
 
