@@ -529,6 +529,45 @@ describe("relayStream typingIndicator=false", () => {
   });
 });
 
+describe("relayStream pre-stream typing handoff", () => {
+  it("clears preStreamTypingTimer when relayStream starts", async () => {
+    const { platform, typings } = mockPlatform({ typingIndicator: true });
+    const stream = fakeStream(["Hello"]);
+
+    // Simulate message queue having set a pre-stream typing timer
+    let preStreamTimerCleared = false;
+    platform.preStreamTypingTimer = setInterval(() => {
+      // this would fire if not cleared
+    }, 50);
+    const originalTimer = platform.preStreamTypingTimer;
+
+    await relayStream(stream, platform);
+
+    // Pre-stream timer should have been cleared
+    assert.strictEqual(platform.preStreamTypingTimer, undefined, "preStreamTypingTimer should be cleared");
+    // relayStream's own typing should still have fired
+    assert.ok(typings.length >= 1, "relayStream should send its own typing");
+
+    // Clean up just in case
+    clearInterval(originalTimer);
+  });
+
+  it("clears preStreamTypingTimer even when typingIndicator is false", async () => {
+    const { platform } = mockPlatform({ typingIndicator: false });
+    const stream = fakeStream(["Hello"]);
+
+    // Pre-stream timer should still be cleared even if typing is disabled
+    platform.preStreamTypingTimer = setInterval(() => {}, 50);
+    const originalTimer = platform.preStreamTypingTimer;
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(platform.preStreamTypingTimer, undefined, "preStreamTypingTimer should be cleared");
+
+    clearInterval(originalTimer);
+  });
+});
+
 describe("relayStream paragraph breaks across tool-use", () => {
   it("inserts paragraph break between text blocks separated by tool_use", async () => {
     const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });

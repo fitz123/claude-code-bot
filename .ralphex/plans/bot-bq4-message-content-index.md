@@ -190,10 +190,10 @@ The `platform` adapter with `sendTyping()` is available at `enqueue()` time — 
 
 **What we want:** Typing indicator starts immediately when a message is received and continues until the response is fully delivered. Covers the gaps: debounce wait, session creation, Claude's thinking phase before first stream output.
 
-- [ ] Typing starts when message processing begins (after debounce flushes, before session spawn/Claude response) — NOT during debounce window itself, as debounce batches rapid messages
-- [ ] Typing continues during session processing until `relayStream()` takes over with its own typing timer
-- [ ] Typing stops if processing is cancelled or errors out
-- [ ] Works correctly with the existing `typingIndicator` config flag (respects `binding.typingIndicator !== false`)
-- [ ] No duplicate typing timers (clean handoff between pre-stream and in-stream typing)
-- [ ] Add tests
-- [ ] Verify existing tests pass
+- [x] Typing starts when message processing begins (after debounce flushes, before session spawn/Claude response) — NOT during debounce window itself, as debounce batches rapid messages
+- [x] Typing continues during session processing until `relayStream()` takes over with its own typing timer
+- [x] Typing stops if processing is cancelled or errors out
+- [x] Works correctly with the existing `typingIndicator` config flag (respects `binding.typingIndicator !== false`)
+- [x] No duplicate typing timers (clean handoff between pre-stream and in-stream typing)
+- [x] Add tests
+- [x] Verify existing tests pass
