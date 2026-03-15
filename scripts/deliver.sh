@@ -7,13 +7,25 @@
 
 set -euo pipefail
 
+# Resolve project root for HTML converter
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 CHAT_ID="${1:?Usage: deliver.sh <chat_id> [--thread <thread_id>] [message]}"
 shift
 
+# Validate chat_id is numeric (prevents JSON injection)
+[[ "$CHAT_ID" =~ ^-?[0-9]+$ ]] || { echo "[deliver] Error: invalid chat_id: $CHAT_ID" >&2; exit 1; }
+
 THREAD_ID=""
 if [ "${1:-}" = "--thread" ]; then
-  THREAD_ID="${2:-}"
+  if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+    echo "[deliver] Error: --thread requires a value" >&2
+    exit 1
+  fi
+  THREAD_ID="$2"
   shift 2
+  [[ "$THREAD_ID" =~ ^[0-9]+$ ]] || { echo "[deliver] Error: invalid thread_id: $THREAD_ID" >&2; exit 1; }
 fi
 
 # Get message from args or stdin
@@ -26,6 +38,14 @@ fi
 if [ -z "$MESSAGE" ]; then
   echo "[deliver] Error: empty message" >&2
   exit 1
+fi
+
+# HTML converter setup (same converter as the bot's interactive path)
+TSX_BIN="$BOT_DIR/node_modules/.bin/tsx"
+CONVERTER="$BOT_DIR/src/markdown-html-cli.ts"
+CAN_CONVERT=""
+if [ -x "$TSX_BIN" ] && [ -f "$CONVERTER" ]; then
+  CAN_CONVERT=1
 fi
 
 # Token from Keychain
@@ -51,28 +71,37 @@ build_payload() {
 
 send_message() {
   local text="$1"
+  local response ok
+
+  # Try HTML conversion and send (each chunk converted independently)
+  if [ -n "$CAN_CONVERT" ]; then
+    local html_text
+    html_text=$("$TSX_BIN" "$CONVERTER" <<< "$text" 2>>"$LOG_FILE") || html_text=""
+    if [ -n "$html_text" ]; then
+      local html_json
+      html_json=$(echo "$html_text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+      response=$(curl -s -X POST "${API}/sendMessage" \
+        -H "Content-Type: application/json" \
+        -d "$(build_payload "$html_json" "HTML")")
+      ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
+      if [ "$ok" = "True" ]; then
+        echo "[deliver] $(date -Iseconds) OK chat=$CHAT_ID len=${#text}" >> "$LOG_FILE"
+        return 0
+      fi
+    fi
+  fi
+
+  # Fallback: send original text without parse_mode
   local text_json
   text_json=$(echo "$text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
-  local response
   response=$(curl -s -X POST "${API}/sendMessage" \
     -H "Content-Type: application/json" \
-    -d "$(build_payload "$text_json" "Markdown")")
-
-  local ok
+    -d "$(build_payload "$text_json")")
   ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
-
   if [ "$ok" != "True" ]; then
-    # Retry without parse_mode in case of markdown errors
-    response=$(curl -s -X POST "${API}/sendMessage" \
-      -H "Content-Type: application/json" \
-      -d "$(build_payload "$text_json")")
-
-    ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
-    if [ "$ok" != "True" ]; then
-      echo "[deliver] $(date -Iseconds) FAIL chat=$CHAT_ID response=$response" >> "$LOG_FILE"
-      echo "[deliver] Error: sendMessage failed: $response" >&2
-      return 1
-    fi
+    echo "[deliver] $(date -Iseconds) FAIL chat=$CHAT_ID response=$response" >> "$LOG_FILE"
+    echo "[deliver] Error: sendMessage failed: $response" >&2
+    return 1
   fi
 
   echo "[deliver] $(date -Iseconds) OK chat=$CHAT_ID len=${#text}" >> "$LOG_FILE"

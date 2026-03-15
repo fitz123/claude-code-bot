@@ -189,12 +189,12 @@ The converter already splits on fenced code blocks first. Tables need similar ex
 
 What we want: markdown tables are detected and wrapped in `<pre>` tags with content HTML-escaped. Alignment preserved. Non-table text containing `|` (e.g. shell pipes) should not be false-positived.
 
-- [ ] Markdown tables with header separator (`|---|`) are converted to `<pre>` blocks
-- [ ] Table content is HTML-escaped inside `<pre>` (no XSS)
-- [ ] Non-table text containing `|` is not affected (e.g. `a | b` without table structure)
-- [ ] Tables inside fenced code blocks are not double-processed
-- [ ] Add tests for table conversion (basic table, table with formatting in cells, non-table pipes, table inside code block)
-- [ ] Existing tests pass
+- [x] Markdown tables with header separator (`|---|`) are converted to `<pre>` blocks
+- [x] Table content is HTML-escaped inside `<pre>` (no XSS)
+- [x] Non-table text containing `|` is not affected (e.g. `a | b` without table structure)
+- [x] Tables inside fenced code blocks are not double-processed
+- [x] Add tests for table conversion (basic table, table with formatting in cells, non-table pipes, table inside code block)
+- [x] Existing tests pass
 
 ### Task 2: deliver.sh uses same HTML converter as bot (bot-a3q, P2)
 
@@ -206,13 +206,13 @@ deliver.sh is used by: cron-runner.ts, notify-openclaw.sh, and cron agents calli
 
 What we want: deliver.sh pipes text through the markdownToHtml converter, sends with `parse_mode: "HTML"`, falls back to plain text on failure (same pattern as telegram-adapter.ts). A CLI entry point exposes markdownToHtml for shell scripts.
 
-- [ ] CLI wrapper exists that reads stdin markdown and outputs HTML (e.g. `npx tsx src/markdown-html-cli.ts`)
-- [ ] deliver.sh pipes text through the converter before sending
-- [ ] deliver.sh sends with `parse_mode: "HTML"` instead of `"Markdown"`
-- [ ] Fallback to plain text (no parse_mode) on HTML parse error still works
-- [ ] Existing callers (cron-runner.ts, notify-openclaw.sh) produce correct output
-- [ ] Add test for CLI wrapper (echo markdown | cli → HTML output)
-- [ ] Existing tests pass
+- [x] CLI wrapper exists that reads stdin markdown and outputs HTML (e.g. `npx tsx src/markdown-html-cli.ts`)
+- [x] deliver.sh pipes text through the converter before sending
+- [x] deliver.sh sends with `parse_mode: "HTML"` instead of `"Markdown"`
+- [x] Fallback to plain text (no parse_mode) on HTML parse error still works
+- [x] Existing callers (cron-runner.ts, notify-openclaw.sh) produce correct output
+- [x] Add test for CLI wrapper (echo markdown | cli → HTML output)
+- [x] Existing tests pass
 
 ### Task 3: Polling liveness watchdog (bot-ac3, P1)
 
@@ -222,15 +222,15 @@ The bot has no mechanism to detect this state. `bot.catch()` logs errors but doe
 
 What we want: a lightweight liveness check that tracks "last update received" timestamp. If no updates arrive within a configurable threshold (default: 10 minutes), the process exits with a clear log message so launchd restarts it. The watchdog should account for quiet periods (late night, no messages) by using getMe or getUpdates(limit=0) as a heartbeat probe rather than relying solely on incoming messages.
 
-- [ ] A liveness module tracks the timestamp of the last received update
-- [ ] Every incoming update (message, reaction, etc.) refreshes the timestamp
-- [ ] A periodic check (e.g. every 60s) compares current time vs last update
-- [ ] If threshold exceeded, a lightweight Telegram API call (getMe) verifies connectivity
-- [ ] If the API call also fails or polling is truly dead, process exits with descriptive log
-- [ ] If the API call succeeds (just a quiet period), the watchdog resets without exiting
-- [ ] Threshold is configurable (default 10 minutes)
-- [ ] Add tests for the liveness module (threshold logic, reset behavior)
-- [ ] Existing tests pass
+- [x] A liveness module tracks the timestamp of the last received update
+- [x] Every incoming update (message, reaction, etc.) refreshes the timestamp
+- [x] A periodic check (e.g. every 60s) compares current time vs last update
+- [x] If threshold exceeded, a lightweight Telegram API call (getMe) verifies connectivity
+- [x] If the API call also fails or polling is truly dead, process exits with descriptive log
+- [x] If the API call succeeds (just a quiet period), the watchdog resets without exiting
+- [x] Threshold is configurable (default 10 minutes)
+- [x] Add tests for the liveness module (threshold logic, reset behavior)
+- [x] Existing tests pass
 
 ### Task 4: Persist message-thread cache across restarts (bot-rbo, P2)
 
@@ -240,10 +240,10 @@ The cache is small (max 10K entries, key="chatId:msgId", value=topicId number). 
 
 What we want: on graceful shutdown (SIGTERM/SIGINT), the cache is written to disk. On startup, it's restored. The file should be in a persistent location (not /tmp). If the file is missing or corrupt, the bot starts with an empty cache (no crash). This is a simple serialize/deserialize — no external dependencies.
 
-- [ ] Cache is written to disk on SIGTERM/SIGINT (graceful shutdown)
-- [ ] Cache is restored from disk on startup
-- [ ] File location is persistent (e.g. `~/.openclaw/bot/data/thread-cache.json`)
-- [ ] Missing or corrupt file results in empty cache, not a crash
-- [ ] The 10K cap still applies after restore (don't load unbounded data)
-- [ ] Add tests for save/restore (round-trip, corrupt file handling, missing file)
-- [ ] Existing tests pass
+- [x] Cache is written to disk on SIGTERM/SIGINT (graceful shutdown)
+- [x] Cache is restored from disk on startup
+- [x] File location is persistent (e.g. `~/.openclaw/bot/data/thread-cache.json`)
+- [x] Missing or corrupt file results in empty cache, not a crash
+- [x] The 10K cap still applies after restore (don't load unbounded data)
+- [x] Add tests for save/restore (round-trip, corrupt file handling, missing file)
+- [x] Existing tests pass
