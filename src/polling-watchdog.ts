@@ -11,6 +11,7 @@ import { log } from "./logger.js";
 
 const DEFAULT_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_INTERVAL_MS = 60 * 1000; // 60 seconds
+const DEFAULT_MAX_QUIET_HEARTBEATS = 3;
 
 export interface WatchdogDeps {
   /** API heartbeat — should resolve true if Telegram API is reachable. */
@@ -23,6 +24,13 @@ export interface WatchdogDeps {
   thresholdMs?: number;
   /** Interval between checks. Default: 60_000 (60s) */
   intervalMs?: number;
+  /**
+   * Max consecutive heartbeat-only resets (no real updates) before exiting.
+   * Prevents the watchdog from resetting indefinitely when the polling loop
+   * is dead but the Telegram API is still reachable (the most likely failure mode).
+   * Default: 3 (i.e. exit after 3 × threshold of silence even if API responds).
+   */
+  maxQuietHeartbeats?: number;
 }
 
 export interface Watchdog {
@@ -39,15 +47,18 @@ export interface Watchdog {
 export function createWatchdog(deps: WatchdogDeps): Watchdog {
   const thresholdMs = deps.thresholdMs ?? DEFAULT_THRESHOLD_MS;
   const intervalMs = deps.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const maxQuietHeartbeats = deps.maxQuietHeartbeats ?? DEFAULT_MAX_QUIET_HEARTBEATS;
   const exitFn = deps.exit ?? ((code: number) => process.exit(code));
   const now = deps.now ?? Date.now;
 
   let lastUpdateTs = now();
   let timer: ReturnType<typeof setInterval> | null = null;
   let checking = false;
+  let quietHeartbeats = 0;
 
   function touch(): void {
     lastUpdateTs = now();
+    quietHeartbeats = 0;
   }
 
   async function check(): Promise<void> {
@@ -65,7 +76,19 @@ export function createWatchdog(deps: WatchdogDeps): Watchdog {
       try {
         const ok = await deps.heartbeat();
         if (ok) {
-          log.info("watchdog", "API heartbeat succeeded — quiet period, resetting watchdog");
+          quietHeartbeats++;
+          if (quietHeartbeats >= maxQuietHeartbeats) {
+            log.error(
+              "watchdog",
+              `${quietHeartbeats} consecutive heartbeat-only resets with no real updates — polling likely dead, exiting`,
+            );
+            exitFn(1);
+            return;
+          }
+          log.info(
+            "watchdog",
+            `API heartbeat succeeded — quiet period, resetting watchdog (${quietHeartbeats}/${maxQuietHeartbeats} quiet checks)`,
+          );
           lastUpdateTs = now();
           return;
         }

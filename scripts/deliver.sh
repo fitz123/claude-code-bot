@@ -76,7 +76,7 @@ send_message() {
   # Try HTML conversion and send (each chunk converted independently)
   if [ -n "$CAN_CONVERT" ]; then
     local html_text
-    html_text=$("$TSX_BIN" "$CONVERTER" <<< "$text" 2>/dev/null) || html_text=""
+    html_text=$("$TSX_BIN" "$CONVERTER" <<< "$text" 2>>"$LOG_FILE") || html_text=""
     if [ -n "$html_text" ]; then
       local html_json
       html_json=$(echo "$html_text" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
