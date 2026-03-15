@@ -5,6 +5,7 @@ import { createDiscordBot } from "./discord-bot.js";
 import { log, setLogLevel } from "./logger.js";
 import { startMetricsServer, stopMetricsServer } from "./metrics.js";
 import { startBotWithRetry } from "./bot-startup.js";
+import { createWatchdog, type Watchdog } from "./polling-watchdog.js";
 import { getVersion } from "./version.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
@@ -30,11 +31,13 @@ async function main(): Promise<void> {
   let telegramBot: TelegramBotResult["bot"] | undefined;
   const messageQueues: MessageQueue[] = [];
   let discordClient: Client | undefined;
+  let watchdog: Watchdog | undefined;
 
   // Graceful shutdown — registered early so signals during bot startup are handled.
   // Closure captures mutable variables, so shutdown always sees current state.
   const shutdown = async (signal: string) => {
     log.info("main", `Received ${signal}, shutting down...`);
+    if (watchdog) watchdog.stop();
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
     for (const mq of messageQueues) mq.clearAll();
@@ -59,9 +62,28 @@ async function main(): Promise<void> {
 
   // Start Telegram bot if configured
   if (config.telegramToken && config.bindings.length > 0) {
-    const { bot, messageQueue } = createTelegramBot(config, sessionManager);
+    // Mutable reference so onUpdate callback can reach the watchdog
+    // (watchdog needs bot.api, which doesn't exist until after createTelegramBot)
+    let onUpdateFn: (() => void) | undefined;
+    const { bot, messageQueue } = createTelegramBot(config, sessionManager, {
+      onUpdate: () => onUpdateFn?.(),
+    });
     telegramBot = bot;
     messageQueues.push(messageQueue);
+
+    // Polling liveness watchdog: exits the process if no updates arrive
+    // within the threshold AND the Telegram API heartbeat also fails.
+    watchdog = createWatchdog({
+      heartbeat: async () => {
+        try {
+          await bot.api.getMe();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    onUpdateFn = () => watchdog!.touch();
 
     // Startup timeout — if onStart doesn't fire, exit for launchd restart.
     // Set to 120s to accommodate the 409-retry backoff window (~75s worst case).
@@ -85,6 +107,7 @@ async function main(): Promise<void> {
             startedSuccessfully = true;
             clearTimeout(startupTimeout);
             log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
+            if (watchdog) watchdog.start();
             try {
               await bot.api.setMyCommands(BOT_COMMANDS);
               log.info("main", "Bot commands registered with Telegram");

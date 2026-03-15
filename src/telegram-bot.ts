@@ -386,6 +386,7 @@ export interface TelegramBotResult {
 export function createTelegramBot(
   config: BotConfig,
   sessionManager: SessionManager,
+  opts?: { onUpdate?: () => void },
 ): TelegramBotResult {
   if (!config.telegramToken) {
     throw new Error("telegramToken is required for Telegram bot");
@@ -424,6 +425,15 @@ export function createTelegramBot(
       await relayStream(stream, platform, outboxDir(chatId));
     },
   );
+
+  // Watchdog touch: notify liveness watchdog on every incoming update
+  if (opts?.onUpdate) {
+    const onUpdate = opts.onUpdate;
+    bot.use(async (_ctx, next) => {
+      onUpdate();
+      await next();
+    });
+  }
 
   // Auth middleware: reject unauthorized chats
   bot.use(async (ctx, next) => {
