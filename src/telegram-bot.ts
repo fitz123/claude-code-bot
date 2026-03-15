@@ -584,6 +584,7 @@ export function createTelegramBot(
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), "[voice]", "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -615,6 +616,7 @@ export function createTelegramBot(
         return;
       }
 
+      // Update index with actual transcript content
       recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), transcript, "in");
 
       // Send transcript text to Claude session

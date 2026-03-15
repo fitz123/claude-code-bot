@@ -44,7 +44,10 @@ async function main(): Promise<void> {
   // Closure captures mutable variables, so shutdown always sees current state.
   const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS ?? "", 10) || 60_000;
 
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("main", `Received ${signal}, shutting down...`);
     if (watchdog) watchdog.stop();
     if (telegramBot) telegramBot.stop();
