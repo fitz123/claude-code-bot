@@ -1,6 +1,7 @@
 import { type Context, InputFile } from "grammy";
 import type { PlatformContext, TelegramBinding } from "./types.js";
 import { markdownToHtml } from "./markdown-html.js";
+import { setThread } from "./message-thread-cache.js";
 
 /** Telegram platform constants. */
 const TELEGRAM_MAX_MSG_LENGTH = 4096;
@@ -15,10 +16,11 @@ const TELEGRAM_TYPING_INTERVAL_MS = 4000;
 export function createTelegramAdapter(
   ctx: Context,
   binding?: TelegramBinding,
+  threadIdOverride?: number,
 ): PlatformContext {
   const chatId = ctx.chat?.id;
-  const threadId = ctx.message?.message_thread_id;
-  const threadOpts = threadId ? { message_thread_id: threadId } : {};
+  const threadId = threadIdOverride ?? ctx.message?.message_thread_id;
+  const threadOpts = threadId != null ? { message_thread_id: threadId } : {};
 
   return {
     maxMessageLength: TELEGRAM_MAX_MSG_LENGTH,
@@ -31,11 +33,13 @@ export function createTelegramAdapter(
       const html = markdownToHtml(text);
       try {
         const sent = await ctx.reply(html, { ...threadOpts, parse_mode: "HTML" });
+        if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
         return String(sent.message_id);
       } catch (err) {
         // Only fall back to plain text for HTML parse errors; re-throw everything else
         if (err instanceof Error && /can't parse entities|message is too long/.test(err.message)) {
           const sent = await ctx.reply(text, { ...threadOpts });
+          if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
           return String(sent.message_id);
         }
         throw err;
@@ -62,20 +66,20 @@ export function createTelegramAdapter(
       await ctx.api.sendChatAction(
         chatId,
         "typing",
-        threadId ? { message_thread_id: threadId } : undefined,
+        threadId != null ? { message_thread_id: threadId } : undefined,
       );
     },
 
     async sendFile(filePath: string, isImage: boolean): Promise<void> {
-      if (isImage) {
-        await ctx.replyWithPhoto(new InputFile(filePath), threadOpts);
-      } else {
-        await ctx.replyWithDocument(new InputFile(filePath), threadOpts);
-      }
+      const sent = isImage
+        ? await ctx.replyWithPhoto(new InputFile(filePath), threadOpts)
+        : await ctx.replyWithDocument(new InputFile(filePath), threadOpts);
+      if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
     },
 
     async replyError(text: string): Promise<void> {
-      await ctx.reply(text, { ...threadOpts });
+      const sent = await ctx.reply(text, { ...threadOpts });
+      if (chatId != null && threadId != null) setThread(chatId, sent.message_id, threadId);
     },
   };
 }
