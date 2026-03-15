@@ -42,12 +42,18 @@ async function main(): Promise<void> {
 
   // Graceful shutdown — registered early so signals during bot startup are handled.
   // Closure captures mutable variables, so shutdown always sees current state.
+  const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS ?? "", 10) || 60_000;
+
   const shutdown = async (signal: string) => {
     log.info("main", `Received ${signal}, shutting down...`);
     if (watchdog) watchdog.stop();
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
     for (const mq of messageQueues) mq.clearAll();
+
+    // Wait for busy sessions to finish their current turns
+    await sessionManager.gracefulShutdown(shutdownTimeoutMs);
+
     if (telegramBot) {
       saveThreadCache();
       saveMessageIndex();

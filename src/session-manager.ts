@@ -7,7 +7,7 @@ import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
-import { injectDirForChat, cleanupInjectDir } from "./inject-file.js";
+import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
 
 const LOG_DIR = "/Users/ninja/.openclaw/logs";
 const OUTBOX_BASE = "/tmp/bot-outbox";
@@ -461,6 +461,56 @@ export class SessionManager {
           resolve();
         });
       });
+    }
+  }
+
+  /**
+   * Graceful shutdown: inject notification into busy sessions, wait for
+   * active turns to finish (up to timeoutMs), then log outcomes.
+   * Called before closeAll() during SIGTERM/SIGINT handling.
+   */
+  async gracefulShutdown(timeoutMs: number): Promise<void> {
+    const busySessions: { chatId: string; startedAt: number }[] = [];
+
+    for (const [chatId, session] of this.active) {
+      if (session.processingStartedAt !== null) {
+        // Inject shutdown notification so the agent knows not to re-trigger restart
+        try {
+          writeInjectFile(session.injectDir, [
+            "[System: Bot is shutting down for restart. Do NOT attempt to restart the bot — the restart is already in progress. Wrap up your current task.]",
+          ]);
+        } catch { /* best-effort */ }
+        busySessions.push({ chatId, startedAt: session.processingStartedAt });
+      }
+    }
+
+    if (busySessions.length === 0) {
+      log.info("session-manager", "Graceful shutdown: no busy sessions");
+      return;
+    }
+
+    log.info("session-manager", `Graceful shutdown: waiting for ${busySessions.length} session(s) (timeout: ${timeoutMs}ms)`);
+
+    // Wait for all busy session queues to go idle, or timeout
+    const idlePromises = busySessions.map(({ chatId }) => {
+      const session = this.active.get(chatId);
+      return session?.queue.onIdle() ?? Promise.resolve();
+    });
+
+    await Promise.race([
+      Promise.all(idlePromises),
+      new Promise<void>(resolve => setTimeout(resolve, timeoutMs)),
+    ]);
+
+    // Log each session's outcome
+    for (const { chatId, startedAt } of busySessions) {
+      const session = this.active.get(chatId);
+      const duration = Date.now() - startedAt;
+      if (!session || session.processingStartedAt === null) {
+        log.info("session-manager", `Shutdown: session ${chatId} finished naturally (${duration}ms)`);
+      } else {
+        log.warn("session-manager", `Shutdown: session ${chatId} timed out (${duration}ms)`);
+      }
     }
   }
 
