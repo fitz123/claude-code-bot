@@ -58,6 +58,9 @@ bindings:
       - topicId: 1667
         agentId: coder
         label: ЦИАН
+      - topicId: 4174
+        agentId: anna
+        label: Anna
 
 sessionDefaults:
   idleTimeoutMs: 3600000 # 1hr
