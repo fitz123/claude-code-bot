@@ -1,16 +1,29 @@
 {
-  "name": "bot",
+  "name": "openclaw-bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Multi-agent Telegram and Discord bot powered by Claude Code, designed for Claude Max subscription users",
   "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicobailon/openclaw-bot.git"
+  },
   "scripts": {
     "test": "node --import tsx --test src/__tests__/*.test.ts",
     "build": "tsc",
     "validate-config": "tsx src/config.ts --validate"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "telegram",
+    "discord",
+    "claude",
+    "anthropic",
+    "claude-code",
+    "multi-agent",
+    "bot",
+    "max-subscription"
+  ],
+  "author": "Nico Bailon",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
