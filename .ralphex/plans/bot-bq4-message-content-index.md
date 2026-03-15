@@ -99,15 +99,15 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 **What we want:** Every message the bot sees (incoming or outgoing) is recorded in the content index. The index is restored at startup and saved at shutdown alongside the thread cache.
 
-- [ ] Text/photo/document handlers call `recordMessage` after `setThread` using `ctx.message.text` or `ctx.message.caption` as content
-- [ ] Voice handler calls `recordMessage` AFTER transcription completes (not at `setThread` time — transcribed text is not available yet)
-- [ ] `sendMessage` in `telegram-adapter.ts` calls `recordMessage` after `ctx.reply()` with `direction: "out"` and bot's username as author. Note: `createTelegramAdapter` does not currently have access to `bot.botInfo.username` — this needs to be passed in or set as a module-level variable at startup
-- [ ] `sendFile` calls `recordMessage` with caption text if available, or `"[file]"` / `"[photo]"` placeholder
-- [ ] `replyError` calls `recordMessage` with the error message text
-- [ ] `main.ts` calls `restoreMessageIndex()` at startup alongside `restoreThreadCache()`
-- [ ] `main.ts` calls `saveMessageIndex()` at shutdown alongside `saveThreadCache()`
-- [ ] Add integration test: simulate message → reaction → verify enriched context
-- [ ] Verify existing tests pass
+- [x] Text/photo/document handlers call `recordMessage` after `setThread` using `ctx.message.text` or `ctx.message.caption` as content
+- [x] Voice handler calls `recordMessage` AFTER transcription completes (not at `setThread` time — transcribed text is not available yet)
+- [x] `sendMessage` in `telegram-adapter.ts` calls `recordMessage` after `ctx.reply()` with `direction: "out"` and bot's username as author. Note: `createTelegramAdapter` does not currently have access to `bot.botInfo.username` — this needs to be passed in or set as a module-level variable at startup
+- [x] `sendFile` calls `recordMessage` with caption text if available, or `"[file]"` / `"[photo]"` placeholder
+- [x] `replyError` calls `recordMessage` with the error message text
+- [x] `main.ts` calls `restoreMessageIndex()` at startup alongside `restoreThreadCache()`
+- [x] `main.ts` calls `saveMessageIndex()` at shutdown alongside `saveThreadCache()`
+- [x] Add integration test: simulate message → reaction → verify enriched context
+- [x] Verify existing tests pass
 
 ### Task 3: Enrich reaction context with message content (bot-bq4, P2)
 
