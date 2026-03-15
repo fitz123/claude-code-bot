@@ -10,10 +10,18 @@ import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
 import { setThread, getThread } from "./message-thread-cache.js";
+import { recordMessage, lookupMessage } from "./message-content-index.js";
+import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
+
+/** Derive a short sender label for the message content index. */
+function senderLabel(from?: { first_name: string; username?: string }): string {
+  if (!from) return "unknown";
+  return from.username ? `@${from.username}` : from.first_name;
+}
 
 /** Commands to register with the Telegram Bot API via setMyCommands */
 export const BOT_COMMANDS = [
@@ -230,20 +238,24 @@ export function buildForwardContext(
 
 /**
  * Build reaction context lines for forwarding to the agent.
- * Produces lines like `[Reaction: 👍 on message 123]` for added emojis
- * and `[Reaction removed: 👎 on message 123]` for removed emojis.
+ * When a MessageRecord is available, includes author and text preview.
+ * On cache miss, falls back to message ID only (previous behavior).
  */
 export function buildReactionContext(
   messageId: number,
   emojiAdded: string[],
   emojiRemoved: string[],
+  content?: MessageRecord,
 ): string {
+  const target = content
+    ? `message by ${content.from.replace(/[\n\r]/g, " ")}: "${content.preview.replace(/[\n\r]/g, " ")}"`
+    : `message ${messageId}`;
   const lines: string[] = [];
   for (const emoji of emojiAdded) {
-    lines.push(`[Reaction: ${emoji} on message ${messageId}]`);
+    lines.push(`[Reaction: ${emoji} on ${target}]`);
   }
   for (const emoji of emojiRemoved) {
-    lines.push(`[Reaction removed: ${emoji} on message ${messageId}]`);
+    lines.push(`[Reaction removed: ${emoji} on ${target}]`);
   }
   return lines.join("\n");
 }
@@ -542,6 +554,7 @@ export function createTelegramBot(
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.text, "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -571,6 +584,7 @@ export function createTelegramBot(
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), "[voice]", "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -602,6 +616,9 @@ export function createTelegramBot(
         return;
       }
 
+      // Update index with actual transcript content
+      recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), transcript, "in");
+
       // Send transcript text to Claude session
       const prefix = buildSourcePrefix(binding, ctx.from);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
@@ -629,6 +646,7 @@ export function createTelegramBot(
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? "[photo]", "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -684,6 +702,7 @@ export function createTelegramBot(
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? "[document]", "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
@@ -776,7 +795,8 @@ export function createTelegramBot(
       const user = ctx.messageReaction.user;
       const from = user ? { first_name: user.first_name, username: user.username } : undefined;
       const prefix = buildSourcePrefix(binding, from);
-      const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved);
+      const content = lookupMessage(chatId, messageId);
+      const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved, content);
       const messageText = prefix + reactionText;
 
       void logReaction({

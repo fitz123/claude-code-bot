@@ -979,4 +979,35 @@ describe("buildReactionContext", () => {
       "[Reaction: 🔥 on message 9999999]",
     );
   });
+
+  it("includes author and preview when content record is provided (cache hit)", () => {
+    const content = { from: "@alice", preview: "Hello world", direction: "in" as const, timestamp: 1000 };
+    assert.strictEqual(
+      buildReactionContext(123, ["👍"], [], content),
+      '[Reaction: 👍 on message by @alice: "Hello world"]',
+    );
+  });
+
+  it("includes content for removed emoji with cache hit", () => {
+    const content = { from: "@bot", preview: "Some response", direction: "out" as const, timestamp: 2000 };
+    assert.strictEqual(
+      buildReactionContext(456, [], ["👎"], content),
+      '[Reaction removed: 👎 on message by @bot: "Some response"]',
+    );
+  });
+
+  it("formats multiple emojis with content record", () => {
+    const content = { from: "@alice", preview: "Test message", direction: "in" as const, timestamp: 1000 };
+    assert.strictEqual(
+      buildReactionContext(100, ["👍", "❤️"], [], content),
+      '[Reaction: 👍 on message by @alice: "Test message"]\n[Reaction: ❤️ on message by @alice: "Test message"]',
+    );
+  });
+
+  it("falls back to message ID when content is undefined (cache miss)", () => {
+    assert.strictEqual(
+      buildReactionContext(123, ["👍"], [], undefined),
+      "[Reaction: 👍 on message 123]",
+    );
+  });
 });
