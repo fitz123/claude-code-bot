@@ -196,34 +196,28 @@ describe("markdownToHtml", () => {
     });
   });
 
-  describe("tables", () => {
-    it("converts basic markdown table to <pre> block", () => {
-      const input = "| Name | Age |\n| --- | --- |\n| Alice | 30 |";
-      const expected = "<pre>| Name | Age |\n| --- | --- |\n| Alice | 30 |</pre>";
+  describe("tables (narrow — box-drawing)", () => {
+    it("converts basic markdown table to box-drawn <pre> block", () => {
+      const input = "| A | B |\n|---|---|\n| 1 | 2 |";
+      const expected = "<pre>  A │ B  \n────┼────\n  1 │ 2  </pre>";
       assert.strictEqual(markdownToHtml(input), expected);
     });
 
     it("converts table without leading pipes", () => {
-      const input = "Name | Age\n--- | ---\nAlice | 30";
-      const expected = "<pre>Name | Age\n--- | ---\nAlice | 30</pre>";
+      const input = "A | B\n--- | ---\n1 | 2";
+      const expected = "<pre>  A │ B  \n────┼────\n  1 │ 2  </pre>";
       assert.strictEqual(markdownToHtml(input), expected);
     });
 
     it("handles table with alignment colons in separator", () => {
-      const input = "| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |";
-      const expected = "<pre>| Left | Center | Right |\n| :--- | :---: | ---: |\n| a | b | c |</pre>";
+      const input = "| L | C | R |\n| :--- | :---: | ---: |\n| a | b | c |";
+      const expected = "<pre>  L │ C │ R  \n────┼───┼────\n  a │ b │ c  </pre>";
       assert.strictEqual(markdownToHtml(input), expected);
     });
 
     it("HTML-escapes content inside table <pre>", () => {
-      const input = "| A < B | C > D |\n|---|---|\n| x & y | z |";
-      const expected = "<pre>| A &lt; B | C &gt; D |\n|---|---|\n| x &amp; y | z |</pre>";
-      assert.strictEqual(markdownToHtml(input), expected);
-    });
-
-    it("preserves formatting chars as literal text in table pre block", () => {
-      const input = "| **bold** | *italic* |\n|---|---|\n| ~~strike~~ | `code` |";
-      const expected = "<pre>| **bold** | *italic* |\n|---|---|\n| ~~strike~~ | `code` |</pre>";
+      const input = "| A | B |\n|---|---|\n| < | & |";
+      const expected = "<pre>  A │ B  \n────┼────\n  &lt; │ &amp;  </pre>";
       assert.strictEqual(markdownToHtml(input), expected);
     });
 
@@ -243,14 +237,56 @@ describe("markdownToHtml", () => {
 
     it("handles table with surrounding text", () => {
       const input = "before\n| A | B |\n|---|---|\n| 1 | 2 |\nafter";
-      const expected = "before\n<pre>| A | B |\n|---|---|\n| 1 | 2 |</pre>\nafter";
+      const expected = "before\n<pre>  A │ B  \n────┼────\n  1 │ 2  </pre>\nafter";
       assert.strictEqual(markdownToHtml(input), expected);
     });
 
     it("handles table with blank lines around it", () => {
       const input = "before\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nafter";
-      const expected = "before\n\n<pre>| A | B |\n|---|---|\n| 1 | 2 |</pre>\n\nafter";
+      const expected = "before\n\n<pre>  A │ B  \n────┼────\n  1 │ 2  </pre>\n\nafter";
       assert.strictEqual(markdownToHtml(input), expected);
+    });
+  });
+
+  describe("tables (wide — transposed key:value)", () => {
+    it("transposes wide table to key:value format", () => {
+      const input = "| Description | Priority | Status | Owner |\n|---|---|---|---|\n| Fix bug | High | Open | Alice |";
+      const expected = "<pre>Description: Fix bug\nPriority: High\nStatus: Open\nOwner: Alice</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("transposes multiple rows with blank line separator", () => {
+      const input = "| Description | Priority | Status | Owner |\n|---|---|---|---|\n| Fix bug | High | Open | Alice |\n| Add test | Low | Done | Bob |";
+      const expected = "<pre>Description: Fix bug\nPriority: High\nStatus: Open\nOwner: Alice\n\nDescription: Add test\nPriority: Low\nStatus: Done\nOwner: Bob</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("HTML-escapes content in transposed format", () => {
+      const input = "| Key | Value | Description | Notes |\n|---|---|---|---|\n| A | < | x & y | \"z\" |";
+      const expected = "<pre>Key: A\nValue: &lt;\nDescription: x &amp; y\nNotes: &quot;z&quot;</pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("handles missing cells in wide table gracefully", () => {
+      const input = "| Column1 | Column2 | Column3 | Column4 |\n|---|---|---|---|\n| val1 | val2 | | |";
+      const expected = "<pre>Column1: val1\nColumn2: val2\nColumn3: \nColumn4: </pre>";
+      assert.strictEqual(markdownToHtml(input), expected);
+    });
+
+    it("box-draws table at exactly 34 chars (boundary)", () => {
+      // widths: [5,3,6,6] → 20 + 3*4 + 1 = 33 (under 34, box-drawn)
+      const input = "| Name | Age | City | Status |\n|---|---|---|---|\n| Alice | 30 | Moscow | Active |";
+      const result = markdownToHtml(input);
+      assert.ok(result.includes("│"), "should use box-drawing for 33-char table");
+      assert.ok(!result.includes(": "), "should not transpose");
+    });
+
+    it("transposes table at 35 chars (just over boundary)", () => {
+      // widths: [5,3,7,6] → 21 + 3*4 + 1 = 34 → equal, stays box. widths: [6,3,7,6] → 22+13=35 → transpose
+      const input = "| Name__ | Age | City__ | Status |\n|---|---|---|---|\n| Alice_ | 30 | Moscow_ | Active |";
+      const result = markdownToHtml(input);
+      assert.ok(result.includes(": "), "should transpose for 35+ char table");
+      assert.ok(!result.includes("│"), "should not use box-drawing");
     });
   });
 

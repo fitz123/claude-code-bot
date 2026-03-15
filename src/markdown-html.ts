@@ -88,7 +88,31 @@ function convertInline(text: string): string {
   return processed;
 }
 
-/** Parse markdown table rows into cells, compute column widths, render with box-drawing chars. */
+/** Max rendered width (chars) before switching to transposed key:value format. Tested on Telegram mobile. */
+const MAX_TABLE_WIDTH = 34;
+
+/** Render wide table as key:value pairs, one block per data row. */
+function formatTableTransposed(rows: string[][]): string {
+  if (rows.length < 2) return escapeHtml(rows.map((r) => r.join(", ")).join("\n"));
+
+  const headers = rows[0];
+  const dataRows = rows.slice(1);
+  const blocks: string[] = [];
+
+  for (const row of dataRows) {
+    const lines: string[] = [];
+    for (let i = 0; i < headers.length; i++) {
+      const key = headers[i] || "";
+      const val = row[i] || "";
+      lines.push(escapeHtml(`${key}: ${val}`));
+    }
+    blocks.push(lines.join("\n"));
+  }
+
+  return blocks.join("\n\n");
+}
+
+/** Parse markdown table rows into cells, compute column widths, render with box-drawing chars or transpose. */
 function formatTable(tableLines: string[]): string {
   // Parse cells from each row
   const rows = tableLines
@@ -110,6 +134,12 @@ function formatTable(tableLines: string[]): string {
     for (let c = 0; c < numCols; c++) {
       widths[c] = Math.max(widths[c], (row[c] || "").length);
     }
+  }
+
+  // Check rendered width — transpose if too wide for mobile
+  const renderedWidth = widths.reduce((sum, w) => sum + w + 3, 0) + 1;
+  if (renderedWidth > MAX_TABLE_WIDTH) {
+    return formatTableTransposed(rows);
   }
 
   const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - s.length));
