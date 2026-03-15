@@ -1,0 +1,59 @@
+# OpenClaw Telegram Bot Configuration
+#
+# Copy this file to config.yaml and fill in your values:
+#   cp config.yaml.example config.yaml
+
+# Keychain service name for the Telegram bot token
+# Store it: security add-generic-password -s 'telegram-bot-token' -a 'openclaw' -w 'YOUR_BOT_TOKEN'
+telegramTokenService: telegram-bot-token
+logLevel: info
+
+agents:
+  main:
+    id: main
+    workspaceCwd: ~/.openclaw/workspace          # Claude Code workspace directory
+    model: claude-opus-4-6
+    fallbackModel: claude-sonnet-4-6
+    maxTurns: 250     # safety limit for agentic loops per message
+    effort: high
+
+  # Add more agents as needed:
+  # coder:
+  #   id: coder
+  #   workspaceCwd: ~/.openclaw/workspace-coder
+  #   model: claude-opus-4-6
+  #   maxTurns: 250
+
+bindings:
+  - chatId: YOUR_CHAT_ID             # your Telegram user ID (numeric)
+    agentId: main
+    kind: dm
+    label: My DM
+
+  # Group binding example:
+  # - chatId: -100YOUR_GROUP_ID
+  #   agentId: main
+  #   kind: group
+  #   label: My Group
+  #   requireMention: true
+  #   topics:
+  #     - topicId: 42
+  #       agentId: coder
+  #       label: Dev Topic
+
+sessionDefaults:
+  idleTimeoutMs: 3600000              # 1 hour
+  maxConcurrentSessions: 6
+  maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart
+
+metricsPort: 9091
+
+# Discord support (optional — bot works Telegram-only without this section)
+# discord:
+#   tokenService: discord-bot-token
+#   bindings:
+#     - guildId: 'YOUR_GUILD_ID'
+#       agentId: main
+#       kind: channel
+#       label: My Server
+#       requireMention: true

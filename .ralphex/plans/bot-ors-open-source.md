@@ -155,13 +155,13 @@ Files: `src/__tests__/bindings.test.ts`, `src/__tests__/telegram-bot.test.ts`, `
 
 **What we want:** Example config files with placeholder values, real configs gitignored, clear documentation on how to set up.
 
-- [ ] `config.yaml.example` exists with placeholder IDs (e.g. `YOUR_CHAT_ID`), generic agent names, generic workspace paths
-- [ ] `crons.yaml.example` exists with 1-2 example cron entries using placeholder values
-- [ ] `config.yaml` added to `.gitignore` and untracked with `git rm --cached config.yaml` (file stays locally)
-- [ ] `crons.yaml` added to `.gitignore` and untracked with `git rm --cached crons.yaml` (file stays locally)
-- [ ] `SOAK-TEST.md` removed or redacted (contains personal deployment logs with real chat IDs)
-- [ ] No personal Telegram IDs, Discord guild IDs, or real names in any tracked file
-- [ ] README.md line with `/Users/ninja/` example path updated to generic
+- [x] `config.yaml.example` exists with placeholder IDs (e.g. `YOUR_CHAT_ID`), generic agent names, generic workspace paths
+- [x] `crons.yaml.example` exists with 1-2 example cron entries using placeholder values
+- [x] `config.yaml` added to `.gitignore` and untracked with `git rm --cached config.yaml` (file stays locally)
+- [x] `crons.yaml` added to `.gitignore` and untracked with `git rm --cached crons.yaml` (file stays locally)
+- [x] `SOAK-TEST.md` removed or redacted (contains personal deployment logs with real chat IDs)
+- [x] No personal Telegram IDs, Discord guild IDs, or real names in any tracked file
+- [x] README.md line with `/Users/ninja/` example path updated to generic
 
 ### Task 4: Package metadata and license (bot-ors, P2)
 
