@@ -165,19 +165,29 @@ async sendTyping(): Promise<void> {
 
 The `platform` adapter with `sendTyping()` is available at `enqueue()` time — it's passed as parameter.
 
-### Task 4: Safe bot restart without loop (bot-d9u, P2)
+### Task 4: Graceful shutdown/restart with session notification (bot-d9u, P2)
 
-**Problem:** When an agent runs `launchctl kickstart -k` to restart the bot, the bot dies along with the agent's session. On restart, the new session may re-trigger the restart from conversation context, causing an infinite loop. Observed 2026-03-15 — required manual intervention to break.
+**Problem:** When the bot shuts down (SIGTERM), all active sessions are killed mid-turn — agents lose their work. On restart, new sessions may re-trigger the restart from conversation context (observed 2026-03-15 — infinite loop requiring manual intervention).
 
-**Root cause:** The new session inherits conversation context containing "restart needed" intent but has no signal that the restart already happened. It re-executes the restart → loop.
+**Root cause:** Two issues: (1) shutdown is abrupt — no warning to sessions, no time to finish, (2) after restart, sessions don't know the restart already happened.
 
-**What we want:** After a restart (not first-ever start), the bot injects a message into each session informing the agent that a restart just occurred. The agent sees this signal and knows not to re-trigger. No marker files, no cooldown TTLs, no special scripts.
+**What we want:** Graceful two-phase shutdown + restart notification:
+- Phase 1 (pre-shutdown): inject "shutdown starting" message to all active sessions, wait for active turns to complete
+- Phase 2 (shutdown): save caches, close sessions, exit
+- Phase 3 (on restart): detect this is a restart (not first start), inject "restart completed" to sessions that were active before shutdown
 
-- [ ] Bot detects restart vs first start on startup (e.g. presence of persistent data files from previous run, or a clean-shutdown marker)
-- [ ] On restart, bot injects a system message into each new/resumed session: something like `[System: bot restarted successfully]`
-- [ ] Agent receiving this message understands restart already happened and does not re-trigger
-- [ ] On first-ever start (no previous data), no restart message is injected
-- [ ] Add test: verify restart detection logic and message injection
+**Current shutdown flow** (`main.ts` lines 42–55): `watchdog.stop()` → `telegramBot.stop()` → `clearAll()` → `saveThreadCache()` → `sessionManager.closeAll()` → `process.exit(0)`. No session notification, no waiting for active turns.
+
+- [ ] On SIGTERM/SIGINT, bot injects a shutdown warning message into all active sessions (via the existing inject-file mechanism or similar)
+- [ ] Bot waits for active sessions to finish their current turn (with a reasonable timeout — don't wait forever)
+- [ ] After all turns complete (or timeout), proceed with existing shutdown sequence
+- [ ] List of previously-active session keys is persisted to disk before exit
+- [ ] On startup, bot detects restart (vs first start) by presence of active-sessions file
+- [ ] On restart, bot injects "restart completed" message to sessions that were previously active
+- [ ] Active-sessions file is cleaned up after restart notification
+- [ ] On first-ever start (no active-sessions file), no restart message is injected
+- [ ] Restart loop is broken: agent sees "restart completed" and does not re-trigger
+- [ ] Add tests: shutdown notification, wait-for-turns with timeout, restart detection, restart notification
 - [ ] Verify existing tests pass
 
 ### Task 5: Typing indicator during processing gaps (bot-dgs, P2)
