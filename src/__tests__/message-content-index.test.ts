@@ -183,7 +183,7 @@ describe("message-content-index persistence", () => {
     writeFileSync(indexPath, JSON.stringify(entries), "utf8");
 
     restoreMessageIndex(indexPath);
-    assert.strictEqual(messageIndexSize(), 9_999);
+    assert.strictEqual(messageIndexSize(), 10_000);
   });
 
   it("save creates parent directories if missing", () => {

@@ -46,8 +46,9 @@ export function recordMessage(
   text: string,
   direction: "in" | "out",
 ): void {
-  // FIFO eviction: remove oldest entries to make room
-  if (index.size >= MAX_CACHE_SIZE) {
+  // FIFO eviction: remove oldest entries to make room (skip if key already exists — overwrite)
+  const key = indexKey(chatId, messageId);
+  if (index.size >= MAX_CACHE_SIZE && !index.has(key)) {
     const keysToDelete = index.size - MAX_CACHE_SIZE + 1;
     const iter = index.keys();
     for (let i = 0; i < keysToDelete; i++) {
@@ -55,7 +56,7 @@ export function recordMessage(
       if (oldest !== undefined) index.delete(oldest);
     }
   }
-  index.set(indexKey(chatId, messageId), {
+  index.set(key, {
     from,
     preview: text.slice(0, MAX_PREVIEW_LENGTH),
     direction,
@@ -111,7 +112,7 @@ export function restoreMessageIndex(path: string = DEFAULT_INDEX_PATH): void {
     }
     let loaded = 0;
     for (const entry of parsed) {
-      if (loaded >= MAX_CACHE_SIZE - 1) break;
+      if (loaded >= MAX_CACHE_SIZE) break;
       if (!Array.isArray(entry) || entry.length !== 2) continue;
       const [key, value] = entry;
       if (typeof key !== "string") continue;
