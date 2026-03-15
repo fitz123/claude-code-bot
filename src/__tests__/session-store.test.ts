@@ -156,20 +156,12 @@ describe("SessionStore", () => {
   });
 
   it("default path resolves relative to project dir (not hardcoded)", () => {
-    // Create a store with no explicit path — it should use the project-relative default
+    // Verify the default path is derived from module location, ending with data/sessions.json
     const store = new SessionStore();
-    // Write a session so the file gets created
-    store.setSession("path-test", {
-      sessionId: "uuid-path",
-      chatId: "path-test",
-      agentId: "main",
-      lastActivity: 1000,
-    });
-    // The project root is two levels up from src/__tests__
     const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
     const expectedPath = resolve(projectRoot, "data", "sessions.json");
-    assert.ok(existsSync(expectedPath), `Default store should write to ${expectedPath}`);
-    // Clean up the test session
-    store.deleteSession("path-test");
+    // Access internal path to verify it matches the dynamically-resolved project path
+    assert.strictEqual((store as any).path, expectedPath);
+    assert.ok(expectedPath.endsWith("/data/sessions.json"), "Default path must end with data/sessions.json");
   });
 });

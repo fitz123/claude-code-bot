@@ -53,12 +53,63 @@ describe("cron-runner", () => {
     });
   });
 
-  describe("loadCronTask — deliveryThreadId", () => {
-    it("parses deliveryThreadId from crons.yaml when present", () => {
-      // This tests the real crons.yaml. Since no current cron has deliveryThreadId,
-      // we verify that the field is correctly absent (undefined).
-      const cron = loadCronTask("memory-consolidation-main");
+  describe("loadCronTask — with temp crons.yaml", () => {
+    const CRONS_DIR = join(TEST_DIR, "cron-yaml");
+    const CRONS_FILE = join(CRONS_DIR, "crons.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CRONS_DIR, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(CRONS_DIR, { recursive: true, force: true });
+    });
+
+    it("parses deliveryThreadId when present", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 111111111
+    deliveryThreadId: 42
+`);
+      const cron = loadCronTask("test-task", CRONS_FILE);
+      assert.strictEqual(cron.deliveryThreadId, 42);
+      assert.strictEqual(cron.deliveryChatId, 111111111);
+    });
+
+    it("deliveryThreadId is undefined when absent", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      const cron = loadCronTask("test-task", CRONS_FILE);
       assert.strictEqual(cron.deliveryThreadId, undefined);
+    });
+
+    it("throws when deliveryChatId is missing", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+`);
+      assert.throws(() => loadCronTask("test-task", CRONS_FILE), /missing required 'deliveryChatId'/);
+    });
+
+    it("throws when task name not found", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: other-task
+    schedule: "0 9 * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      assert.throws(() => loadCronTask("nonexistent", CRONS_FILE), /not found in crons.yaml/);
     });
   });
 });

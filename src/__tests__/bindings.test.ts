@@ -11,7 +11,7 @@ const BINDINGS: TelegramBinding[] = [
   { chatId: 111111111, agentId: "main", kind: "dm", label: "User1 DM" },
   { chatId: 222222222, agentId: "agent-b", kind: "dm", label: "User2 DM" },
   { chatId: 333333333, agentId: "agent-c", kind: "dm", label: "User3 DM" },
-  { chatId: -1003783997959, agentId: "cyber-architect", kind: "group", label: "Cyber Architect Group" },
+  { chatId: -1009999999999, agentId: "cyber-architect", kind: "group", label: "Test Group" },
 ];
 
 // Test agents with generic paths
@@ -72,8 +72,8 @@ describe("Binding verification: all 4 bindings present", () => {
     assert.strictEqual(b.kind, "dm");
   });
 
-  it("Cyber Architect group → cyber-architect agent", () => {
-    const b = resolveBinding(-1003783997959, BINDINGS);
+  it("Test Group → cyber-architect agent", () => {
+    const b = resolveBinding(-1009999999999, BINDINGS);
     assert.ok(b);
     assert.strictEqual(b.agentId, "cyber-architect");
     assert.strictEqual(b.kind, "group");

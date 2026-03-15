@@ -31,8 +31,8 @@ interface CronsYaml {
   crons: Array<Record<string, unknown>>;
 }
 
-function loadCronTask(taskName: string): CronJob {
-  const raw: CronsYaml = parseYaml(readFileSync(CRONS_PATH, "utf8"));
+function loadCronTask(taskName: string, cronsPath?: string): CronJob {
+  const raw: CronsYaml = parseYaml(readFileSync(cronsPath ?? CRONS_PATH, "utf8"));
   if (!raw?.crons || !Array.isArray(raw.crons)) {
     throw new Error("crons.yaml missing 'crons' array");
   }
