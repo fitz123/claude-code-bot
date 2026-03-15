@@ -19,9 +19,13 @@ shift
 
 THREAD_ID=""
 if [ "${1:-}" = "--thread" ]; then
-  THREAD_ID="${2:-}"
+  if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+    echo "[deliver] Error: --thread requires a value" >&2
+    exit 1
+  fi
+  THREAD_ID="$2"
   shift 2
-  [[ -z "$THREAD_ID" || "$THREAD_ID" =~ ^[0-9]+$ ]] || { echo "[deliver] Error: invalid thread_id: $THREAD_ID" >&2; exit 1; }
+  [[ "$THREAD_ID" =~ ^[0-9]+$ ]] || { echo "[deliver] Error: invalid thread_id: $THREAD_ID" >&2; exit 1; }
 fi
 
 # Get message from args or stdin

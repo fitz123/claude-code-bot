@@ -78,8 +78,8 @@ export function saveThreadCache(path: string = DEFAULT_CACHE_PATH): void {
 export function restoreThreadCache(path: string = DEFAULT_CACHE_PATH): void {
   try {
     const data = readFileSync(path, "utf8");
-    const parsed = JSON.parse(data);
     cache.clear();
+    const parsed = JSON.parse(data);
     if (!Array.isArray(parsed)) {
       log.warn("thread-cache", `Invalid cache format in ${path} (not an array), starting empty`);
       return;

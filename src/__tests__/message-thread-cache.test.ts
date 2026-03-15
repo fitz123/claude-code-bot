@@ -108,6 +108,15 @@ describe("message-thread-cache persistence", () => {
     assert.strictEqual(threadCacheSize(), 0);
   });
 
+  it("corrupt file clears pre-existing cache entries", () => {
+    setThread(-100, 1, 10);
+    setThread(-100, 2, 20);
+    assert.strictEqual(threadCacheSize(), 2);
+    writeFileSync(cachePath, "not valid json {{{", "utf8");
+    restoreThreadCache(cachePath);
+    assert.strictEqual(threadCacheSize(), 0);
+  });
+
   it("non-array JSON results in empty cache, no crash", () => {
     writeFileSync(cachePath, JSON.stringify({ key: "value" }), "utf8");
     restoreThreadCache(cachePath);

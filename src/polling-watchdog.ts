@@ -44,33 +44,40 @@ export function createWatchdog(deps: WatchdogDeps): Watchdog {
 
   let lastUpdateTs = now();
   let timer: ReturnType<typeof setInterval> | null = null;
+  let checking = false;
 
   function touch(): void {
     lastUpdateTs = now();
   }
 
   async function check(): Promise<void> {
-    const elapsed = now() - lastUpdateTs;
-    if (elapsed < thresholdMs) return;
-
-    log.warn(
-      "watchdog",
-      `No updates for ${Math.round(elapsed / 1000)}s (threshold: ${Math.round(thresholdMs / 1000)}s) — checking API connectivity`,
-    );
-
+    if (checking) return;
+    checking = true;
     try {
-      const ok = await deps.heartbeat();
-      if (ok) {
-        log.info("watchdog", "API heartbeat succeeded — quiet period, resetting watchdog");
-        lastUpdateTs = now();
-        return;
-      }
-    } catch (err) {
-      log.error("watchdog", "API heartbeat threw:", err);
-    }
+      const elapsed = now() - lastUpdateTs;
+      if (elapsed < thresholdMs) return;
 
-    log.error("watchdog", "Polling appears dead — exiting for launchd restart");
-    exitFn(1);
+      log.warn(
+        "watchdog",
+        `No updates for ${Math.round(elapsed / 1000)}s (threshold: ${Math.round(thresholdMs / 1000)}s) — checking API connectivity`,
+      );
+
+      try {
+        const ok = await deps.heartbeat();
+        if (ok) {
+          log.info("watchdog", "API heartbeat succeeded — quiet period, resetting watchdog");
+          lastUpdateTs = now();
+          return;
+        }
+      } catch (err) {
+        log.error("watchdog", "API heartbeat threw:", err);
+      }
+
+      log.error("watchdog", "Polling appears dead — exiting for launchd restart");
+      exitFn(1);
+    } finally {
+      checking = false;
+    }
   }
 
   function start(): void {
