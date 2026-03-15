@@ -169,11 +169,11 @@ Files: `src/__tests__/bindings.test.ts`, `src/__tests__/telegram-bot.test.ts`, `
 
 **What we want:** Descriptive package name, clear description with keywords for search, proper author, MIT license (standard for open source bots).
 
-- [ ] `name` field is descriptive (e.g. `openclaw-bot` or `claude-telegram-bot`)
-- [ ] `description` includes key phrases: "multi-agent", "Telegram", "Claude Code", "Max subscription"
-- [ ] `keywords` include: `telegram`, `discord`, `claude`, `anthropic`, `claude-code`, `multi-agent`, `bot`, `max-subscription`
-- [ ] `author` field filled
-- [ ] `license` field set to `MIT`
-- [ ] `LICENSE` file created with MIT license text
-- [ ] `repository` field points to GitHub URL (use placeholder if repo doesn't exist yet)
-- [ ] Verify `npm test` still passes
+- [x] `name` field is descriptive (e.g. `openclaw-bot` or `claude-telegram-bot`)
+- [x] `description` includes key phrases: "multi-agent", "Telegram", "Claude Code", "Max subscription"
+- [x] `keywords` include: `telegram`, `discord`, `claude`, `anthropic`, `claude-code`, `multi-agent`, `bot`, `max-subscription`
+- [x] `author` field filled
+- [x] `license` field set to `MIT`
+- [x] `LICENSE` file created with MIT license text
+- [x] `repository` field points to GitHub URL (use placeholder if repo doesn't exist yet)
+- [x] Verify `npm test` still passes
