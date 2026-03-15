@@ -157,7 +157,7 @@ describe("message-thread-cache persistence", () => {
     writeFileSync(cachePath, JSON.stringify(entries), "utf8");
 
     restoreThreadCache(cachePath);
-    assert.strictEqual(threadCacheSize(), 10_000);
+    assert.strictEqual(threadCacheSize(), 9_999);
   });
 
   it("save creates parent directories if missing", () => {

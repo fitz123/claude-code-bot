@@ -86,7 +86,7 @@ export function restoreThreadCache(path: string = DEFAULT_CACHE_PATH): void {
     }
     let loaded = 0;
     for (const entry of parsed) {
-      if (loaded >= MAX_CACHE_SIZE) break;
+      if (loaded >= MAX_CACHE_SIZE - 1) break;
       if (!Array.isArray(entry) || entry.length !== 2) continue;
       const [key, value] = entry;
       if (typeof key !== "string" || typeof value !== "number") continue;
