@@ -7,6 +7,8 @@ import { startMetricsServer, stopMetricsServer } from "./metrics.js";
 import { startBotWithRetry } from "./bot-startup.js";
 import { createWatchdog, type Watchdog } from "./polling-watchdog.js";
 import { restoreThreadCache, saveThreadCache } from "./message-thread-cache.js";
+import { restoreMessageIndex, saveMessageIndex } from "./message-content-index.js";
+import { setBotUsername } from "./telegram-adapter.js";
 import { getVersion } from "./version.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
@@ -25,8 +27,9 @@ async function main(): Promise<void> {
     startMetricsServer(config.metricsPort);
   }
 
-  // Restore message-thread cache from disk (survives restarts)
+  // Restore caches from disk (survives restarts)
   restoreThreadCache();
+  restoreMessageIndex();
 
   const sessionManager = new SessionManager(config);
   log.info("main", "Session manager initialized");
@@ -45,7 +48,10 @@ async function main(): Promise<void> {
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
     for (const mq of messageQueues) mq.clearAll();
-    if (telegramBot) saveThreadCache();
+    if (telegramBot) {
+      saveThreadCache();
+      saveMessageIndex();
+    }
     await stopMetricsServer();
     await sessionManager.closeAll();
     log.info("main", "All sessions closed. Exiting.");
@@ -111,6 +117,7 @@ async function main(): Promise<void> {
           onStart: async (botInfo) => {
             startedSuccessfully = true;
             clearTimeout(startupTimeout);
+            setBotUsername(botInfo.username);
             log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
             if (watchdog) watchdog.start();
             try {

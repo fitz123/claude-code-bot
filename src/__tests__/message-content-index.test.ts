@@ -208,5 +208,54 @@ describe("message-content-index persistence", () => {
   });
 });
 
+describe("message index integration: incoming → reaction lookup", () => {
+  beforeEach(() => clearMessageIndex());
+
+  it("text message can be looked up for reaction context enrichment", () => {
+    // Simulate what text handler does: record with @username and message text
+    recordMessage(12345, 100, "@alice", "Hello, how are you?", "in");
+    const record = lookupMessage(12345, 100);
+    assert.ok(record);
+    assert.strictEqual(record.from, "@alice");
+    assert.strictEqual(record.preview, "Hello, how are you?");
+    assert.strictEqual(record.direction, "in");
+  });
+
+  it("outgoing bot message can be looked up for reaction context", () => {
+    // Simulate what adapter sendMessage does
+    recordMessage(12345, 101, "@mybot", "Hi there! I can help.", "out");
+    const record = lookupMessage(12345, 101);
+    assert.ok(record);
+    assert.strictEqual(record.from, "@mybot");
+    assert.strictEqual(record.preview, "Hi there! I can help.");
+    assert.strictEqual(record.direction, "out");
+  });
+
+  it("photo message without caption stores [photo] placeholder", () => {
+    recordMessage(12345, 102, "@alice", "[photo]", "in");
+    const record = lookupMessage(12345, 102);
+    assert.ok(record);
+    assert.strictEqual(record.preview, "[photo]");
+  });
+
+  it("document message without caption stores [document] placeholder", () => {
+    recordMessage(12345, 103, "@alice", "[document]", "in");
+    const record = lookupMessage(12345, 103);
+    assert.ok(record);
+    assert.strictEqual(record.preview, "[document]");
+  });
+
+  it("voice message stores transcribed text", () => {
+    recordMessage(12345, 104, "Alice", "transcribed voice text here", "in");
+    const record = lookupMessage(12345, 104);
+    assert.ok(record);
+    assert.strictEqual(record.preview, "transcribed voice text here");
+  });
+
+  it("cache miss returns undefined (graceful degradation)", () => {
+    assert.strictEqual(lookupMessage(12345, 999), undefined);
+  });
+});
+
 // Helper type for test data construction
 type MessageRecordLike = { from: string; preview: string; direction: string; timestamp: number };
