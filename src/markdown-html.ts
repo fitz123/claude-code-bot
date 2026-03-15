@@ -93,12 +93,9 @@ function formatTable(tableLines: string[]): string {
   // Parse cells from each row
   const rows = tableLines
     .filter((l) => !isTableSeparator(l))
-    .map((line) =>
-      line.split("|").map((c) => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length + 1)
-    )
-    // remove empty leading/trailing from split
-    .map((cells) => {
+    .map((line) => {
       // "|a|b|" splits to ["", "a", "b", ""] — trim empty edges
+      const cells = line.split("|").map((c) => c.trim());
       if (cells.length > 0 && cells[0] === "") cells.shift();
       if (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
       return cells;
@@ -120,7 +117,7 @@ function formatTable(tableLines: string[]): string {
 
   const out: string[] = [];
   for (let r = 0; r < rows.length; r++) {
-    const cells = rows[r];
+    const cells = Array.from({ length: numCols }, (_, ci) => rows[r][ci] || "");
     const line = " " + cells.map((c, ci) => ` ${pad(c, widths[ci])} `).join("│") + " ";
     out.push(escapeHtml(line));
     if (r === 0) out.push(escapeHtml(sep)); // header separator
