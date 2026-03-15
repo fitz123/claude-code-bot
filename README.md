@@ -231,7 +231,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 | Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
 | Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
 | Non-image document | Downloaded to temp file (max 20 MB). Metadata header (filename, MIME type, size) and file path sent to Claude. Supports PDF, TXT, CSV, JSON, XML, HTML, ZIP, GZ, and others. |
-| Reaction | Emoji reactions on bot messages are forwarded to Claude as context (e.g. `[Reaction: 👍 on message 123]`). Reaction removals are also forwarded. Bot must be admin in groups to receive reaction events. |
+| Reaction | Emoji reactions on bot messages are forwarded to Claude as context (e.g. `[Reaction: 👍 on message 123]`). Reaction removals are also forwarded. In forum supergroups, reactions are routed to the correct topic session via an in-memory message-thread cache (cache miss degrades gracefully to chat-level routing). All reaction events are logged to `~/.openclaw/logs/reactions.jsonl`. Bot must be admin in groups to receive reaction events. |
 | File output | Claude is told about a per-session outbox directory via system prompt. Files written or copied there are sent to the user after the response completes: images as photos, others as documents. The outbox is cleaned up after delivery. |
 
 The bot subscribes to `message` and `message_reaction` update types only.
@@ -294,6 +294,7 @@ Available metrics:
 | Session stderr (per-chat/topic) | `~/.openclaw/logs/session-<chatId>[_<topicId>].log` |
 | Cron (per-task) | `~/.openclaw/logs/cron-<name>.log` |
 | Message delivery | `~/.openclaw/logs/cron-delivery.log` |
+| Reaction events (JSONL) | `~/.openclaw/logs/reactions.jsonl` |
 
 ### Voice transcription requirements
 
