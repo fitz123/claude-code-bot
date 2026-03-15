@@ -329,6 +329,20 @@ export class MessageQueue {
     try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
   }
 
+  /**
+   * Cancel all pending debounce timers without running cleanups or clearing queues.
+   * Call before gracefulShutdown() to prevent new flushes from starting during
+   * the shutdown wait window.
+   */
+  cancelAllDebounceTimers(): void {
+    for (const state of this.queues.values()) {
+      if (state.debounceTimer) {
+        clearTimeout(state.debounceTimer);
+        state.debounceTimer = null;
+      }
+    }
+  }
+
   /** Clear all queues (for shutdown). */
   clearAll(): void {
     for (const [chatId, state] of this.queues) {

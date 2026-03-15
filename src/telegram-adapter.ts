@@ -66,10 +66,14 @@ export function createTelegramAdapter(
         // Only fall back to plain text for HTML parse errors; re-throw everything else
         if (err instanceof Error && /can't parse entities|message is too long/.test(err.message)) {
           await ctx.api.editMessageText(chatId, Number(messageId), text);
+          // Record after successful fallback edit
+          recordMessage(chatId, Number(messageId), `@${_botUsername}`, text, "out");
           return;
         }
         throw err;
       }
+      // Record after successful edit (streamed replies edit multiple times — last success wins)
+      recordMessage(chatId, Number(messageId), `@${_botUsername}`, text, "out");
     },
 
     async sendTyping(): Promise<void> {

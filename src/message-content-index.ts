@@ -13,7 +13,7 @@
  * and a full wipe would destroy needed context.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { log } from "./logger.js";
@@ -87,9 +87,12 @@ export function messageIndexSize(): number {
  */
 export function saveMessageIndex(path: string = DEFAULT_INDEX_PATH): void {
   try {
-    mkdirSync(dirname(path), { recursive: true });
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    chmodSync(dir, 0o700);
     const entries = Array.from(index.entries());
-    writeFileSync(path, JSON.stringify(entries), "utf8");
+    writeFileSync(path, JSON.stringify(entries), { encoding: "utf8", mode: 0o600 });
+    chmodSync(path, 0o600);
     log.info("message-index", `Saved ${entries.length} entries to ${path}`);
   } catch (err) {
     log.error("message-index", `Failed to save index to ${path}:`, err);

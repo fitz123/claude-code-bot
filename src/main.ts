@@ -49,10 +49,16 @@ async function main(): Promise<void> {
     if (watchdog) watchdog.stop();
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
-    for (const mq of messageQueues) mq.clearAll();
-
-    // Wait for busy sessions to finish their current turns
+    // Cancel debounce timers BEFORE waiting — telegramBot.stop() prevents new
+    // updates, but already-scheduled debounce timers could still fire and start
+    // new flush() work during the graceful shutdown wait window.
+    for (const mq of messageQueues) mq.cancelAllDebounceTimers();
+    // Wait for busy sessions to finish their current turns BEFORE clearing
+    // queues — clearAll() runs cleanup callbacks (e.g. temp file deletion)
+    // that would break in-flight sessions still reading those files.
     await sessionManager.gracefulShutdown(shutdownTimeoutMs);
+
+    for (const mq of messageQueues) mq.clearAll();
 
     if (telegramBot) {
       saveThreadCache();
