@@ -6,9 +6,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFileCb);
 
-export const FFMPEG_BIN = "/opt/homebrew/bin/ffmpeg";
-export const WHISPER_BIN = "/opt/homebrew/bin/whisper-cli";
-export const WHISPER_MODEL = "/opt/homebrew/share/whisper-cpp/ggml-medium.bin";
+export const FFMPEG_BIN = process.env.FFMPEG_BIN ?? "/opt/homebrew/bin/ffmpeg";
+export const WHISPER_BIN = process.env.WHISPER_BIN ?? "/opt/homebrew/bin/whisper-cli";
+export const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "/opt/homebrew/share/whisper-cpp/ggml-medium.bin";
 
 /**
  * Generate a unique temp file path with given prefix and extension.

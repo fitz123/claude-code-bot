@@ -4,9 +4,9 @@
 
 set -euo pipefail
 
-# Absolute paths — no $HOME, ~, or $USER (launchd context may not have them)
-export HOME="/Users/ninja"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Ensure HOME and PATH are set (launchd context may not have them)
+export HOME="${HOME:-$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 # Claude Code CLI subprocess must NOT inherit CLAUDECODE
 unset CLAUDECODE
@@ -22,7 +22,8 @@ export CLAUDE_CODE_DISABLE_CRON=1
 export CLAUDE_CODE_EXIT_AFTER_STOP_DELAY=900000
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
 
-BOT_DIR="/Users/ninja/.openclaw/bot"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$BOT_DIR"
 exec /opt/homebrew/bin/npx tsx src/main.ts

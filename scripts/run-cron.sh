@@ -5,9 +5,9 @@
 
 set -euo pipefail
 
-# Absolute paths — no $HOME, ~, or $USER (launchd context)
-export HOME="/Users/ninja"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Ensure HOME and PATH are set (launchd context may not have them)
+export HOME="${HOME:-$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')}"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
 # Claude Code subprocess must NOT inherit CLAUDECODE
 unset CLAUDECODE
@@ -25,7 +25,8 @@ export CLAUDE_CODE_ENABLE_TELEMETRY=1
 
 TASK_NAME="${1:?Usage: run-cron.sh <task-name>}"
 export CRON_NAME="$TASK_NAME"
-BOT_DIR="/Users/ninja/.openclaw/bot"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$BOT_DIR"
 exec /opt/homebrew/bin/npx tsx src/cron-runner.ts --task "$TASK_NAME"

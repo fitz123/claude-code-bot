@@ -1,6 +1,8 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SessionStore } from "../session-store.js";
 
 const TEST_DIR = "/tmp/openclaw-test-store";
@@ -151,5 +153,23 @@ describe("SessionStore", () => {
     });
 
     assert.ok(existsSync(deepPath));
+  });
+
+  it("default path resolves relative to project dir (not hardcoded)", () => {
+    // Create a store with no explicit path — it should use the project-relative default
+    const store = new SessionStore();
+    // Write a session so the file gets created
+    store.setSession("path-test", {
+      sessionId: "uuid-path",
+      chatId: "path-test",
+      agentId: "main",
+      lastActivity: 1000,
+    });
+    // The project root is two levels up from src/__tests__
+    const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const expectedPath = resolve(projectRoot, "data", "sessions.json");
+    assert.ok(existsSync(expectedPath), `Default store should write to ${expectedPath}`);
+    // Clean up the test session
+    store.deleteSession("path-test");
   });
 });

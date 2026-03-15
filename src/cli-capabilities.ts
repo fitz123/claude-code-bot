@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { homedir } from "node:os";
 import type { CliCapabilities } from "./types.js";
 
 const CLAUDE_BIN = "claude";
@@ -13,7 +14,7 @@ export function detectCapabilities(): CliCapabilities {
     if (val !== undefined) env[key] = val;
   }
   delete env.CLAUDECODE;
-  env.HOME = "/Users/ninja";
+  env.HOME = homedir();
 
   let version = "unknown";
   try {
@@ -70,7 +71,7 @@ export function verifyAuth(): boolean {
     if (val !== undefined) env[key] = val;
   }
   delete env.CLAUDECODE;
-  env.HOME = "/Users/ninja";
+  env.HOME = homedir();
 
   try {
     execSync(`${CLAUDE_BIN} auth status`, {
