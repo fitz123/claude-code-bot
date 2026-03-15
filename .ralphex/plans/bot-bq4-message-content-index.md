@@ -12,7 +12,7 @@ cd /Users/ninja/.openclaw/bot && npx tsc --noEmit && npx tsx --test src/__tests_
 
 ## Reference: Current reaction handler
 
-`src/telegram-bot.ts` lines 231–249 — `buildReactionContext`:
+`src/telegram-bot.ts` lines 236–249 — `buildReactionContext`:
 
 ```typescript
 export function buildReactionContext(
@@ -101,7 +101,7 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 - [ ] Text/photo/document handlers call `recordMessage` after `setThread` using `ctx.message.text` or `ctx.message.caption` as content
 - [ ] Voice handler calls `recordMessage` AFTER transcription completes (not at `setThread` time — transcribed text is not available yet)
-- [ ] `sendMessage` in `telegram-adapter.ts` calls `recordMessage` after `ctx.reply()` with `direction: "out"` and bot's username as author
+- [ ] `sendMessage` in `telegram-adapter.ts` calls `recordMessage` after `ctx.reply()` with `direction: "out"` and bot's username as author. Note: `createTelegramAdapter` does not currently have access to `bot.botInfo.username` — this needs to be passed in or set as a module-level variable at startup
 - [ ] `sendFile` calls `recordMessage` with caption text if available, or `"[file]"` / `"[photo]"` placeholder
 - [ ] `replyError` calls `recordMessage` with the error message text
 - [ ] `main.ts` calls `restoreMessageIndex()` at startup alongside `restoreThreadCache()`
@@ -165,29 +165,23 @@ async sendTyping(): Promise<void> {
 
 The `platform` adapter with `sendTyping()` is available at `enqueue()` time — it's passed as parameter.
 
-### Task 4: Graceful shutdown/restart with session notification (bot-d9u, P2)
+### Task 4: Restart notification to prevent restart loop (bot-d9u, P2)
 
-**Problem:** When the bot shuts down (SIGTERM), all active sessions are killed mid-turn — agents lose their work. On restart, new sessions may re-trigger the restart from conversation context (observed 2026-03-15 — infinite loop requiring manual intervention).
+**Problem:** When the bot restarts, new sessions may re-trigger the restart from conversation context, causing an infinite loop. Observed 2026-03-15 — required manual intervention to break.
 
-**Root cause:** Two issues: (1) shutdown is abrupt — no warning to sessions, no time to finish, (2) after restart, sessions don't know the restart already happened.
+**Root cause:** The new session inherits context containing "restart needed" intent but has no signal that the restart already happened. Sessions are resumable via `--resume`, so abrupt shutdown is acceptable — the critical issue is the loop.
 
-**What we want:** Graceful two-phase shutdown + restart notification:
-- Phase 1 (pre-shutdown): inject "shutdown starting" message to all active sessions, wait for active turns to complete
-- Phase 2 (shutdown): save caches, close sessions, exit
-- Phase 3 (on restart): detect this is a restart (not first start), inject "restart completed" to sessions that were active before shutdown
+**Current shutdown flow** (`main.ts` lines 42–55): `watchdog.stop()` → `telegramBot.stop()` → `clearAll()` → `saveThreadCache()` → `sessionManager.closeAll()` → `process.exit(0)`.
 
-**Current shutdown flow** (`main.ts` lines 42–55): `watchdog.stop()` → `telegramBot.stop()` → `clearAll()` → `saveThreadCache()` → `sessionManager.closeAll()` → `process.exit(0)`. No session notification, no waiting for active turns.
+**What we want:** On shutdown, persist a list of previously-active session keys. On startup, detect this is a restart (not first start) and inject a "restart completed, do not restart again" message into those sessions when they resume.
 
-- [ ] On SIGTERM/SIGINT, bot injects a shutdown warning message into all active sessions (via the existing inject-file mechanism or similar)
-- [ ] Bot waits for active sessions to finish their current turn (with a reasonable timeout — don't wait forever)
-- [ ] After all turns complete (or timeout), proceed with existing shutdown sequence
-- [ ] List of previously-active session keys is persisted to disk before exit
-- [ ] On startup, bot detects restart (vs first start) by presence of active-sessions file
-- [ ] On restart, bot injects "restart completed" message to sessions that were previously active
-- [ ] Active-sessions file is cleaned up after restart notification
-- [ ] On first-ever start (no active-sessions file), no restart message is injected
+- [ ] On shutdown, list of active session keys is persisted to disk (e.g. `data/active-sessions-at-shutdown.json`)
+- [ ] On startup, bot detects restart by presence of this file
+- [ ] On restart, bot injects "restart completed" notification into sessions that were active before shutdown
+- [ ] Active-sessions file is cleaned up after restart notifications are sent
+- [ ] On first-ever start (no file), no notification is injected
 - [ ] Restart loop is broken: agent sees "restart completed" and does not re-trigger
-- [ ] Add tests: shutdown notification, wait-for-turns with timeout, restart detection, restart notification
+- [ ] Add tests: shutdown persistence, restart detection, notification injection, cleanup
 - [ ] Verify existing tests pass
 
 ### Task 5: Typing indicator during processing gaps (bot-dgs, P2)
