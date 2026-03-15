@@ -27,6 +27,7 @@ describe("polling-watchdog", () => {
       exit: () => { exited = true; },
       now: () => clock,
       thresholdMs: 5000,
+      maxQuietHeartbeats: 3,
     });
 
     // Touch at time 0
@@ -43,6 +44,69 @@ describe("polling-watchdog", () => {
     clock = 7000; // only 1s since reset
     await wd.check();
     assert.strictEqual(heartbeatCalled, false);
+  });
+
+  it("exits after maxQuietHeartbeats consecutive quiet resets", async () => {
+    let clock = 0;
+    let exited = false;
+
+    const wd = createWatchdog({
+      heartbeat: async () => true,
+      exit: () => { exited = true; },
+      now: () => clock,
+      thresholdMs: 5000,
+      maxQuietHeartbeats: 3,
+    });
+
+    wd.touch();
+
+    // First quiet heartbeat — no exit
+    clock = 6000;
+    await wd.check();
+    assert.strictEqual(exited, false);
+
+    // Second quiet heartbeat — no exit
+    clock = 12000;
+    await wd.check();
+    assert.strictEqual(exited, false);
+
+    // Third quiet heartbeat — exits (3 consecutive with no real updates)
+    clock = 18000;
+    await wd.check();
+    assert.strictEqual(exited, true);
+  });
+
+  it("touch resets the quiet heartbeat counter", async () => {
+    let clock = 0;
+    let exited = false;
+
+    const wd = createWatchdog({
+      heartbeat: async () => true,
+      exit: () => { exited = true; },
+      now: () => clock,
+      thresholdMs: 5000,
+      maxQuietHeartbeats: 2,
+    });
+
+    wd.touch();
+
+    // First quiet heartbeat
+    clock = 6000;
+    await wd.check();
+    assert.strictEqual(exited, false);
+
+    // A real update arrives — resets the counter
+    wd.touch();
+
+    // First quiet heartbeat after touch — counter back to 1
+    clock = 12000;
+    await wd.check();
+    assert.strictEqual(exited, false);
+
+    // Second quiet heartbeat — now exits (2 consecutive)
+    clock = 18000;
+    await wd.check();
+    assert.strictEqual(exited, true);
   });
 
   it("exits when heartbeat returns false after threshold exceeded", async () => {
