@@ -6,10 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = resolve(__dirname, "..", "markdown-html-cli.ts");
-const TSX_BIN = resolve(__dirname, "..", "..", "node_modules", ".bin", "tsx");
 
 function runCli(input: string): string {
-  return execSync(`"${TSX_BIN}" "${CLI_PATH}"`, {
+  return execSync(`tsx "${CLI_PATH}"`, {
     input,
     encoding: "utf8",
     timeout: 10000,

@@ -83,15 +83,15 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 **What we want:** An append-only sidecar index that maps `message_id` → `{from, preview, direction, timestamp}`. Preview is first 150 characters of plain text. The module follows the same pattern as `message-thread-cache.ts`: in-memory Map, persist to disk, tolerant restore.
 
-- [ ] New module `src/message-content-index.ts` exports `recordMessage(chatId, messageId, from, text, direction)` and `lookupMessage(chatId, messageId)`
-- [ ] In-memory Map with 10K cap. Eviction: remove oldest entries (FIFO), NOT full clear() — reactions arrive after messages, full wipe would destroy needed context
-- [ ] `preview` field stores first 150 characters of text
-- [ ] `direction` field: `"in"` for incoming, `"out"` for outgoing
-- [ ] Persistence to `data/message-content-index.json`, same `[key, value][]` format
-- [ ] Tolerant restore: missing file → empty, corrupt → empty, never throws
-- [ ] `saveMessageIndex()` and `restoreMessageIndex()` exported
-- [ ] Add tests covering: record + lookup, cap eviction, persistence round-trip, corrupt file, missing file
-- [ ] Verify existing tests pass
+- [x] New module `src/message-content-index.ts` exports `recordMessage(chatId, messageId, from, text, direction)` and `lookupMessage(chatId, messageId)`
+- [x] In-memory Map with 10K cap. Eviction: remove oldest entries (FIFO), NOT full clear() — reactions arrive after messages, full wipe would destroy needed context
+- [x] `preview` field stores first 150 characters of text
+- [x] `direction` field: `"in"` for incoming, `"out"` for outgoing
+- [x] Persistence to `data/message-content-index.json`, same `[key, value][]` format
+- [x] Tolerant restore: missing file → empty, corrupt → empty, never throws
+- [x] `saveMessageIndex()` and `restoreMessageIndex()` exported
+- [x] Add tests covering: record + lookup, cap eviction, persistence round-trip, corrupt file, missing file
+- [x] Verify existing tests pass
 
 ### Task 2: Populate index from all message paths (bot-bq4, P2)
 
@@ -99,15 +99,15 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 **What we want:** Every message the bot sees (incoming or outgoing) is recorded in the content index. The index is restored at startup and saved at shutdown alongside the thread cache.
 
-- [ ] Text/photo/document handlers call `recordMessage` after `setThread` using `ctx.message.text` or `ctx.message.caption` as content
-- [ ] Voice handler calls `recordMessage` AFTER transcription completes (not at `setThread` time — transcribed text is not available yet)
-- [ ] `sendMessage` in `telegram-adapter.ts` calls `recordMessage` after `ctx.reply()` with `direction: "out"` and bot's username as author. Note: `createTelegramAdapter` does not currently have access to `bot.botInfo.username` — this needs to be passed in or set as a module-level variable at startup
-- [ ] `sendFile` calls `recordMessage` with caption text if available, or `"[file]"` / `"[photo]"` placeholder
-- [ ] `replyError` calls `recordMessage` with the error message text
-- [ ] `main.ts` calls `restoreMessageIndex()` at startup alongside `restoreThreadCache()`
-- [ ] `main.ts` calls `saveMessageIndex()` at shutdown alongside `saveThreadCache()`
-- [ ] Add integration test: simulate message → reaction → verify enriched context
-- [ ] Verify existing tests pass
+- [x] Text/photo/document handlers call `recordMessage` after `setThread` using `ctx.message.text` or `ctx.message.caption` as content
+- [x] Voice handler calls `recordMessage` AFTER transcription completes (not at `setThread` time — transcribed text is not available yet)
+- [x] `sendMessage` in `telegram-adapter.ts` calls `recordMessage` after `ctx.reply()` with `direction: "out"` and bot's username as author. Note: `createTelegramAdapter` does not currently have access to `bot.botInfo.username` — this needs to be passed in or set as a module-level variable at startup
+- [x] `sendFile` calls `recordMessage` with caption text if available, or `"[file]"` / `"[photo]"` placeholder
+- [x] `replyError` calls `recordMessage` with the error message text
+- [x] `main.ts` calls `restoreMessageIndex()` at startup alongside `restoreThreadCache()`
+- [x] `main.ts` calls `saveMessageIndex()` at shutdown alongside `saveThreadCache()`
+- [x] Add integration test: simulate message → reaction → verify enriched context
+- [x] Verify existing tests pass
 
 ### Task 3: Enrich reaction context with message content (bot-bq4, P2)
 
@@ -115,11 +115,11 @@ Same pattern in `sendFile` (lines 73–78) and `replyError` (lines 80–83).
 
 **What we want:** When a reaction arrives and content is found in the index, the agent sees who wrote the message and what it said. Cache miss gracefully degrades to current behavior.
 
-- [ ] When content available, reaction context includes author and text preview: `[Reaction: 👎 on message by @minitinyme_bot: "Доброе утро! Всё норм..."]`
-- [ ] When content unavailable (cache miss): `[Reaction: 👎 on message 3742]` (current behavior, unchanged)
-- [ ] Reaction handler in `telegram-bot.ts` calls `lookupMessage(chatId, messageId)` and passes result to `buildReactionContext`
-- [ ] Add tests for both cache-hit and cache-miss formatting
-- [ ] Verify existing tests pass
+- [x] When content available, reaction context includes author and text preview: `[Reaction: 👎 on message by @minitinyme_bot: "Доброе утро! Всё норм..."]`
+- [x] When content unavailable (cache miss): `[Reaction: 👎 on message 3742]` (current behavior, unchanged)
+- [x] Reaction handler in `telegram-bot.ts` calls `lookupMessage(chatId, messageId)` and passes result to `buildReactionContext`
+- [x] Add tests for both cache-hit and cache-miss formatting
+- [x] Verify existing tests pass
 
 ## Reference: Bot restart mechanism
 
@@ -173,16 +173,16 @@ The `platform` adapter with `sendTyping()` is available at `enqueue()` time — 
 
 **What we want:** On SIGTERM, inject "shutdown starting" into all active sessions, then wait (with configurable timeout) for active turns to finish. Sessions that resume after restart see the shutdown message as the last context → understand restart happened → don't re-trigger. Shutdown logs which sessions finished vs timed out, for observability.
 
-- [ ] On SIGTERM/SIGINT, bot injects a shutdown notification into all active sessions
-- [ ] Bot waits for active turns to complete, with a configurable timeout (default 60s)
-- [ ] Sessions that finish before timeout complete gracefully
-- [ ] Sessions that exceed timeout are force-closed
-- [ ] Each session's shutdown outcome is logged: finished naturally vs timed out, with session key and duration
-- [ ] Shutdown timeout is configurable (env var or config field)
-- [ ] After timeout/completion, existing shutdown sequence runs (save caches, close, exit)
-- [ ] Restart loop is broken: resumed session sees "shutdown starting" as last message, does not re-trigger restart
-- [ ] Add tests: shutdown notification injection, wait with timeout, logging of outcomes
-- [ ] Verify existing tests pass
+- [x] On SIGTERM/SIGINT, bot injects a shutdown notification into all active sessions
+- [x] Bot waits for active turns to complete, with a configurable timeout (default 60s)
+- [x] Sessions that finish before timeout complete gracefully
+- [x] Sessions that exceed timeout are force-closed
+- [x] Each session's shutdown outcome is logged: finished naturally vs timed out, with session key and duration
+- [x] Shutdown timeout is configurable (env var or config field)
+- [x] After timeout/completion, existing shutdown sequence runs (save caches, close, exit)
+- [x] Restart loop is broken: resumed session sees "shutdown starting" as last message, does not re-trigger restart
+- [x] Add tests: shutdown notification injection, wait with timeout, logging of outcomes
+- [x] Verify existing tests pass
 
 ### Task 5: Typing indicator during processing gaps (bot-dgs, P2)
 
@@ -190,10 +190,10 @@ The `platform` adapter with `sendTyping()` is available at `enqueue()` time — 
 
 **What we want:** Typing indicator starts immediately when a message is received and continues until the response is fully delivered. Covers the gaps: debounce wait, session creation, Claude's thinking phase before first stream output.
 
-- [ ] Typing starts when message processing begins (after debounce flushes, before session spawn/Claude response) — NOT during debounce window itself, as debounce batches rapid messages
-- [ ] Typing continues during session processing until `relayStream()` takes over with its own typing timer
-- [ ] Typing stops if processing is cancelled or errors out
-- [ ] Works correctly with the existing `typingIndicator` config flag (respects `binding.typingIndicator !== false`)
-- [ ] No duplicate typing timers (clean handoff between pre-stream and in-stream typing)
-- [ ] Add tests
-- [ ] Verify existing tests pass
+- [x] Typing starts when message processing begins (after debounce flushes, before session spawn/Claude response) — NOT during debounce window itself, as debounce batches rapid messages
+- [x] Typing continues during session processing until `relayStream()` takes over with its own typing timer
+- [x] Typing stops if processing is cancelled or errors out
+- [x] Works correctly with the existing `typingIndicator` config flag (respects `binding.typingIndicator !== false`)
+- [x] No duplicate typing timers (clean handoff between pre-stream and in-stream typing)
+- [x] Add tests
+- [x] Verify existing tests pass

@@ -191,6 +191,10 @@ export class MessageQueue {
 
     const combinedText = texts.length === 1 ? texts[0] : texts.join("\n\n");
 
+    // Start pre-stream typing indicator (covers session spawn, queue wait, thinking phase)
+    // relayStream() will clear this timer on handoff and start its own
+    this.startPreStreamTyping(state.latestPlatform);
+
     try {
       if (state.latestPlatform) {
         await this.processFn(chatId, state.agentId, combinedText, state.latestPlatform);
@@ -203,6 +207,7 @@ export class MessageQueue {
           .catch(() => {});
       }
     } finally {
+      this.stopPreStreamTyping(state.latestPlatform);
       for (const fn of cleanups) fn();
     }
 
@@ -264,6 +269,8 @@ export class MessageQueue {
         `Draining ${collected.length} collected message(s) for ${chatId}`,
       );
 
+      this.startPreStreamTyping(state.latestPlatform);
+
       try {
         if (state.latestPlatform) {
           await this.processFn(chatId, state.agentId, prompt, state.latestPlatform);
@@ -276,6 +283,7 @@ export class MessageQueue {
             .catch(() => {});
         }
       } finally {
+        this.stopPreStreamTyping(state.latestPlatform);
         for (const fn of cleanups) fn();
       }
 
@@ -321,6 +329,20 @@ export class MessageQueue {
     try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
   }
 
+  /**
+   * Cancel all pending debounce timers without running cleanups or clearing queues.
+   * Call before gracefulShutdown() to prevent new flushes from starting during
+   * the shutdown wait window.
+   */
+  cancelAllDebounceTimers(): void {
+    for (const state of this.queues.values()) {
+      if (state.debounceTimer) {
+        clearTimeout(state.debounceTimer);
+        state.debounceTimer = null;
+      }
+    }
+  }
+
   /** Clear all queues (for shutdown). */
   clearAll(): void {
     for (const [chatId, state] of this.queues) {
@@ -333,6 +355,23 @@ export class MessageQueue {
       try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
     }
     this.queues.clear();
+  }
+
+  /** Start pre-stream typing indicator on the platform context. */
+  private startPreStreamTyping(platform: PlatformContext | null): void {
+    if (!platform?.typingIndicator) return;
+    platform.sendTyping().catch(() => {});
+    platform.preStreamTypingTimer = setInterval(() => {
+      platform.sendTyping().catch(() => {});
+    }, platform.typingIntervalMs);
+  }
+
+  /** Stop pre-stream typing if relayStream didn't already clear it (error/cancel path). */
+  private stopPreStreamTyping(platform: PlatformContext | null): void {
+    if (platform?.preStreamTypingTimer) {
+      clearInterval(platform.preStreamTypingTimer);
+      platform.preStreamTypingTimer = undefined;
+    }
   }
 
   /** Remove idle queue state to free memory (Context refs, etc). */

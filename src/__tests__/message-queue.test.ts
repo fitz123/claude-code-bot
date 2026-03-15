@@ -685,3 +685,126 @@ describe("MessageQueue inject dedup", () => {
     queue.clearAll();
   });
 });
+
+// -------------------------------------------------------------------
+// MessageQueue — pre-stream typing indicator
+// -------------------------------------------------------------------
+
+/** Create a mock platform that tracks sendTyping calls. */
+function mockTypingPlatform(opts?: { typingIndicator?: boolean }) {
+  const typings: number[] = [];
+  const platform: PlatformContext = {
+    maxMessageLength: 4096,
+    editDebounceMs: 2000,
+    typingIntervalMs: 50, // short interval for fast tests
+    streamingUpdates: true,
+    typingIndicator: opts?.typingIndicator !== false,
+    async sendMessage() { return "1"; },
+    async editMessage() {},
+    async sendTyping() { typings.push(Date.now()); },
+    async sendFile() {},
+    async replyError() {},
+  };
+  return { platform, typings };
+}
+
+describe("MessageQueue pre-stream typing", () => {
+  it("sends typing when flush starts (before processFn)", async () => {
+    const { platform, typings } = mockTypingPlatform();
+    let typingsAtProcessStart = 0;
+
+    const processFn = async (_chatId: string, _agentId: string, _text: string, _platform: PlatformContext) => {
+      typingsAtProcessStart = typings.length;
+    };
+
+    const queue = new MessageQueue(processFn, { debounceMs: 30 });
+    queue.enqueue("chat1", "main", "hello", platform);
+
+    await wait(80);
+
+    // Typing should have been sent before processFn was called
+    assert.ok(typingsAtProcessStart >= 1, `Expected typing before processFn, got ${typingsAtProcessStart}`);
+
+    queue.clearAll();
+  });
+
+  it("sets preStreamTypingTimer on platform before processFn", async () => {
+    const { platform } = mockTypingPlatform();
+    let timerSeenInProcessFn: ReturnType<typeof setInterval> | undefined;
+
+    const processFn = async (_chatId: string, _agentId: string, _text: string, p: PlatformContext) => {
+      timerSeenInProcessFn = p.preStreamTypingTimer;
+    };
+
+    const queue = new MessageQueue(processFn, { debounceMs: 30 });
+    queue.enqueue("chat1", "main", "hello", platform);
+
+    await wait(80);
+
+    assert.ok(timerSeenInProcessFn !== undefined, "preStreamTypingTimer should be set during processFn");
+    // After processFn completes, timer should be cleaned up
+    assert.strictEqual(platform.preStreamTypingTimer, undefined, "timer should be cleared after processing");
+
+    queue.clearAll();
+  });
+
+  it("cleans up pre-stream typing on processFn error", async () => {
+    const { platform, typings } = mockTypingPlatform();
+
+    const failProcess = async () => {
+      throw new Error("boom");
+    };
+
+    const queue = new MessageQueue(failProcess, { debounceMs: 30 });
+    queue.enqueue("chat1", "main", "trigger error", platform);
+
+    await wait(80);
+
+    // Typing was sent before the error
+    assert.ok(typings.length >= 1, "typing should have been sent before error");
+    // Timer should be cleaned up despite error
+    assert.strictEqual(platform.preStreamTypingTimer, undefined, "timer should be cleared after error");
+
+    queue.clearAll();
+  });
+
+  it("does not send typing when typingIndicator is false", async () => {
+    const { platform, typings } = mockTypingPlatform({ typingIndicator: false });
+    const { processFn } = createMockProcess();
+
+    const queue = new MessageQueue(processFn, { debounceMs: 30 });
+    queue.enqueue("chat1", "main", "hello", platform);
+
+    await wait(80);
+
+    assert.strictEqual(typings.length, 0, "should not send typing when disabled");
+    assert.strictEqual(platform.preStreamTypingTimer, undefined, "no timer when typing disabled");
+
+    queue.clearAll();
+  });
+
+  it("sends typing during drain of collect buffer", async () => {
+    const { platform, typings } = mockTypingPlatform();
+    const mock = createMockProcess();
+
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
+
+    mock.setBlocking(true);
+    queue.enqueue("chat1", "main", "initial", platform);
+    await wait(60);
+
+    const typingsBeforeCollect = typings.length;
+
+    // Enqueue mid-turn message
+    queue.enqueue("chat1", "main", "collected msg", platform);
+
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(80);
+
+    // Typing should have been sent during drain as well
+    assert.ok(typings.length > typingsBeforeCollect, "typing should fire during collect drain");
+
+    queue.clearAll();
+  });
+});

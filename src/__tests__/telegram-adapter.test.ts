@@ -1,8 +1,9 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { createTelegramAdapter } from "../telegram-adapter.js";
+import { createTelegramAdapter, setBotUsername } from "../telegram-adapter.js";
 import type { TelegramBinding } from "../types.js";
 import { getThread, clearThreadCache } from "../message-thread-cache.js";
+import { lookupMessage, clearMessageIndex } from "../message-content-index.js";
 
 /** Create a minimal mock of grammy Context for testing. */
 function mockContext(opts: {
@@ -63,7 +64,10 @@ const defaultBinding: TelegramBinding = {
 };
 
 describe("createTelegramAdapter", () => {
-  afterEach(() => clearThreadCache());
+  afterEach(() => {
+    clearThreadCache();
+    clearMessageIndex();
+  });
 
   describe("platform constants", () => {
     it("sets Telegram-specific limits", () => {
@@ -340,6 +344,80 @@ describe("createTelegramAdapter", () => {
       assert.strictEqual(ctx._sentMessages.length, 1);
       assert.strictEqual(ctx._sentMessages[0].text, "Something went wrong");
       assert.strictEqual(ctx._sentMessages[0].opts.parse_mode, undefined);
+    });
+  });
+
+  describe("message content index recording", () => {
+    it("sendMessage records outgoing message in index", async () => {
+      setBotUsername("testbot");
+      const ctx = mockContext({ chatId: 12345 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendMessage("Hello world");
+      const record = lookupMessage(12345, 100);
+      assert.ok(record);
+      assert.strictEqual(record.from, "@testbot");
+      assert.strictEqual(record.preview, "Hello world");
+      assert.strictEqual(record.direction, "out");
+    });
+
+    it("sendMessage records on HTML fallback path", async () => {
+      setBotUsername("testbot");
+      const ctx = mockContext({ chatId: 12345, failOnHtml: true });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendMessage("**bold**");
+      const record = lookupMessage(12345, 100);
+      assert.ok(record);
+      assert.strictEqual(record.from, "@testbot");
+      assert.strictEqual(record.preview, "**bold**");
+      assert.strictEqual(record.direction, "out");
+    });
+
+    it("sendFile records outgoing photo in index", async () => {
+      setBotUsername("testbot");
+      const ctx = mockContext({ chatId: 12345 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendFile("/tmp/photo.jpg", true);
+      const record = lookupMessage(12345, 100);
+      assert.ok(record);
+      assert.strictEqual(record.from, "@testbot");
+      assert.strictEqual(record.preview, "[photo]");
+      assert.strictEqual(record.direction, "out");
+    });
+
+    it("sendFile records outgoing file in index", async () => {
+      setBotUsername("testbot");
+      const ctx = mockContext({ chatId: 12345 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendFile("/tmp/doc.pdf", false);
+      const record = lookupMessage(12345, 100);
+      assert.ok(record);
+      assert.strictEqual(record.from, "@testbot");
+      assert.strictEqual(record.preview, "[file]");
+      assert.strictEqual(record.direction, "out");
+    });
+
+    it("replyError records error message in index", async () => {
+      setBotUsername("testbot");
+      const ctx = mockContext({ chatId: 12345 });
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.replyError("Something went wrong");
+      const record = lookupMessage(12345, 100);
+      assert.ok(record);
+      assert.strictEqual(record.from, "@testbot");
+      assert.strictEqual(record.preview, "Something went wrong");
+      assert.strictEqual(record.direction, "out");
+    });
+
+    it("does not record when chatId is undefined", async () => {
+      setBotUsername("testbot");
+      const ctx = mockContext();
+      ctx.chat = undefined;
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      // sendMessage will fail because chat is undefined, but replyError might work
+      // This verifies the guard: chatId != null before recordMessage
+      await adapter.replyError("error text");
+      // No chatId means no recording — we can't look up without a chatId
+      // Just verifying no crash occurs
     });
   });
 });

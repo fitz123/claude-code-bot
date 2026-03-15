@@ -157,7 +157,6 @@ describe("message-thread-cache persistence", () => {
     writeFileSync(cachePath, JSON.stringify(entries), "utf8");
 
     restoreThreadCache(cachePath);
-    // Caps at MAX_CACHE_SIZE - 1 to leave room for new entries without triggering full eviction
     assert.strictEqual(threadCacheSize(), 9_999);
   });
 

@@ -5,7 +5,8 @@ import { EventEmitter } from "node:events";
 import { Readable, Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
-import { waitForSpawn, outboxDir } from "../session-manager.js";
+import { waitForSpawn, outboxDir, type ActiveSession } from "../session-manager.js";
+import PQueue from "p-queue";
 
 const TEST_DIR = "/tmp/openclaw-test-session-manager";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -1388,4 +1389,173 @@ describe("SessionManager crash backoff", () => {
     assert.strictEqual(restartCounts.get("close-chat"), undefined, "crash count should be deleted after closeSession");
   });
 
+});
+
+describe("SessionManager gracefulShutdown", () => {
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /** Insert a mock session into the manager's active map. */
+  function insertMockSession(
+    manager: InstanceType<typeof import("../session-manager.js").SessionManager>,
+    chatId: string,
+    opts: { processing: boolean; injectDir: string },
+  ): { queue: PQueue; child: ChildProcess } {
+    const activeMap = (manager as unknown as Record<string, Map<string, ActiveSession>>).active;
+    const child = createMockChild();
+    child.emit("spawn");
+    const queue = new PQueue({ concurrency: 1 });
+
+    activeMap.set(chatId, {
+      child,
+      sessionId: "test-session-" + chatId,
+      agentId: "main",
+      queue,
+      idleTimer: null,
+      lastActivity: Date.now(),
+      processingStartedAt: opts.processing ? Date.now() : null,
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: `${TEST_DIR}/outbox-${chatId}`,
+      injectDir: opts.injectDir,
+    });
+
+    return { queue, child };
+  }
+
+  it("returns immediately with no active sessions", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    await manager.gracefulShutdown(5000);
+    assert.strictEqual(manager.getActiveCount(), 0);
+  });
+
+  it("returns immediately when active sessions are idle (not processing)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const injectDir = `${TEST_DIR}/inject-idle`;
+    mkdirSync(injectDir, { recursive: true });
+    insertMockSession(manager, "idle-chat", { processing: false, injectDir });
+
+    await manager.gracefulShutdown(5000);
+    // Should not have written inject file for idle session
+    assert.strictEqual(existsSync(`${injectDir}/pending`), false, "no inject file for idle session");
+  });
+
+  it("writes shutdown inject file for busy sessions", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const injectDir = `${TEST_DIR}/inject-busy`;
+    mkdirSync(injectDir, { recursive: true });
+    const { queue } = insertMockSession(manager, "busy-chat", { processing: true, injectDir });
+
+    // Keep the queue busy so gracefulShutdown has something to wait for
+    let resolveTask!: () => void;
+    const taskPromise = queue.add(() => new Promise<void>(r => { resolveTask = r; }));
+
+    const shutdownPromise = manager.gracefulShutdown(200);
+
+    // Check inject file was written
+    const content = readFileSync(`${injectDir}/pending`, "utf-8");
+    assert.ok(content.includes("shutting down"), "inject file should contain shutdown message");
+    assert.ok(content.includes("Do NOT attempt to restart"), "inject file should warn against restart");
+
+    // Let the task finish
+    resolveTask();
+    await taskPromise;
+    await shutdownPromise;
+  });
+
+  it("waits for busy session to finish within timeout", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const injectDir = `${TEST_DIR}/inject-wait`;
+    mkdirSync(injectDir, { recursive: true });
+    const { queue } = insertMockSession(manager, "wait-chat", { processing: true, injectDir });
+
+    // Simulate a task that finishes after 50ms
+    let resolveTask!: () => void;
+    const taskPromise = queue.add(() => new Promise<void>(r => { resolveTask = r; }));
+
+    const start = Date.now();
+    const shutdownPromise = manager.gracefulShutdown(5000);
+
+    // Finish the task after 50ms
+    setTimeout(() => {
+      const session = manager.getActive("wait-chat");
+      if (session) session.processingStartedAt = null;
+      resolveTask();
+    }, 50);
+
+    await shutdownPromise;
+    const elapsed = Date.now() - start;
+
+    // Should have finished quickly (within ~200ms), not waited for full timeout
+    assert.ok(elapsed < 2000, `should finish quickly, took ${elapsed}ms`);
+    await taskPromise;
+  });
+
+  it("times out for sessions that exceed the deadline", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const injectDir = `${TEST_DIR}/inject-timeout`;
+    mkdirSync(injectDir, { recursive: true });
+    const { queue } = insertMockSession(manager, "slow-chat", { processing: true, injectDir });
+
+    // Task that never resolves (simulating a long-running turn)
+    let resolveTask!: () => void;
+    const taskPromise = queue.add(() => new Promise<void>(r => { resolveTask = r; }));
+
+    const start = Date.now();
+    await manager.gracefulShutdown(100); // 100ms timeout
+    const elapsed = Date.now() - start;
+
+    // Should have timed out around 100ms
+    assert.ok(elapsed >= 90, `should wait at least ~100ms, took ${elapsed}ms`);
+    assert.ok(elapsed < 1000, `should not wait much longer than timeout, took ${elapsed}ms`);
+
+    // Session should still be marked as processing (it didn't finish)
+    const session = manager.getActive("slow-chat");
+    assert.ok(session?.processingStartedAt !== null, "session should still be processing after timeout");
+
+    // Clean up
+    resolveTask();
+    await taskPromise;
+  });
+
+  it("handles mix of idle and busy sessions", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const idleInjectDir = `${TEST_DIR}/inject-mix-idle`;
+    const busyInjectDir = `${TEST_DIR}/inject-mix-busy`;
+    mkdirSync(idleInjectDir, { recursive: true });
+    mkdirSync(busyInjectDir, { recursive: true });
+
+    insertMockSession(manager, "idle-mix", { processing: false, injectDir: idleInjectDir });
+    const { queue } = insertMockSession(manager, "busy-mix", { processing: true, injectDir: busyInjectDir });
+
+    let resolveTask!: () => void;
+    const taskPromise = queue.add(() => new Promise<void>(r => { resolveTask = r; }));
+
+    const shutdownPromise = manager.gracefulShutdown(200);
+
+    // Only busy session should get inject file
+    assert.strictEqual(existsSync(`${idleInjectDir}/pending`), false, "idle session should not get inject");
+    assert.strictEqual(existsSync(`${busyInjectDir}/pending`), true, "busy session should get inject");
+
+    resolveTask();
+    await taskPromise;
+    await shutdownPromise;
+  });
 });

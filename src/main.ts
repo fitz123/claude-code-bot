@@ -7,6 +7,8 @@ import { startMetricsServer, stopMetricsServer } from "./metrics.js";
 import { startBotWithRetry } from "./bot-startup.js";
 import { createWatchdog, type Watchdog } from "./polling-watchdog.js";
 import { restoreThreadCache, saveThreadCache } from "./message-thread-cache.js";
+import { restoreMessageIndex, saveMessageIndex } from "./message-content-index.js";
+import { setBotUsername } from "./telegram-adapter.js";
 import { getVersion } from "./version.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
@@ -25,8 +27,9 @@ async function main(): Promise<void> {
     startMetricsServer(config.metricsPort);
   }
 
-  // Restore message-thread cache from disk (survives restarts)
+  // Restore caches from disk (survives restarts)
   restoreThreadCache();
+  restoreMessageIndex();
 
   const sessionManager = new SessionManager(config);
   log.info("main", "Session manager initialized");
@@ -39,13 +42,31 @@ async function main(): Promise<void> {
 
   // Graceful shutdown — registered early so signals during bot startup are handled.
   // Closure captures mutable variables, so shutdown always sees current state.
+  const shutdownTimeoutMs = parseInt(process.env.SHUTDOWN_TIMEOUT_MS ?? "", 10) || 60_000;
+
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("main", `Received ${signal}, shutting down...`);
     if (watchdog) watchdog.stop();
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
+    // Cancel debounce timers BEFORE waiting — telegramBot.stop() prevents new
+    // updates, but already-scheduled debounce timers could still fire and start
+    // new flush() work during the graceful shutdown wait window.
+    for (const mq of messageQueues) mq.cancelAllDebounceTimers();
+    // Wait for busy sessions to finish their current turns BEFORE clearing
+    // queues — clearAll() runs cleanup callbacks (e.g. temp file deletion)
+    // that would break in-flight sessions still reading those files.
+    await sessionManager.gracefulShutdown(shutdownTimeoutMs);
+
     for (const mq of messageQueues) mq.clearAll();
-    if (telegramBot) saveThreadCache();
+
+    if (telegramBot) {
+      saveThreadCache();
+      saveMessageIndex();
+    }
     await stopMetricsServer();
     await sessionManager.closeAll();
     log.info("main", "All sessions closed. Exiting.");
@@ -111,6 +132,7 @@ async function main(): Promise<void> {
           onStart: async (botInfo) => {
             startedSuccessfully = true;
             clearTimeout(startupTimeout);
+            setBotUsername(botInfo.username);
             log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
             if (watchdog) watchdog.start();
             try {
