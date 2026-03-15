@@ -222,15 +222,15 @@ The bot has no mechanism to detect this state. `bot.catch()` logs errors but doe
 
 What we want: a lightweight liveness check that tracks "last update received" timestamp. If no updates arrive within a configurable threshold (default: 10 minutes), the process exits with a clear log message so launchd restarts it. The watchdog should account for quiet periods (late night, no messages) by using getMe or getUpdates(limit=0) as a heartbeat probe rather than relying solely on incoming messages.
 
-- [ ] A liveness module tracks the timestamp of the last received update
-- [ ] Every incoming update (message, reaction, etc.) refreshes the timestamp
-- [ ] A periodic check (e.g. every 60s) compares current time vs last update
-- [ ] If threshold exceeded, a lightweight Telegram API call (getMe) verifies connectivity
-- [ ] If the API call also fails or polling is truly dead, process exits with descriptive log
-- [ ] If the API call succeeds (just a quiet period), the watchdog resets without exiting
-- [ ] Threshold is configurable (default 10 minutes)
-- [ ] Add tests for the liveness module (threshold logic, reset behavior)
-- [ ] Existing tests pass
+- [x] A liveness module tracks the timestamp of the last received update
+- [x] Every incoming update (message, reaction, etc.) refreshes the timestamp
+- [x] A periodic check (e.g. every 60s) compares current time vs last update
+- [x] If threshold exceeded, a lightweight Telegram API call (getMe) verifies connectivity
+- [x] If the API call also fails or polling is truly dead, process exits with descriptive log
+- [x] If the API call succeeds (just a quiet period), the watchdog resets without exiting
+- [x] Threshold is configurable (default 10 minutes)
+- [x] Add tests for the liveness module (threshold logic, reset behavior)
+- [x] Existing tests pass
 
 ### Task 4: Persist message-thread cache across restarts (bot-rbo, P2)
 
