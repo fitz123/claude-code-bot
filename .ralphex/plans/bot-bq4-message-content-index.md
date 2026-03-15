@@ -169,16 +169,15 @@ The `platform` adapter with `sendTyping()` is available at `enqueue()` time — 
 
 **Problem:** When an agent runs `launchctl kickstart -k` to restart the bot, the bot dies along with the agent's session. On restart, the new session may re-trigger the restart from conversation context, causing an infinite loop. Observed 2026-03-15 — required manual intervention to break.
 
-**Root cause analysis:** The loop happens because the new Claude session inherits conversation context containing "restart needed" intent. The session doesn't know the restart already happened. This is a coordination problem between the agent's rules and the restart mechanism, not a bot infrastructure problem.
+**Root cause:** The new session inherits conversation context containing "restart needed" intent but has no signal that the restart already happened. It re-executes the restart → loop.
 
-**What we want:** A restart mechanism where the agent can schedule a delayed restart (so it can finish its response), and new sessions after restart know not to re-trigger. The solution should combine a delayed restart script with a cooldown marker that agents check before issuing restart commands.
+**What we want:** After a restart (not first-ever start), the bot injects a message into each session informing the agent that a restart just occurred. The agent sees this signal and knows not to re-trigger. No marker files, no cooldown TTLs, no special scripts.
 
-- [ ] A restart script exists (e.g. `scripts/restart-bot.sh`) that: writes a cooldown marker file, waits N seconds, then sends SIGTERM to the bot
-- [ ] Agent can call the script, confirm restart is scheduled, and finish responding before the bot dies
-- [ ] Cooldown marker file has a timestamp; any agent checking it within 120s of creation skips restart
-- [ ] Bot operations rule (`.claude/rules/bot-operations.md`) updated: agents must check cooldown marker before any restart command
-- [ ] The script is the ONLY way agents restart the bot — direct `launchctl kickstart` is prohibited in rules
-- [ ] Add test for the restart script (marker creation, delay behavior)
+- [ ] Bot detects restart vs first start on startup (e.g. presence of persistent data files from previous run, or a clean-shutdown marker)
+- [ ] On restart, bot injects a system message into each new/resumed session: something like `[System: bot restarted successfully]`
+- [ ] Agent receiving this message understands restart already happened and does not re-trigger
+- [ ] On first-ever start (no previous data), no restart message is injected
+- [ ] Add test: verify restart detection logic and message injection
 - [ ] Verify existing tests pass
 
 ### Task 5: Typing indicator during processing gaps (bot-dgs, P2)
