@@ -1,10 +1,14 @@
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 import { resolveBinding, isAuthorized } from "../telegram-bot.js";
 import { buildSpawnArgs } from "../cli-protocol.js";
 import type { TelegramBinding, AgentConfig, BotConfig } from "../types.js";
+
+// Unique temp directory per test run to avoid collisions
+const TEST_BASE = mkdtempSync(join(tmpdir(), "bindings-test-"));
 
 // Test bindings (fake IDs for testing)
 const BINDINGS: TelegramBinding[] = [
@@ -14,32 +18,32 @@ const BINDINGS: TelegramBinding[] = [
   { chatId: -1009999999999, agentId: "cyber-architect", kind: "group", label: "Test Group" },
 ];
 
-// Test agents with generic paths
+// Test agents with unique per-run paths
 const AGENTS: Record<string, AgentConfig> = {
   main: {
     id: "main",
-    workspaceCwd: "/tmp/test-workspace",
+    workspaceCwd: join(TEST_BASE, "workspace"),
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
   "agent-b": {
     id: "agent-b",
-    workspaceCwd: "/tmp/test-workspace-b",
+    workspaceCwd: join(TEST_BASE, "workspace-b"),
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
   "agent-c": {
     id: "agent-c",
-    workspaceCwd: "/tmp/test-workspace-c",
+    workspaceCwd: join(TEST_BASE, "workspace-c"),
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
   },
   "cyber-architect": {
     id: "cyber-architect",
-    workspaceCwd: "/tmp/test-workspace-cyber-architect",
+    workspaceCwd: join(TEST_BASE, "workspace-cyber-architect"),
     model: "claude-opus-4-6",
     fallbackModel: "claude-sonnet-4-6",
     maxTurns: 50,
@@ -89,9 +93,7 @@ describe("Workspace verification: each cwd exists with CLAUDE.md", () => {
   });
 
   after(() => {
-    for (const agent of Object.values(AGENTS)) {
-      rmSync(agent.workspaceCwd, { recursive: true, force: true });
-    }
+    rmSync(TEST_BASE, { recursive: true, force: true });
   });
 
   for (const [agentId, agent] of Object.entries(AGENTS)) {
