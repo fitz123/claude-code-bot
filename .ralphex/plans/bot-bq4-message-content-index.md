@@ -165,23 +165,23 @@ async sendTyping(): Promise<void> {
 
 The `platform` adapter with `sendTyping()` is available at `enqueue()` time — it's passed as parameter.
 
-### Task 4: Restart notification to prevent restart loop (bot-d9u, P2)
+### Task 4: Graceful shutdown with session notification (bot-d9u, P2)
 
-**Problem:** When the bot restarts, new sessions may re-trigger the restart from conversation context, causing an infinite loop. Observed 2026-03-15 — required manual intervention to break.
+**Problem:** (1) When the bot shuts down, sessions are killed mid-turn with no warning — agents lose work. (2) On restart, new sessions re-trigger restart from conversation context → infinite loop (observed 2026-03-15).
 
-**Root cause:** The new session inherits context containing "restart needed" intent but has no signal that the restart already happened. Sessions are resumable via `--resume`, so abrupt shutdown is acceptable — the critical issue is the loop.
+**Current shutdown flow** (`main.ts` lines 42–55): `watchdog.stop()` → `telegramBot.stop()` → `clearAll()` → `saveThreadCache()` → `sessionManager.closeAll()` → `process.exit(0)`. No warning, no wait.
 
-**Current shutdown flow** (`main.ts` lines 42–55): `watchdog.stop()` → `telegramBot.stop()` → `clearAll()` → `saveThreadCache()` → `sessionManager.closeAll()` → `process.exit(0)`.
+**What we want:** On SIGTERM, inject "shutdown starting" into all active sessions, then wait (with configurable timeout) for active turns to finish. Sessions that resume after restart see the shutdown message as the last context → understand restart happened → don't re-trigger. Shutdown logs which sessions finished vs timed out, for observability.
 
-**What we want:** On shutdown, persist a list of previously-active session keys. On startup, detect this is a restart (not first start) and inject a "restart completed, do not restart again" message into those sessions when they resume.
-
-- [ ] On shutdown, list of active session keys is persisted to disk (e.g. `data/active-sessions-at-shutdown.json`)
-- [ ] On startup, bot detects restart by presence of this file
-- [ ] On restart, bot injects "restart completed" notification into sessions that were active before shutdown
-- [ ] Active-sessions file is cleaned up after restart notifications are sent
-- [ ] On first-ever start (no file), no notification is injected
-- [ ] Restart loop is broken: agent sees "restart completed" and does not re-trigger
-- [ ] Add tests: shutdown persistence, restart detection, notification injection, cleanup
+- [ ] On SIGTERM/SIGINT, bot injects a shutdown notification into all active sessions
+- [ ] Bot waits for active turns to complete, with a configurable timeout (default 60s)
+- [ ] Sessions that finish before timeout complete gracefully
+- [ ] Sessions that exceed timeout are force-closed
+- [ ] Each session's shutdown outcome is logged: finished naturally vs timed out, with session key and duration
+- [ ] Shutdown timeout is configurable (env var or config field)
+- [ ] After timeout/completion, existing shutdown sequence runs (save caches, close, exit)
+- [ ] Restart loop is broken: resumed session sees "shutdown starting" as last message, does not re-trigger restart
+- [ ] Add tests: shutdown notification injection, wait with timeout, logging of outcomes
 - [ ] Verify existing tests pass
 
 ### Task 5: Typing indicator during processing gaps (bot-dgs, P2)
