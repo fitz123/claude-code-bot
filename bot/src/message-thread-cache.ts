@@ -13,12 +13,14 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { log } from "./logger.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const BOT_DIR = resolve(__dirname, "..");
 const MAX_CACHE_SIZE = 10_000;
-const DEFAULT_CACHE_PATH = join(homedir(), ".openclaw", "bot", "data", "thread-cache.json");
+const DEFAULT_CACHE_PATH = join(BOT_DIR, "data", "thread-cache.json");
 
 const cache = new Map<string, number>();
 

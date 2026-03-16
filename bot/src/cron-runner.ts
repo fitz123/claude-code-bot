@@ -12,9 +12,10 @@ import type { CronJob, AgentConfig } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
-const CRONS_PATH = resolve(BOT_DIR, "crons.yaml");
-const CONFIG_PATH = resolve(BOT_DIR, "config.yaml");
-const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".openclaw", "logs");
+const REPO_ROOT = resolve(BOT_DIR, "..");
+const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
+const CONFIG_PATH = resolve(REPO_ROOT, "config.yaml");
+const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
 
 const DEFAULT_TIMEOUT_MS = 300000; // 5 minutes
