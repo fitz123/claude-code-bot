@@ -78,9 +78,13 @@ export function loadAdminChatId(configPath?: string): number | undefined {
   const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
     adminChatId?: unknown;
   };
-  if (typeof raw?.adminChatId === "number" && Number.isInteger(raw.adminChatId) && raw.adminChatId > 0) {
+  if (raw?.adminChatId === undefined) {
+    return undefined;
+  }
+  if (typeof raw.adminChatId === "number" && Number.isInteger(raw.adminChatId) && raw.adminChatId > 0) {
     return raw.adminChatId;
   }
+  process.stderr.write(`[cron-runner] WARN: invalid adminChatId in config (${raw.adminChatId}), ignoring\n`);
   return undefined;
 }
 
