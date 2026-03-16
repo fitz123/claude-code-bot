@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape } from "../cron-runner.js";
+import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape, loadAdminChatId, handleDeliveryFailure } from "../cron-runner.js";
 
 // We test the pure functions. runClaude and deliver require real claude/Telegram.
 
@@ -50,6 +50,65 @@ describe("cron-runner", () => {
     it("does not include --thread when threadId is undefined", () => {
       const cmd = buildDeliverCommand(123456, undefined);
       assert.ok(!cmd.includes("--thread"));
+    });
+  });
+
+  describe("loadAdminChatId — with temp config.yaml", () => {
+    const CONFIG_DIR = join(TEST_DIR, "admin-config");
+    const CONFIG_FILE = join(CONFIG_DIR, "config.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(CONFIG_DIR, { recursive: true, force: true });
+    });
+
+    it("returns adminChatId when present in config", () => {
+      writeFileSync(CONFIG_FILE, `adminChatId: 999999999\nagents: {}\nbindings: []\n`);
+      const id = loadAdminChatId(CONFIG_FILE);
+      assert.strictEqual(id, 999999999);
+    });
+
+    it("returns undefined when adminChatId is absent", () => {
+      writeFileSync(CONFIG_FILE, `agents: {}\nbindings: []\n`);
+      const id = loadAdminChatId(CONFIG_FILE);
+      assert.strictEqual(id, undefined);
+    });
+  });
+
+  describe("handleDeliveryFailure", () => {
+    it("calls deliverFn with adminChatId when adminChatId is set", () => {
+      const calls: Array<[number, string]> = [];
+      const mockDeliver = (chatId: number, msg: string) => {
+        calls.push([chatId, msg]);
+      };
+      handleDeliveryFailure("my-task", 111111111, "bot blocked", 999999999, mockDeliver);
+      assert.strictEqual(calls.length, 1);
+      assert.strictEqual(calls[0][0], 999999999);
+      assert.ok(calls[0][1].includes("my-task"));
+      assert.ok(calls[0][1].includes("111111111"));
+      assert.ok(calls[0][1].includes("bot blocked"));
+    });
+
+    it("does not call deliverFn when adminChatId is undefined", () => {
+      const calls: Array<[number, string]> = [];
+      const mockDeliver = (chatId: number, msg: string) => {
+        calls.push([chatId, msg]);
+      };
+      handleDeliveryFailure("my-task", 111111111, "bot blocked", undefined, mockDeliver);
+      assert.strictEqual(calls.length, 0);
+    });
+
+    it("logs and does not throw when deliverFn itself throws", () => {
+      const mockDeliver = () => {
+        throw new Error("admin unreachable");
+      };
+      // Should not throw
+      assert.doesNotThrow(() =>
+        handleDeliveryFailure("my-task", 111111111, "bot blocked", 999999999, mockDeliver),
+      );
     });
   });
 
