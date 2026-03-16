@@ -149,11 +149,11 @@ autoRetry plugin silently absorbs HttpErrors after exhausting retries. This prev
 
 What we want: HttpErrors propagate to callers after retry exhaustion, so stream-relay's existing fallback logic can trigger.
 
-- [ ] `rethrowHttpErrors: true` is set in autoRetry config at `src/telegram-bot.ts:429`
-- [ ] stream-relay final edit fallback (lines 280-296) receives errors and sends text as new message when editMessageText fails
-- [ ] Add test: autoRetry config includes `rethrowHttpErrors: true`
-- [ ] Add test: stream-relay final edit fallback triggers when platform.editMessage throws
-- [ ] Verify existing tests pass
+- [x] `rethrowHttpErrors: true` is set in autoRetry config at `src/telegram-bot.ts:429`
+- [x] stream-relay final edit fallback (lines 280-296) receives errors and sends text as new message when editMessageText fails
+- [x] Add test: autoRetry config includes `rethrowHttpErrors: true`
+- [x] Add test: stream-relay final edit fallback triggers when platform.editMessage throws
+- [x] Verify existing tests pass
 
 ### Task 2: Add adminChatId fallback for cron delivery failures (bot-mmz)
 

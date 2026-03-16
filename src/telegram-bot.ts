@@ -392,6 +392,13 @@ export interface TelegramBotResult {
   messageQueue: MessageQueue;
 }
 
+/** autoRetry options — exported so tests can assert rethrowHttpErrors is set. */
+export const AUTO_RETRY_OPTIONS = {
+  maxRetryAttempts: 5,
+  maxDelaySeconds: 60,
+  rethrowHttpErrors: true,
+} as const;
+
 /**
  * Create and configure the Telegram bot.
  */
@@ -426,7 +433,7 @@ export function createTelegramBot(
   });
 
   // Auto-retry on rate limits (outermost transformer — retries after inner errors)
-  bot.api.config.use(autoRetry({ maxRetryAttempts: 5, maxDelaySeconds: 60 }));
+  bot.api.config.use(autoRetry(AUTO_RETRY_OPTIONS));
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 

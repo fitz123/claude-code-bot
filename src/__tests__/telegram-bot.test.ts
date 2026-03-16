@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -1009,5 +1009,16 @@ describe("buildReactionContext", () => {
       buildReactionContext(123, ["👍"], [], undefined),
       "[Reaction: 👍 on message 123]",
     );
+  });
+});
+
+describe("AUTO_RETRY_OPTIONS", () => {
+  it("has rethrowHttpErrors set to true so HttpErrors propagate to callers", () => {
+    assert.strictEqual(AUTO_RETRY_OPTIONS.rethrowHttpErrors, true);
+  });
+
+  it("has maxRetryAttempts and maxDelaySeconds configured", () => {
+    assert.ok(AUTO_RETRY_OPTIONS.maxRetryAttempts > 0);
+    assert.ok(AUTO_RETRY_OPTIONS.maxDelaySeconds > 0);
   });
 });
