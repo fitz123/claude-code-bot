@@ -76,6 +76,11 @@ export function createTelegramAdapter(
       recordMessage(chatId, Number(messageId), `@${_botUsername}`, text, "out");
     },
 
+    async deleteMessage(messageId: string): Promise<void> {
+      if (!chatId) return;
+      await ctx.api.deleteMessage(chatId, Number(messageId));
+    },
+
     async sendTyping(): Promise<void> {
       if (!chatId) return;
       await ctx.api.sendChatAction(
