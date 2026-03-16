@@ -81,7 +81,7 @@ export function loadAdminChatId(configPath?: string): number | undefined {
   if (raw?.adminChatId === undefined) {
     return undefined;
   }
-  if (typeof raw.adminChatId === "number" && Number.isInteger(raw.adminChatId) && raw.adminChatId > 0) {
+  if (typeof raw.adminChatId === "number" && Number.isInteger(raw.adminChatId) && raw.adminChatId !== 0) {
     return raw.adminChatId;
   }
   process.stderr.write(`[cron-runner] WARN: invalid adminChatId in config (${raw.adminChatId}), ignoring\n`);
@@ -234,7 +234,12 @@ async function main(): Promise<void> {
     try {
       deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`);
     } catch (deliveryErr) {
-      handleDeliveryFailure(taskName, cron.deliveryChatId, (deliveryErr as Error).message, adminChatId);
+      handleDeliveryFailure(
+        taskName,
+        cron.deliveryChatId,
+        `${errMsg.slice(0, 400)}\n(notification delivery failed: ${(deliveryErr as Error).message})`,
+        adminChatId,
+      );
     }
     process.exit(1);
   }
