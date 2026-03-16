@@ -76,6 +76,24 @@ describe("cron-runner", () => {
       const id = loadAdminChatId(CONFIG_FILE);
       assert.strictEqual(id, undefined);
     });
+
+    it("returns undefined when adminChatId is a float", () => {
+      writeFileSync(CONFIG_FILE, `adminChatId: 3.14\nagents: {}\nbindings: []\n`);
+      const id = loadAdminChatId(CONFIG_FILE);
+      assert.strictEqual(id, undefined);
+    });
+
+    it("returns undefined when adminChatId is zero", () => {
+      writeFileSync(CONFIG_FILE, `adminChatId: 0\nagents: {}\nbindings: []\n`);
+      const id = loadAdminChatId(CONFIG_FILE);
+      assert.strictEqual(id, undefined);
+    });
+
+    it("returns undefined when adminChatId is negative", () => {
+      writeFileSync(CONFIG_FILE, `adminChatId: -1\nagents: {}\nbindings: []\n`);
+      const id = loadAdminChatId(CONFIG_FILE);
+      assert.strictEqual(id, undefined);
+    });
   });
 
   describe("handleDeliveryFailure", () => {
@@ -101,7 +119,7 @@ describe("cron-runner", () => {
       assert.strictEqual(calls.length, 0);
     });
 
-    it("logs and does not throw when deliverFn itself throws", () => {
+    it("does not throw when deliverFn itself throws", () => {
       const mockDeliver = () => {
         throw new Error("admin unreachable");
       };

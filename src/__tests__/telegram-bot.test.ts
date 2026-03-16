@@ -1018,7 +1018,7 @@ describe("AUTO_RETRY_OPTIONS", () => {
   });
 
   it("has maxRetryAttempts and maxDelaySeconds configured", () => {
-    assert.ok(AUTO_RETRY_OPTIONS.maxRetryAttempts > 0);
-    assert.ok(AUTO_RETRY_OPTIONS.maxDelaySeconds > 0);
+    assert.strictEqual(AUTO_RETRY_OPTIONS.maxRetryAttempts, 5);
+    assert.strictEqual(AUTO_RETRY_OPTIONS.maxDelaySeconds, 60);
   });
 });
