@@ -293,8 +293,8 @@ export function loadConfig(configPath?: string): BotConfig {
   // adminChatId (optional — used by cron-runner for delivery failure notifications)
   let adminChatId: number | undefined;
   if (raw.adminChatId !== undefined) {
-    if (!Number.isInteger(raw.adminChatId) || raw.adminChatId <= 0) {
-      throw new Error(`Invalid adminChatId: ${raw.adminChatId} (must be a positive integer)`);
+    if (!Number.isInteger(raw.adminChatId) || raw.adminChatId === 0) {
+      throw new Error(`Invalid adminChatId: ${raw.adminChatId} (must be a non-zero integer)`);
     }
     adminChatId = raw.adminChatId;
   }

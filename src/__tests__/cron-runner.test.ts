@@ -89,10 +89,10 @@ describe("cron-runner", () => {
       assert.strictEqual(id, undefined);
     });
 
-    it("returns undefined when adminChatId is negative", () => {
-      writeFileSync(CONFIG_FILE, `adminChatId: -1\nagents: {}\nbindings: []\n`);
+    it("returns adminChatId when it is negative (Telegram group chat)", () => {
+      writeFileSync(CONFIG_FILE, `adminChatId: -1001234567890\nagents: {}\nbindings: []\n`);
       const id = loadAdminChatId(CONFIG_FILE);
-      assert.strictEqual(id, undefined);
+      assert.strictEqual(id, -1001234567890);
     });
   });
 
