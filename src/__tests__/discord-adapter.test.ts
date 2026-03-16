@@ -50,17 +50,17 @@ describe("createDiscordAdapter", () => {
   });
 
   describe("streamingUpdates and typingIndicator flags", () => {
-    it("defaults to true when binding has no flags", () => {
+    it("defaults to false when binding has no flags", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel, defaultBinding);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 
-    it("defaults to true when no binding provided", () => {
+    it("defaults to false when no binding provided", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 

@@ -26,7 +26,7 @@ export function createDiscordAdapter(
     maxMessageLength: DISCORD_MAX_MSG_LENGTH,
     editDebounceMs: DISCORD_EDIT_DEBOUNCE_MS,
     typingIntervalMs: DISCORD_TYPING_INTERVAL_MS,
-    streamingUpdates: binding?.streamingUpdates !== false,
+    streamingUpdates: binding?.streamingUpdates === true,
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
