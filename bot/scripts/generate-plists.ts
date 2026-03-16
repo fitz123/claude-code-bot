@@ -11,10 +11,11 @@ import { parse as parseYaml } from "yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
-const CRONS_PATH = resolve(BOT_DIR, "crons.yaml");
+const REPO_ROOT = resolve(BOT_DIR, "..");
+const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
 const HOME = homedir();
 const LAUNCH_AGENTS_DIR = join(HOME, "Library", "LaunchAgents");
-const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".openclaw", "logs");
+const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".minime", "logs");
 const RUN_CRON_SCRIPT = resolve(BOT_DIR, "scripts", "run-cron.sh");
 
 const dryRun = process.argv.includes("--dry-run");
@@ -207,7 +208,7 @@ ${scheduleSection}
     <key>RunAtLoad</key>
     <false/>
     <key>WorkingDirectory</key>
-    <string>${BOT_DIR}</string>
+    <string>${REPO_ROOT}</string>
     <key>StandardOutPath</key>
     <string>${LOG_DIR}/cron-${cron.name}.stdout.log</string>
     <key>StandardErrorPath</key>
