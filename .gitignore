@@ -31,3 +31,4 @@ crons.yaml
 # OS
 .DS_Store
 *.bak
+*.log

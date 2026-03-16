@@ -32,10 +32,24 @@ if ! [[ "$count" =~ ^[0-9]+$ ]] || [[ "$count" -eq 0 ]]; then
 fi
 
 ack_file="$dir/ack"
-prev=0
-[[ -f "$ack_file" ]] && prev=$(< "$ack_file")
-[[ "$prev" =~ ^[0-9]+$ ]] || prev=0
-echo $(( prev + count )) > "$ack_file"
+_lockdir="$dir/ack.lock"
+_lock_acquired=1
+_lock_tries=0
+while ! mkdir "$_lockdir" 2>/dev/null; do
+  _lock_tries=$(( _lock_tries + 1 ))
+  if [[ $_lock_tries -ge 50 ]]; then
+    _lock_acquired=0
+    break
+  fi
+  sleep 0.01
+done
+if [[ $_lock_acquired -eq 1 ]]; then
+  prev=0
+  [[ -f "$ack_file" ]] && prev=$(< "$ack_file")
+  [[ "$prev" =~ ^[0-9]+$ ]] || prev=0
+  echo $(( prev + count )) > "$ack_file"
+  rmdir "$_lockdir" 2>/dev/null
+fi
 
 framed="LIVE MESSAGE from the user (sent while you were working — read carefully and adjust your approach):
 

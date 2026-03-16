@@ -96,7 +96,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot
 
 2. Generate launchd plists:
    ```bash
-   cd ~/.openclaw/bot && npx tsx scripts/generate-plists.ts
+   cd ~/.openclaw/bot/bot && npx tsx scripts/generate-plists.ts
    ```
 
 3. Load the new plist:
@@ -178,7 +178,7 @@ adminChatId: 123456789  # optional; receive cron delivery failure alerts here
 
 3. Validate and restart:
    ```bash
-   cd ~/.openclaw/bot && npx tsx src/config.ts --validate
+   cd ~/.openclaw/bot/bot && npx tsx src/config.ts --validate
    # Then confirm and restart
    launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
    ```
@@ -329,7 +329,7 @@ If a session crashes 5 times in a row, it is circuit-broken — the bot refuses 
 Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a session is stuck:
 - Check per-session stderr logs for subprocess crash details: `~/.openclaw/logs/session-<chatId>.log`
 - Check bot stderr log for bot-level errors
-- The session store persists across restarts: `~/.openclaw/bot/data/sessions.json`
+- The session store persists across restarts: `~/.openclaw/bot/data/sessions.json` (at repo root, not inside `bot/`)
 - Restarting the bot cleanly closes all sessions (graceful SIGTERM)
 
 **Cron not firing**
@@ -344,7 +344,7 @@ Only 6 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU se
 
 ## Scripts
 
-All in `scripts/`.
+All in `bot/scripts/`.
 
 | Script | Purpose |
 |--------|---------|

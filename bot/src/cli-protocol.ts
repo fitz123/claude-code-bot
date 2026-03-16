@@ -99,9 +99,9 @@ export function buildSpawnEnv(options?: { injectDir?: string }): Record<string, 
   // Mid-turn message injection: tell the PreToolUse hook where to find inject files.
   // Always set explicitly — clear any inherited value when no injectDir is provided.
   if (options?.injectDir) {
-    env.OPENCLAW_INJECT_DIR = options.injectDir;
+    env.BOT_INJECT_DIR = options.injectDir;
   } else {
-    delete env.OPENCLAW_INJECT_DIR;
+    delete env.BOT_INJECT_DIR;
   }
 
   return env;
