@@ -78,7 +78,7 @@ export function loadAdminChatId(configPath?: string): number | undefined {
   const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
     adminChatId?: unknown;
   };
-  if (typeof raw?.adminChatId === "number") {
+  if (typeof raw?.adminChatId === "number" && Number.isInteger(raw.adminChatId) && raw.adminChatId > 0) {
     return raw.adminChatId;
   }
   return undefined;
@@ -204,8 +204,8 @@ async function main(): Promise<void> {
   let adminChatId: number | undefined;
   try {
     adminChatId = loadAdminChatId();
-  } catch {
-    // Config read failure is non-fatal; proceed without admin fallback
+  } catch (err) {
+    log(taskName, `WARN: could not load adminChatId from config: ${(err as Error).message}`);
   }
 
   log(taskName, `Loaded: agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);

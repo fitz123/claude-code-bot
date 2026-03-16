@@ -112,6 +112,12 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot
 
 To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, delete the entry from `crons.yaml`, regenerate.
 
+**Admin notifications:** Set `adminChatId` (top-level in `config.yaml`) to receive a fallback Telegram notification when cron delivery to `deliveryChatId` fails (e.g. bot blocked, chat deleted). Must be a positive integer. If not set, failures are logged locally only.
+
+```yaml
+adminChatId: 123456789  # optional; receive cron delivery failure alerts here
+```
+
 ## Add a Binding
 
 1. If needed, add a new agent to `config.yaml`:
