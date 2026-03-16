@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
 // generate-plists.ts — Generates launchd plist files from crons.yaml
 // Usage: npx tsx scripts/generate-plists.ts [--dry-run]
-// Output: ~/Library/LaunchAgents/ai.openclaw.cron.<name>.plist
+// Output: ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -169,7 +169,7 @@ function calendarIntervalToPlist(interval: CalendarInterval): string {
 }
 
 function generatePlist(cron: CronDef): string {
-  const label = `ai.openclaw.cron.${cron.name}`;
+  const label = `ai.minime.cron.${cron.name}`;
   const intervals = parseCronToCalendarIntervals(cron.schedule);
 
   let scheduleSection: string;
@@ -247,7 +247,7 @@ function main(): void {
       const plistContent = generatePlist(cron);
       const plistPath = resolve(
         LAUNCH_AGENTS_DIR,
-        `ai.openclaw.cron.${cron.name}.plist`,
+        `ai.minime.cron.${cron.name}.plist`,
       );
 
       if (dryRun) {
