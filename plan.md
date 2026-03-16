@@ -161,13 +161,13 @@ When cron delivery to `deliveryChatId` fails, the error is only logged to a loca
 
 What we want: Optional `adminChatId` in config.yaml (top-level). When set, cron-runner sends a fallback notification there on delivery failure. When not set, current behavior (log-only) is preserved.
 
-- [ ] `BotConfig` interface in `src/types.ts` has optional `adminChatId?: number` field
-- [ ] `config.ts` `loadConfig` parses and validates `adminChatId` from config.yaml
-- [ ] `cron-runner.ts` reads `adminChatId` from config and sends fallback notification on delivery failure
-- [ ] Fallback notification includes: cron name, target chatId, error message
-- [ ] If `adminChatId` is not set, behavior is unchanged (log-only)
-- [ ] If fallback notification itself fails, error is logged (no infinite retry)
-- [ ] Add test: adminChatId parsed from config when present
-- [ ] Add test: cron delivery failure triggers fallback notification to adminChatId
-- [ ] Add test: no fallback attempt when adminChatId is not configured
-- [ ] Verify existing tests pass
+- [x] `BotConfig` interface in `src/types.ts` has optional `adminChatId?: number` field
+- [x] `config.ts` `loadConfig` parses and validates `adminChatId` from config.yaml
+- [x] `cron-runner.ts` reads `adminChatId` from config and sends fallback notification on delivery failure
+- [x] Fallback notification includes: cron name, target chatId, error message
+- [x] If `adminChatId` is not set, behavior is unchanged (log-only)
+- [x] If fallback notification itself fails, error is logged (no infinite retry)
+- [x] Add test: adminChatId parsed from config when present
+- [x] Add test: cron delivery failure triggers fallback notification to adminChatId
+- [x] Add test: no fallback attempt when adminChatId is not configured
+- [x] Verify existing tests pass

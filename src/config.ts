@@ -20,6 +20,7 @@ interface RawConfig {
     tokenService?: string;
     bindings?: unknown[];
   };
+  adminChatId?: number;
 }
 
 function resolveKeychainSecret(service: string): string {
@@ -289,7 +290,16 @@ export function loadConfig(configPath?: string): BotConfig {
     metricsPort = raw.metricsPort;
   }
 
-  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, discord };
+  // adminChatId (optional — used by cron-runner for delivery failure notifications)
+  let adminChatId: number | undefined;
+  if (raw.adminChatId !== undefined) {
+    if (!Number.isInteger(raw.adminChatId) || raw.adminChatId <= 0) {
+      throw new Error(`Invalid adminChatId: ${raw.adminChatId} (must be a positive integer)`);
+    }
+    adminChatId = raw.adminChatId;
+  }
+
+  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, discord, adminChatId };
 }
 
 // CLI: validate config

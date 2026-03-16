@@ -74,6 +74,36 @@ function getAgentWorkspace(agentId: string): string {
   return agent.workspaceCwd;
 }
 
+export function loadAdminChatId(configPath?: string): number | undefined {
+  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+    adminChatId?: unknown;
+  };
+  if (typeof raw?.adminChatId === "number") {
+    return raw.adminChatId;
+  }
+  return undefined;
+}
+
+export function handleDeliveryFailure(
+  cronName: string,
+  targetChatId: number,
+  errorMsg: string,
+  adminChatId: number | undefined,
+  deliverFn: (chatId: number, msg: string) => void = deliver,
+): void {
+  log(cronName, `FAIL delivery: ${errorMsg}`);
+  if (adminChatId !== undefined) {
+    try {
+      deliverFn(
+        adminChatId,
+        `⚠️ Cron delivery FAIL\nTask: ${cronName}\nTarget: ${targetChatId}\nError: ${errorMsg}`,
+      );
+    } catch (err) {
+      log(cronName, `FAIL: admin notification failed: ${(err as Error).message}`);
+    }
+  }
+}
+
 function buildDeliverCommand(
   chatId: number,
   threadId?: number,
@@ -171,6 +201,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  let adminChatId: number | undefined;
+  try {
+    adminChatId = loadAdminChatId();
+  } catch {
+    // Config read failure is non-fatal; proceed without admin fallback
+  }
+
   log(taskName, `Loaded: agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
 
   let workspaceCwd: string;
@@ -209,9 +246,7 @@ async function main(): Promise<void> {
     deliver(cron.deliveryChatId, output, cron.deliveryThreadId);
     log(taskName, `Delivered to chat ${cron.deliveryChatId}${cron.deliveryThreadId ? ` thread ${cron.deliveryThreadId}` : ""}`);
   } catch (err) {
-    log(taskName, `FAIL delivery: ${(err as Error).message}`);
-
-    // Delivery failure is already logged above; no secondary notification target
+    handleDeliveryFailure(taskName, cron.deliveryChatId, (err as Error).message, adminChatId);
     process.exit(1);
   }
 

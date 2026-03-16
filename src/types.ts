@@ -90,6 +90,7 @@ export interface BotConfig {
   logLevel?: LogLevel;
   metricsPort?: number;
   discord?: DiscordConfig;
+  adminChatId?: number;
 }
 
 /**
