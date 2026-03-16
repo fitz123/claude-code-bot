@@ -1,7 +1,7 @@
 /**
  * Append-only JSONL logger for reaction events.
  *
- * Writes to ~/.openclaw/logs/reactions.jsonl. Failures are caught and logged
+ * Writes to ~/.minime/logs/reactions.jsonl. Failures are caught and logged
  * to stderr so logging never disrupts the message flow but persistent failures
  * are still detectable operationally.
  */
@@ -10,7 +10,7 @@ import { mkdir, appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".openclaw", "logs");
+const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const LOG_PATH = join(LOG_DIR, "reactions.jsonl");
 
 export interface ReactionLogEntry {

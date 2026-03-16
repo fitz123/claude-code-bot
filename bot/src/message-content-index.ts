@@ -14,13 +14,15 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { log } from "./logger.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const BOT_DIR = resolve(__dirname, "..");
 const MAX_CACHE_SIZE = 10_000;
 const MAX_PREVIEW_LENGTH = 150;
-const DEFAULT_INDEX_PATH = join(homedir(), ".openclaw", "bot", "data", "message-content-index.json");
+const DEFAULT_INDEX_PATH = join(BOT_DIR, "data", "message-content-index.json");
 
 export interface MessageRecord {
   from: string;

@@ -62,20 +62,20 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 ## Start / Stop
 
-The bot runs as a launchd service: `ai.openclaw.telegram-bot`.
+The bot runs as a launchd service: `ai.minime.telegram-bot`.
 
 ```bash
 # Check status
-launchctl print gui/$(id -u)/ai.openclaw.telegram-bot 2>&1 | head -5
+launchctl print gui/$(id -u)/ai.minime.telegram-bot 2>&1 | head -5
 
 # Restart (kills all active Claude sessions!)
-launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
+launchctl kickstart -k gui/$(id -u)/ai.minime.telegram-bot
 
 # Stop
-launchctl bootout gui/$(id -u)/ai.openclaw.telegram-bot
+launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
 
 # Start (if stopped)
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
 ```
 
 **Warning:** Restarting kills all active Claude Code sessions (both Telegram and Discord), drops in-flight messages, and interrupts running sub-agents. Always confirm before restarting.
@@ -101,16 +101,16 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot
 
 3. Load the new plist:
    ```bash
-   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.cron.my-task.plist
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.cron.my-task.plist
    ```
 
 4. Test it:
    ```bash
-   launchctl start ai.openclaw.cron.my-task
+   launchctl start ai.minime.cron.my-task
    tail -f ~/.openclaw/logs/cron-my-task.log
    ```
 
-To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, delete the entry from `crons.yaml`, regenerate.
+To remove a cron: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete the entry from `crons.yaml`, regenerate.
 
 **Admin notifications:** Set `adminChatId` (top-level in `config.yaml`) to receive a fallback Telegram notification when cron delivery to `deliveryChatId` fails (e.g. bot blocked, chat deleted). Must be a non-zero integer (use a negative ID for groups/supergroups). If not set, failures are logged locally only.
 
@@ -180,7 +180,7 @@ adminChatId: 123456789  # optional; receive cron delivery failure alerts here
    ```bash
    cd ~/.openclaw/bot/bot && npx tsx src/config.ts --validate
    # Then confirm and restart
-   launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
+   launchctl kickstart -k gui/$(id -u)/ai.minime.telegram-bot
    ```
 
 ## Add a Discord Binding
@@ -333,7 +333,7 @@ Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a se
 - Restarting the bot cleanly closes all sessions (graceful SIGTERM)
 
 **Cron not firing**
-- Verify plist is loaded: `launchctl list | grep ai.openclaw.cron.my-task`
+- Verify plist is loaded: `launchctl list | grep ai.minime.cron.my-task`
 - Check schedule: plists use `StartCalendarInterval`, not cron syntax directly. Regenerate if in doubt.
 - Check cron log for errors: `tail ~/.openclaw/logs/cron-my-task.log`
 

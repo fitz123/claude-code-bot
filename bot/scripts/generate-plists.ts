@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
 // generate-plists.ts — Generates launchd plist files from crons.yaml
 // Usage: npx tsx scripts/generate-plists.ts [--dry-run]
-// Output: ~/Library/LaunchAgents/ai.openclaw.cron.<name>.plist
+// Output: ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -11,10 +11,11 @@ import { parse as parseYaml } from "yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
-const CRONS_PATH = resolve(BOT_DIR, "crons.yaml");
+const REPO_ROOT = resolve(BOT_DIR, "..");
+const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
 const HOME = homedir();
 const LAUNCH_AGENTS_DIR = join(HOME, "Library", "LaunchAgents");
-const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".openclaw", "logs");
+const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".minime", "logs");
 const RUN_CRON_SCRIPT = resolve(BOT_DIR, "scripts", "run-cron.sh");
 
 const dryRun = process.argv.includes("--dry-run");
@@ -168,7 +169,7 @@ function calendarIntervalToPlist(interval: CalendarInterval): string {
 }
 
 function generatePlist(cron: CronDef): string {
-  const label = `ai.openclaw.cron.${cron.name}`;
+  const label = `ai.minime.cron.${cron.name}`;
   const intervals = parseCronToCalendarIntervals(cron.schedule);
 
   let scheduleSection: string;
@@ -207,7 +208,7 @@ ${scheduleSection}
     <key>RunAtLoad</key>
     <false/>
     <key>WorkingDirectory</key>
-    <string>${BOT_DIR}</string>
+    <string>${REPO_ROOT}</string>
     <key>StandardOutPath</key>
     <string>${LOG_DIR}/cron-${cron.name}.stdout.log</string>
     <key>StandardErrorPath</key>
@@ -246,7 +247,7 @@ function main(): void {
       const plistContent = generatePlist(cron);
       const plistPath = resolve(
         LAUNCH_AGENTS_DIR,
-        `ai.openclaw.cron.${cron.name}.plist`,
+        `ai.minime.cron.${cron.name}.plist`,
       );
 
       if (dryRun) {
