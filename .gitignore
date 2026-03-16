@@ -9,6 +9,9 @@ config.yaml.bak
 config.yaml
 crons.yaml
 
+# Beads task tracking (project-specific, not shipped)
+.beads/
+
 # Dolt database files (added by bd init)
 .dolt/
 dolt/
