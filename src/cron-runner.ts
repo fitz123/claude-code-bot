@@ -230,11 +230,11 @@ async function main(): Promise<void> {
     const errMsg = `Cron task "${taskName}" failed: ${(err as Error).message}`;
     log(taskName, `FAIL: ${errMsg}`);
 
-    // Send failure notification to delivery chat
+    // Send failure notification to delivery chat; use admin fallback if delivery fails
     try {
       deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`);
-    } catch {
-      log(taskName, "FAIL: could not deliver failure notification");
+    } catch (deliveryErr) {
+      handleDeliveryFailure(taskName, cron.deliveryChatId, (deliveryErr as Error).message, adminChatId);
     }
     process.exit(1);
   }
