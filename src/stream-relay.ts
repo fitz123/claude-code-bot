@@ -256,6 +256,19 @@ export async function relayStream(
 
     finalSent = true;
 
+    // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery
+    if (accumulated && accumulated.trim() === "NO_REPLY") {
+      if (sentMessageId !== null) {
+        // Delete the streaming message that was already sent
+        try {
+          await platform.deleteMessage(sentMessageId);
+        } catch {
+          // best-effort: message may already be gone
+        }
+      }
+      return;
+    }
+
     // Send final text version
     if (accumulated) {
       const chunks = splitMessage(accumulated, platform.maxMessageLength);

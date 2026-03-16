@@ -104,6 +104,9 @@ export interface PlatformContext {
   /** Edit a previously sent message by its ID. */
   editMessage(messageId: string, text: string): Promise<void>;
 
+  /** Delete a previously sent message by its ID. Best-effort — failures are silently ignored by callers. */
+  deleteMessage(messageId: string): Promise<void>;
+
   /** Send a typing/action indicator. */
   sendTyping(): Promise<void>;
 

@@ -428,6 +428,8 @@ function mockPlatform(options?: {
       typings.push(Date.now());
     },
 
+    async deleteMessage(): Promise<void> {},
+
     async sendFile(): Promise<void> {},
 
     async replyError(text: string): Promise<void> {

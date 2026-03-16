@@ -43,6 +43,14 @@ export function createDiscordAdapter(
       }
     },
 
+    async deleteMessage(messageId: string): Promise<void> {
+      const msg = sentMessages.get(messageId);
+      if (msg) {
+        await msg.delete();
+        sentMessages.delete(messageId);
+      }
+    },
+
     async sendTyping(): Promise<void> {
       await channel.sendTyping();
     },
