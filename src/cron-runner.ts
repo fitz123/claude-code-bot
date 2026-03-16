@@ -4,8 +4,9 @@
 
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import type { CronJob, AgentConfig } from "./types.js";
 
@@ -13,9 +14,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
 const CRONS_PATH = resolve(BOT_DIR, "crons.yaml");
 const CONFIG_PATH = resolve(BOT_DIR, "config.yaml");
-const LOG_DIR = "/Users/ninja/.openclaw/logs";
+const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".openclaw", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
-const NINJA_CHAT_ID = 306600687;
 
 const DEFAULT_TIMEOUT_MS = 300000; // 5 minutes
 
@@ -31,8 +31,8 @@ interface CronsYaml {
   crons: Array<Record<string, unknown>>;
 }
 
-function loadCronTask(taskName: string): CronJob {
-  const raw: CronsYaml = parseYaml(readFileSync(CRONS_PATH, "utf8"));
+function loadCronTask(taskName: string, cronsPath?: string): CronJob {
+  const raw: CronsYaml = parseYaml(readFileSync(cronsPath ?? CRONS_PATH, "utf8"));
   if (!raw?.crons || !Array.isArray(raw.crons)) {
     throw new Error("crons.yaml missing 'crons' array");
   }
@@ -47,13 +47,15 @@ function loadCronTask(taskName: string): CronJob {
   }
 
   const c = found as Record<string, unknown>;
+  if (typeof c.deliveryChatId !== "number") {
+    throw new Error(`Task "${taskName}" missing required 'deliveryChatId' in crons.yaml`);
+  }
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
     prompt: String(c.prompt),
     agentId: String(c.agentId ?? "main"),
-    deliveryChatId:
-      typeof c.deliveryChatId === "number" ? c.deliveryChatId : NINJA_CHAT_ID,
+    deliveryChatId: c.deliveryChatId,
     deliveryThreadId:
       typeof c.deliveryThreadId === "number" ? c.deliveryThreadId : undefined,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
@@ -129,7 +131,7 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
   const env = { ...process.env };
   delete env.CLAUDECODE;
   delete env.ANTHROPIC_API_KEY;
-  env.HOME = "/Users/ninja";
+  env.HOME = homedir();
   env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
   env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
   env.CLAUDE_CODE_DISABLE_CRON = "1";
@@ -187,9 +189,9 @@ async function main(): Promise<void> {
     const errMsg = `Cron task "${taskName}" failed: ${(err as Error).message}`;
     log(taskName, `FAIL: ${errMsg}`);
 
-    // Send failure notification to Ninja
+    // Send failure notification to delivery chat
     try {
-      deliver(NINJA_CHAT_ID, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`);
+      deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`);
     } catch {
       log(taskName, "FAIL: could not deliver failure notification");
     }
@@ -209,17 +211,7 @@ async function main(): Promise<void> {
   } catch (err) {
     log(taskName, `FAIL delivery: ${(err as Error).message}`);
 
-    // If delivery to target failed, try notifying Ninja
-    if (cron.deliveryChatId !== NINJA_CHAT_ID) {
-      try {
-        deliver(
-          NINJA_CHAT_ID,
-          `⚠️ Cron "${taskName}" ran OK but delivery to ${cron.deliveryChatId} failed: ${(err as Error).message}`,
-        );
-      } catch {
-        log(taskName, "FAIL: could not deliver failure notification to Ninja");
-      }
-    }
+    // Delivery failure is already logged above; no secondary notification target
     process.exit(1);
   }
 

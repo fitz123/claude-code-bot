@@ -1,6 +1,8 @@
 import { type ChildProcess } from "node:child_process";
 import { createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import PQueue from "p-queue";
 import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
@@ -9,7 +11,7 @@ import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
 
-const LOG_DIR = "/Users/ninja/.openclaw/logs";
+const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".openclaw", "logs");
 const OUTBOX_BASE = "/tmp/bot-outbox";
 const STARTUP_TIMEOUT_MS = 10_000;
 const RESPONSE_ACTIVITY_TIMEOUT_MS = 900_000; // 15 minutes with no events = hung

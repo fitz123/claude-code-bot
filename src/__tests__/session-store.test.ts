@@ -1,6 +1,8 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { SessionStore } from "../session-store.js";
 
 const TEST_DIR = "/tmp/openclaw-test-store";
@@ -63,7 +65,7 @@ describe("SessionStore", () => {
     store1.setSession("456", {
       sessionId: "uuid-2",
       chatId: "456",
-      agentId: "yulia",
+      agentId: "agent-b",
       lastActivity: 2000,
     });
 
@@ -72,7 +74,7 @@ describe("SessionStore", () => {
     const session = store2.getSession("456");
     assert.ok(session);
     assert.strictEqual(session!.sessionId, "uuid-2");
-    assert.strictEqual(session!.agentId, "yulia");
+    assert.strictEqual(session!.agentId, "agent-b");
   });
 
   it("deletes a session", () => {
@@ -105,7 +107,7 @@ describe("SessionStore", () => {
     store.setSession("b", {
       sessionId: "u2",
       chatId: "b",
-      agentId: "yulia",
+      agentId: "agent-b",
       lastActivity: 2,
     });
 
@@ -151,5 +153,15 @@ describe("SessionStore", () => {
     });
 
     assert.ok(existsSync(deepPath));
+  });
+
+  it("default path resolves relative to project dir (not hardcoded)", () => {
+    // Verify the default path is derived from module location, ending with data/sessions.json
+    const store = new SessionStore();
+    const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const expectedPath = resolve(projectRoot, "data", "sessions.json");
+    // Access internal path to verify it matches the dynamically-resolved project path
+    assert.strictEqual((store as any).path, expectedPath);
+    assert.ok(expectedPath.endsWith("/data/sessions.json"), "Default path must end with data/sessions.json");
   });
 });

@@ -78,18 +78,18 @@ launchctl bootout gui/$(id -u)/ai.openclaw.telegram-bot
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.telegram-bot.plist
 ```
 
-**Warning:** Restarting kills all active Claude Code sessions (both Telegram and Discord), drops in-flight messages, and interrupts running sub-agents. Always confirm with Ninja first.
+**Warning:** Restarting kills all active Claude Code sessions (both Telegram and Discord), drops in-flight messages, and interrupts running sub-agents. Always confirm before restarting.
 
 ## Add a Cron
 
 1. Edit `crons.yaml` — add a new entry:
    ```yaml
    - name: my-task
-     schedule: "30 9 * * *"       # cron syntax, Europe/Moscow
+     schedule: "30 9 * * *"       # cron syntax, local timezone
      prompt: >
        Do the thing.
      agentId: main                # must match an agent in config.yaml
-     deliveryChatId: 306600687    # where to send results
+     deliveryChatId: YOUR_CHAT_ID  # where to send results
      timeout: 300000              # ms, optional
      maxBudget: 0.50              # USD, optional
    ```
@@ -119,7 +119,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
    agents:
      new-agent:
        id: new-agent
-       workspaceCwd: /Users/ninja/.openclaw/workspace-new
+       workspaceCwd: /Users/YOU/.openclaw/workspace-new
        model: claude-opus-4-6
        fallbackModel: claude-sonnet-4-6
        maxTurns: 250  # max agentic loops per message (omit for unlimited)
@@ -173,7 +173,7 @@ To remove a cron: `launchctl bootout gui/$(id -u)/ai.openclaw.cron.<name>`, dele
 3. Validate and restart:
    ```bash
    cd ~/.openclaw/bot && npx tsx src/config.ts --validate
-   # Then ask Ninja to confirm restart
+   # Then confirm and restart
    launchctl kickstart -k gui/$(id -u)/ai.openclaw.telegram-bot
    ```
 
@@ -299,9 +299,11 @@ Available metrics:
 ### Voice transcription requirements
 
 Voice transcription requires:
-- `ffmpeg` installed at `/opt/homebrew/bin/ffmpeg` (converts Opus-in-OGG to WAV)
-- `whisper-cli` installed at `/opt/homebrew/bin/whisper-cli`
-- Whisper model at `/opt/homebrew/share/whisper-cpp/ggml-medium.bin`
+- `ffmpeg` (converts Opus-in-OGG to WAV)
+- `whisper-cli` (whisper.cpp CLI)
+- Whisper model file (e.g. `ggml-medium.bin`)
+
+Default paths assume Homebrew on Apple Silicon. Override with env vars: `FFMPEG_BIN`, `WHISPER_BIN`, `WHISPER_MODEL`, `WHISPER_LANGUAGE` (default: `auto`).
 
 ### Common issues
 

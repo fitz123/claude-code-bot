@@ -1,0 +1,27 @@
+# Cron job definitions — loaded by cron-runner.ts
+# All times use the machine's local timezone
+# Copy this file to crons.yaml and customize:
+#   cp crons.yaml.example crons.yaml
+
+crons:
+  # Example: daily workspace backup
+  - name: backup-git
+    schedule: "0 4 * * *"              # 4:00 AM daily
+    prompt: >
+      Run the git backup script and report results.
+      If successful, respond NO_REPLY.
+      If it fails, output a brief error summary.
+    agentId: main                      # must match an agent in config.yaml
+    deliveryChatId: YOUR_CHAT_ID       # Telegram chat ID for delivery
+    timeout: 300000                    # 5 minutes
+
+  # Example: weekly health check
+  - name: weekly-health
+    enabled: true
+    schedule: "0 10 * * 1"             # Monday 10:00 AM
+    prompt: >
+      Run a workspace health check. If everything is clean,
+      respond NO_REPLY. Otherwise report issues found.
+    agentId: main
+    deliveryChatId: YOUR_CHAT_ID
+    timeout: 300000

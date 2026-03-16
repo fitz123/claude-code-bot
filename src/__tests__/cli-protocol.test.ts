@@ -16,7 +16,7 @@ import type { AgentConfig, StreamLine } from "../types.js";
 
 const testAgent: AgentConfig = {
   id: "main",
-  workspaceCwd: "/Users/ninja/.openclaw/workspace",
+  workspaceCwd: "/tmp/test-workspace",
   model: "claude-opus-4-6",
   fallbackModel: "claude-sonnet-4-6",
   maxTurns: 50,
@@ -63,7 +63,7 @@ describe("buildSpawnArgs", () => {
   it("includes --add-dir with workspace", () => {
     const args = buildSpawnArgs({ agent: testAgent });
     assert.ok(args.includes("--add-dir"));
-    assert.ok(args.includes("/Users/ninja/.openclaw/workspace"));
+    assert.ok(args.includes("/tmp/test-workspace"));
   });
 
   it("includes --max-turns", () => {
