@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { SessionState } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_STORE_PATH = resolve(__dirname, "..", "data", "sessions.json");
+const DEFAULT_STORE_PATH = resolve(__dirname, "..", "..", "data", "sessions.json");
 
 export type SessionStoreData = Record<string, SessionState>;
 
