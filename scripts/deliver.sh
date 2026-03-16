@@ -56,7 +56,7 @@ if [ -z "$TOKEN" ]; then
 fi
 
 API="https://api.telegram.org/bot${TOKEN}"
-LOG_DIR="/Users/user/.openclaw/logs"
+LOG_DIR="${LOG_DIR:-$HOME/.openclaw/logs}"
 LOG_FILE="${LOG_DIR}/cron-delivery.log"
 mkdir -p "$LOG_DIR"
 

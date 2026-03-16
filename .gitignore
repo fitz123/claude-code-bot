@@ -2,11 +2,15 @@ node_modules/
 dist/
 data/
 *.log
-# ralphex runtime (worktrees, progress) — not tracked
-# plans, config, scripts, prompts — tracked
-.ralphex/worktrees/
-.ralphex/progress/
+# ralphex internal tooling — not shipped in public release
+.ralphex/
+SOAK-TEST.md
 config.yaml.bak
+config.yaml
+crons.yaml
+
+# Beads task tracking (project-specific, not shipped)
+.beads/
 
 # Dolt database files (added by bd init)
 .dolt/
