@@ -356,6 +356,7 @@ export class SessionManager {
           if (line.type === "result") {
             gotResult = true;
             session.lastSuccessAt = Date.now();
+            session.lastActivity = Date.now();
             // Reset crash backoff on successful response
             this.restartCounts.set(chatId, 0);
             recordResultMetrics(session.agentId, line);
