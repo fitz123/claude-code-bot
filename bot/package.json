@@ -1,11 +1,11 @@
 {
-  "name": "openclaw-bot",
+  "name": "claude-code-bot",
   "version": "1.0.0",
   "description": "Multi-agent Telegram and Discord bot powered by Claude Code, designed for Claude Max subscription users",
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nicobailon/openclaw-bot.git"
+    "url": "https://github.com/Fitz123/claude-code-bot.git"
   },
   "scripts": {
     "test": "node --import tsx --test src/__tests__/*.test.ts",

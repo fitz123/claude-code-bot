@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 
 export const INJECT_DIR_BASE = "/tmp/bot-inject";
-export const INJECT_ENV_VAR = "OPENCLAW_INJECT_DIR";
+export const INJECT_ENV_VAR = "BOT_INJECT_DIR";
 
 /** Deterministic inject directory path for a given chat/session key. */
 export function injectDirForChat(chatId: string): string {

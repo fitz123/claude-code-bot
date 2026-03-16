@@ -1,19 +1,34 @@
-node_modules/
-dist/
+# Bot runtime
+bot/node_modules/
+bot/dist/
+bot/config.yaml
+bot/crons.yaml
+
+# Bot data (runtime state)
 data/
-*.log
-# ralphex internal tooling — not shipped in public release
+
+# Beads task DB (local)
+.beads/
+dolt/
+dolt-server.*
+
+# Workspace user data
+memory/*
+!memory/.gitkeep
+.claude/settings.local.json
+.claude/rules/custom/*
+!.claude/rules/custom/.gitkeep
+reference/
+
+# Ralphex
 .ralphex/
-SOAK-TEST.md
-config.yaml.bak
+completed/
+
+# Instance config (user creates from .example)
 config.yaml
 crons.yaml
 
-# Beads task tracking (project-specific, not shipped)
-.beads/
-
-# Dolt database files (added by bd init)
-.dolt/
-dolt/
-dolt-server.*
-*.db
+# OS
+.DS_Store
+*.bak
+*.log

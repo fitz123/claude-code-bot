@@ -154,14 +154,14 @@ describe("buildSpawnEnv", () => {
     assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
   });
 
-  it("sets OPENCLAW_INJECT_DIR when injectDir is provided", () => {
+  it("sets BOT_INJECT_DIR when injectDir is provided", () => {
     const env = buildSpawnEnv({ injectDir: "/tmp/bot-inject/test123" });
-    assert.strictEqual(env.OPENCLAW_INJECT_DIR, "/tmp/bot-inject/test123");
+    assert.strictEqual(env.BOT_INJECT_DIR, "/tmp/bot-inject/test123");
   });
 
-  it("does not set OPENCLAW_INJECT_DIR when no options provided", () => {
+  it("does not set BOT_INJECT_DIR when no options provided", () => {
     const env = buildSpawnEnv();
-    assert.strictEqual(env.OPENCLAW_INJECT_DIR, undefined);
+    assert.strictEqual(env.BOT_INJECT_DIR, undefined);
   });
 });
 
