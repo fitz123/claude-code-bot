@@ -137,6 +137,7 @@ export async function relayStream(
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let finalSent = false;
   let sawNonTextBlock = false;
+  let initialSendFailed = false;
 
   // Take over pre-stream typing if active (clean handoff from message queue)
   if (platform.preStreamTypingTimer) {
@@ -221,7 +222,7 @@ export async function relayStream(
       }
 
       // Send initial message once we have text (only if streaming is enabled)
-      if (accumulated && sentMessageId === null && platform.streamingUpdates) {
+      if (accumulated && sentMessageId === null && platform.streamingUpdates && !initialSendFailed) {
         const displayText = accumulated.length > platform.maxMessageLength
           ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
           : accumulated;
@@ -230,8 +231,8 @@ export async function relayStream(
           lastEditTime = Date.now();
           messagesSent.inc();
         } catch (err) {
-          log.warn("stream-relay", `Failed to send initial streaming message: ${err instanceof Error ? err.message : err}`);
-          sentMessageId = null;
+          log.warn("stream-relay", `Failed to send initial streaming message, falling back to final send: ${err instanceof Error ? err.message : err}`);
+          initialSendFailed = true;
         }
         continue;
       }
@@ -300,8 +301,9 @@ export async function relayStream(
               log.error("stream-relay", `Fallback reply also failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
               // If we can't send chunks[0] at all, skip remaining chunks —
               // the API is clearly failing and partial output missing the
-              // beginning would be confusing.
-              return;
+              // beginning would be confusing.  Throw so the queue's error
+              // handler can attempt to notify the user.
+              throw new Error(`Failed to deliver response: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
             }
           }
         }
@@ -324,8 +326,9 @@ export async function relayStream(
           } catch (err) {
             log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
             // If the first chunk fails, skip remaining — partial output missing
-            // the beginning would be confusing (same logic as the streaming path).
-            if (i === 0) return;
+            // the beginning would be confusing.  Throw so the queue's error
+            // handler can attempt to notify the user.
+            if (i === 0) throw new Error(`Failed to deliver response: ${err instanceof Error ? err.message : err}`);
           }
         }
       }
