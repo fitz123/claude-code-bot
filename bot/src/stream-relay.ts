@@ -323,6 +323,9 @@ export async function relayStream(
             messagesSent.inc();
           } catch (err) {
             log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
+            // If the first chunk fails, skip remaining — partial output missing
+            // the beginning would be confusing (same logic as the streaming path).
+            if (i === 0) return;
           }
         }
       }

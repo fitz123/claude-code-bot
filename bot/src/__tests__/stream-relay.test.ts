@@ -705,7 +705,7 @@ describe("relayStream sendMessage error handling", () => {
     assert.ok(allText.includes("Part1"), "Should contain all accumulated text");
   });
 
-  it("continues sending remaining chunks when one chunk fails", async () => {
+  it("aborts remaining chunks when first chunk fails", async () => {
     const { platform, sends } = mockPlatform({ sendShouldThrow: 1, streamingUpdates: false });
     // Create text that splits into 3 chunks (each ~3000 chars, max is 4096)
     const chunk1 = "a".repeat(3000);
@@ -716,8 +716,23 @@ describe("relayStream sendMessage error handling", () => {
 
     await relayStream(stream, platform);
 
-    // First chunk (call 1) fails, but chunks 2 and 3 should still be sent
-    assert.strictEqual(sends.length, 2, "Should send 2 of 3 chunks (first failed)");
+    // First chunk (call 1) fails — skip remaining to avoid confusing partial output
+    assert.strictEqual(sends.length, 0, "Should not send any chunks when first fails");
+  });
+
+  it("continues sending remaining chunks when a non-first chunk fails", async () => {
+    const { platform, sends } = mockPlatform({ sendShouldThrow: 2, streamingUpdates: false });
+    // Create text that splits into 3 chunks (each ~3000 chars, max is 4096)
+    const chunk1 = "a".repeat(3000);
+    const chunk2 = "b".repeat(3000);
+    const chunk3 = "c".repeat(3000);
+    const text = chunk1 + "\n\n" + chunk2 + "\n\n" + chunk3;
+    const stream = fakeStream([text]);
+
+    await relayStream(stream, platform);
+
+    // Chunk 1 succeeds, chunk 2 (call 2) fails, chunk 3 succeeds
+    assert.strictEqual(sends.length, 2, "Should send chunks 1 and 3 (chunk 2 failed)");
   });
 
   it("does not throw when all sendMessage calls fail", async () => {
