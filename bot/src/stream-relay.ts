@@ -315,7 +315,7 @@ export async function relayStream(
             log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
           }
         }
-      } else if (sentMessageId === null) {
+      } else {
         // No initial message was sent (streaming disabled or no text during streaming)
         for (let i = 0; i < chunks.length; i++) {
           try {
