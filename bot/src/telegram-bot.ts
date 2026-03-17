@@ -396,7 +396,7 @@ export interface TelegramBotResult {
 export const AUTO_RETRY_OPTIONS = {
   maxRetryAttempts: 5,
   maxDelaySeconds: 60,
-  rethrowHttpErrors: true,
+  rethrowHttpErrors: false,
 } as const;
 
 /**
