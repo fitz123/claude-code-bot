@@ -1013,8 +1013,8 @@ describe("buildReactionContext", () => {
 });
 
 describe("AUTO_RETRY_OPTIONS", () => {
-  it("has rethrowHttpErrors set to false so autoRetry handles network errors internally", () => {
-    assert.strictEqual(AUTO_RETRY_OPTIONS.rethrowHttpErrors, false);
+  it("has rethrowHttpErrors set to true so errors propagate after retry exhaustion", () => {
+    assert.strictEqual(AUTO_RETRY_OPTIONS.rethrowHttpErrors, true);
   });
 
   it("has maxRetryAttempts and maxDelaySeconds configured", () => {

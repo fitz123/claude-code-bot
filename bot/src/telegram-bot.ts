@@ -392,11 +392,11 @@ export interface TelegramBotResult {
   messageQueue: MessageQueue;
 }
 
-/** autoRetry options — exported so tests can assert rethrowHttpErrors is set. */
+/** autoRetry options — exported so tests can assert the rethrowHttpErrors value. */
 export const AUTO_RETRY_OPTIONS = {
   maxRetryAttempts: 5,
   maxDelaySeconds: 60,
-  rethrowHttpErrors: false,
+  rethrowHttpErrors: true,
 } as const;
 
 /**

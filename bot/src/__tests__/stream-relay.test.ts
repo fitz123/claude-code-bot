@@ -396,6 +396,7 @@ async function* fakeStreamWithTools(segments: Array<string | "tool_use">): Async
 /** Create a mock PlatformContext for relayStream tests. */
 function mockPlatform(options?: {
   editShouldThrow?: boolean;
+  sendShouldThrow?: boolean | number;
   streamingUpdates?: boolean;
   typingIndicator?: boolean;
 }) {
@@ -413,6 +414,11 @@ function mockPlatform(options?: {
 
     async sendMessage(text: string): Promise<string> {
       messageCounter++;
+      // sendShouldThrow: true = always throw, number = throw on that call number
+      if (options?.sendShouldThrow === true ||
+          (typeof options?.sendShouldThrow === "number" && messageCounter === options.sendShouldThrow)) {
+        throw new Error("NetworkError: sendMessage failed");
+      }
       sends.push({ text });
       return String(messageCounter);
     },
@@ -670,5 +676,57 @@ describe("relayStream paragraph breaks across tool-use", () => {
     assert.strictEqual(sends.length, 2, "Should split into 2 messages");
     assert.strictEqual(sends[0].text, longBefore);
     assert.strictEqual(sends[1].text, longAfter);
+  });
+});
+
+describe("relayStream sendMessage error handling", () => {
+  it("does not throw when initial streaming sendMessage fails", async () => {
+    const { platform, sends } = mockPlatform({ sendShouldThrow: 1 });
+    const stream = fakeStream(["Hello", " world"]);
+
+    // Should not throw — the error is caught internally
+    await relayStream(stream, platform);
+
+    // The initial send failed (call 1), but final send should succeed (call 2)
+    assert.ok(sends.length >= 1, "Should still deliver the final message");
+    assert.strictEqual(sends[0].text, "Hello world");
+  });
+
+  it("delivers full text via non-streaming path when initial send fails", async () => {
+    const { platform, sends } = mockPlatform({ sendShouldThrow: 1 });
+    const stream = fakeStream(["Part1", " Part2", " Part3"]);
+
+    await relayStream(stream, platform);
+
+    // sentMessageId stayed null after failed initial send, so final text
+    // goes through the "no initial message" path
+    assert.ok(sends.length >= 1, "Should deliver message despite initial failure");
+    const allText = sends.map(s => s.text).join("");
+    assert.ok(allText.includes("Part1"), "Should contain all accumulated text");
+  });
+
+  it("continues sending remaining chunks when one chunk fails", async () => {
+    const { platform, sends } = mockPlatform({ sendShouldThrow: 1, streamingUpdates: false });
+    // Create text that splits into 3 chunks (each ~3000 chars, max is 4096)
+    const chunk1 = "a".repeat(3000);
+    const chunk2 = "b".repeat(3000);
+    const chunk3 = "c".repeat(3000);
+    const text = chunk1 + "\n\n" + chunk2 + "\n\n" + chunk3;
+    const stream = fakeStream([text]);
+
+    await relayStream(stream, platform);
+
+    // First chunk (call 1) fails, but chunks 2 and 3 should still be sent
+    assert.strictEqual(sends.length, 2, "Should send 2 of 3 chunks (first failed)");
+  });
+
+  it("does not throw when all sendMessage calls fail", async () => {
+    const { platform, sends } = mockPlatform({ sendShouldThrow: true });
+    const stream = fakeStream(["Hello"]);
+
+    // Should complete without throwing
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "No messages should be recorded when all sends fail");
   });
 });
