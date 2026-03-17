@@ -714,9 +714,10 @@ describe("relayStream sendMessage error handling", () => {
     const text = chunk1 + "\n\n" + chunk2 + "\n\n" + chunk3;
     const stream = fakeStream([text]);
 
-    await relayStream(stream, platform);
+    // First chunk fails — throws so the queue's error handler can notify the user
+    await assert.rejects(() => relayStream(stream, platform), /Failed to deliver response/);
 
-    // First chunk (call 1) fails — skip remaining to avoid confusing partial output
+    // No chunks should have been sent
     assert.strictEqual(sends.length, 0, "Should not send any chunks when first fails");
   });
 
@@ -735,12 +736,12 @@ describe("relayStream sendMessage error handling", () => {
     assert.strictEqual(sends.length, 2, "Should send chunks 1 and 3 (chunk 2 failed)");
   });
 
-  it("does not throw when all sendMessage calls fail", async () => {
+  it("throws when all sendMessage calls fail so queue can notify user", async () => {
     const { platform, sends } = mockPlatform({ sendShouldThrow: true });
     const stream = fakeStream(["Hello"]);
 
-    // Should complete without throwing
-    await relayStream(stream, platform);
+    // Should throw so the queue's error handler can send a user-facing error
+    await assert.rejects(() => relayStream(stream, platform), /Failed to deliver response/);
 
     assert.strictEqual(sends.length, 0, "No messages should be recorded when all sends fail");
   });
