@@ -225,9 +225,14 @@ export async function relayStream(
         const displayText = accumulated.length > platform.maxMessageLength
           ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
           : accumulated;
-        sentMessageId = await platform.sendMessage(displayText);
-        lastEditTime = Date.now();
-        messagesSent.inc();
+        try {
+          sentMessageId = await platform.sendMessage(displayText);
+          lastEditTime = Date.now();
+          messagesSent.inc();
+        } catch (err) {
+          log.warn("stream-relay", `Failed to send initial streaming message: ${err instanceof Error ? err.message : err}`);
+          sentMessageId = null;
+        }
         continue;
       }
 
@@ -303,14 +308,22 @@ export async function relayStream(
 
         // Send remaining chunks as new messages
         for (let i = 1; i < chunks.length; i++) {
-          await platform.sendMessage(chunks[i]);
-          messagesSent.inc();
+          try {
+            await platform.sendMessage(chunks[i]);
+            messagesSent.inc();
+          } catch (err) {
+            log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
+          }
         }
       } else if (sentMessageId === null) {
         // No initial message was sent (streaming disabled or no text during streaming)
-        for (const chunk of chunks) {
-          await platform.sendMessage(chunk);
-          messagesSent.inc();
+        for (let i = 0; i < chunks.length; i++) {
+          try {
+            await platform.sendMessage(chunks[i]);
+            messagesSent.inc();
+          } catch (err) {
+            log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
+          }
         }
       }
     }
