@@ -245,6 +245,22 @@ function main(): void {
       console.log(`[SKIP] ${cron.name} (enabled: false)`);
       continue;
     }
+    const cronType = cron.type ?? "llm";
+    if (cronType !== "llm" && cronType !== "script") {
+      console.error(`ERROR: ${cron.name} has invalid type "${cron.type}" (must be "llm" or "script")`);
+      errors++;
+      continue;
+    }
+    if (cronType === "script" && (!cron.command || !cron.command.trim())) {
+      console.error(`ERROR: ${cron.name} is type "script" but missing required "command" field`);
+      errors++;
+      continue;
+    }
+    if (cronType === "llm" && (!cron.prompt || !cron.prompt.trim())) {
+      console.error(`ERROR: ${cron.name} is type "llm" but missing required "prompt" field`);
+      errors++;
+      continue;
+    }
     try {
       const plistContent = generatePlist(cron);
       const plistPath = resolve(
