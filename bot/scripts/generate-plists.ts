@@ -23,7 +23,9 @@ const dryRun = process.argv.includes("--dry-run");
 interface CronDef {
   name: string;
   schedule: string;
-  prompt: string;
+  type?: "llm" | "script";
+  prompt?: string;
+  command?: string;
   agentId: string;
   deliveryChatId: number;
   timeout?: number;

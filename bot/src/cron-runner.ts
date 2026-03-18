@@ -62,10 +62,25 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   const deliveryThreadId = typeof c.deliveryThreadId === "number"
     ? c.deliveryThreadId
     : defaults?.defaultDeliveryThreadId;
+
+  const cronType = c.type === "script" ? "script" as const : "llm" as const;
+
+  if (cronType === "script") {
+    if (typeof c.command !== "string" || !c.command) {
+      throw new Error(`Task "${taskName}" is type 'script' but missing required 'command' field`);
+    }
+  } else {
+    if (typeof c.prompt !== "string" || !c.prompt) {
+      throw new Error(`Task "${taskName}" missing required 'prompt' field`);
+    }
+  }
+
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
-    prompt: String(c.prompt),
+    type: cronType,
+    prompt: cronType === "llm" ? String(c.prompt) : undefined,
+    command: cronType === "script" ? String(c.command) : undefined,
     agentId: String(c.agentId ?? "main"),
     deliveryChatId,
     deliveryThreadId,
@@ -159,6 +174,23 @@ function deliver(
   }
 }
 
+function runScript(cron: CronJob): string {
+  if (!cron.command) {
+    throw new Error(`Script-mode cron "${cron.name}" has no command`);
+  }
+  const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
+
+  const output = execSync(cron.command, {
+    encoding: "utf8",
+    timeout: timeoutMs,
+    shell: "/bin/bash",
+    maxBuffer: 10 * 1024 * 1024, // 10MB
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  return output.trim();
+}
+
 function runClaude(cron: CronJob, workspaceCwd: string): string {
   const today = new Date().toISOString().split("T")[0];
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
@@ -166,7 +198,7 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
   const args: string[] = [
     "claude",
     "-p",
-    cron.prompt,
+    cron.prompt!,
     "--output-format",
     "text",
     "--no-session-persistence",
@@ -245,20 +277,24 @@ async function main(): Promise<void> {
     log(taskName, `WARN: could not load adminChatId from config: ${(err as Error).message}`);
   }
 
-  log(taskName, `Loaded: agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
-
-  let workspaceCwd: string;
-  try {
-    workspaceCwd = getAgentWorkspace(cron.agentId);
-  } catch (err) {
-    log(taskName, `FAIL: ${(err as Error).message}`);
-    process.exit(1);
-  }
+  log(taskName, `Loaded: type=${cron.type}, agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
 
   let output: string;
   try {
-    output = runClaude(cron, workspaceCwd);
-    log(taskName, `Claude returned ${output.length} chars`);
+    if (cron.type === "script") {
+      output = runScript(cron);
+      log(taskName, `Script returned ${output.length} chars`);
+    } else {
+      let workspaceCwd: string;
+      try {
+        workspaceCwd = getAgentWorkspace(cron.agentId);
+      } catch (err) {
+        log(taskName, `FAIL: ${(err as Error).message}`);
+        process.exit(1);
+      }
+      output = runClaude(cron, workspaceCwd);
+      log(taskName, `Claude returned ${output.length} chars`);
+    }
   } catch (err) {
     const errMsg = `Cron task "${taskName}" failed: ${(err as Error).message}`;
     log(taskName, `FAIL: ${errMsg}`);
@@ -303,4 +339,4 @@ if (isMain) {
   main();
 }
 
-export { loadCronTask, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, shellEscape };
+export { loadCronTask, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, runScript, shellEscape };

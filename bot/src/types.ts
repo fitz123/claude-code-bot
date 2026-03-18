@@ -61,7 +61,9 @@ export interface DiscordConfig {
 export interface CronJob {
   name: string;
   schedule: string;
-  prompt: string;
+  type: "llm" | "script";
+  prompt?: string;
+  command?: string;
   agentId: string;
   deliveryChatId: number;
   deliveryThreadId?: number;

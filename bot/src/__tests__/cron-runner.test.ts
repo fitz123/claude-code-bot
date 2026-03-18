@@ -2,8 +2,9 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape, loadAdminChatId, handleDeliveryFailure, loadDefaultDelivery } from "../cron-runner.js";
+import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape, loadAdminChatId, handleDeliveryFailure, loadDefaultDelivery, runScript } from "../cron-runner.js";
 import type { DeliveryDefaults } from "../cron-runner.js";
+import type { CronJob } from "../types.js";
 
 // We test the pure functions. runClaude and deliver require real claude/Telegram.
 
@@ -304,6 +305,123 @@ describe("cron-runner", () => {
     agentId: main
 `);
       assert.throws(() => loadCronTask("test-task", CRONS_FILE, {}), /missing 'deliveryChatId'/);
+    });
+  });
+
+  describe("loadCronTask — script-mode crons", () => {
+    const CRONS_DIR = join(TEST_DIR, "cron-script");
+    const CRONS_FILE = join(CRONS_DIR, "crons.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CRONS_DIR, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(CRONS_DIR, { recursive: true, force: true });
+    });
+
+    it("loads script-mode cron with command field", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: backup-task
+    schedule: "0 2 * * *"
+    type: script
+    command: "/usr/bin/backup.sh --full"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      const cron = loadCronTask("backup-task", CRONS_FILE);
+      assert.strictEqual(cron.type, "script");
+      assert.strictEqual(cron.command, "/usr/bin/backup.sh --full");
+      assert.strictEqual(cron.prompt, undefined);
+    });
+
+    it("throws when script-mode cron is missing command field", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-script
+    schedule: "0 2 * * *"
+    type: script
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      assert.throws(() => loadCronTask("bad-script", CRONS_FILE), /missing required 'command' field/);
+    });
+
+    it("defaults type to llm when not specified", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: llm-task
+    schedule: "0 9 * * *"
+    prompt: "do something"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      const cron = loadCronTask("llm-task", CRONS_FILE);
+      assert.strictEqual(cron.type, "llm");
+      assert.strictEqual(cron.prompt, "do something");
+      assert.strictEqual(cron.command, undefined);
+    });
+
+    it("throws when llm-mode cron is missing prompt field", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-llm
+    schedule: "0 9 * * *"
+    type: llm
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      assert.throws(() => loadCronTask("bad-llm", CRONS_FILE), /missing required 'prompt' field/);
+    });
+
+    it("script-mode cron uses config default delivery", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: script-task
+    schedule: "0 2 * * *"
+    type: script
+    command: "echo hello"
+    agentId: main
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890, defaultDeliveryThreadId: 99 };
+      const cron = loadCronTask("script-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryChatId, -1001234567890);
+      assert.strictEqual(cron.deliveryThreadId, 99);
+    });
+  });
+
+  describe("runScript", () => {
+    it("executes command and returns stdout", () => {
+      const cron: CronJob = {
+        name: "echo-test",
+        schedule: "0 * * * *",
+        type: "script",
+        command: "echo 'hello from script'",
+        agentId: "main",
+        deliveryChatId: 111111111,
+      };
+      const output = runScript(cron);
+      assert.strictEqual(output, "hello from script");
+    });
+
+    it("respects timeout", () => {
+      const cron: CronJob = {
+        name: "slow-script",
+        schedule: "0 * * * *",
+        type: "script",
+        command: "sleep 10",
+        agentId: "main",
+        deliveryChatId: 111111111,
+        timeout: 100, // 100ms — will timeout
+      };
+      assert.throws(() => runScript(cron), /TIMEOUT|ETIMEDOUT|timed out|killed/i);
+    });
+
+    it("throws when command is missing", () => {
+      const cron: CronJob = {
+        name: "no-cmd",
+        schedule: "0 * * * *",
+        type: "script",
+        agentId: "main",
+        deliveryChatId: 111111111,
+      };
+      assert.throws(() => runScript(cron), /no command/i);
     });
   });
 });
