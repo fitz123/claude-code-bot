@@ -18,12 +18,22 @@ echo "Making hooks executable..."
 chmod +x .claude/hooks/*.sh
 echo "  Done."
 
+# Make skill scripts executable
+if ls .claude/skills/*/scripts/*.sh >/dev/null 2>&1; then
+  echo "Making skill scripts executable..."
+  chmod +x .claude/skills/*/scripts/*.sh
+  echo "  Done."
+fi
+
 # Install bot dependencies
 if [ -f "bot/package.json" ]; then
   echo ""
   echo "Installing bot dependencies..."
-  (cd bot && npm install)
-  echo "  Done."
+  if (cd bot && npm install); then
+    echo "  Done."
+  else
+    echo "  Warning: npm install failed (offline or npm unavailable). Bot dependencies not installed."
+  fi
 fi
 
 # Ensure memory directory exists
@@ -77,6 +87,29 @@ if [[ "$answer" =~ ^[Yy]$ ]]; then
 else
   echo "  Skipped. You can copy rules manually later:"
   echo "    cp .claude/optional-rules/<rule>.md .claude/rules/custom/"
+fi
+
+# Offer ADR governance initialization
+echo ""
+if [ -f "reference/governance/decisions.md" ]; then
+  echo "ADR governance: already initialized (reference/governance/decisions.md exists)."
+elif [ ! -f "reference/governance/decisions.md.example" ]; then
+  echo "ADR governance: template not found (reference/governance/decisions.md.example missing). Skipped."
+else
+  echo "ADR governance: track architectural decisions in reference/governance/decisions.md."
+  if [ -t 0 ]; then
+    read -r -p "Initialize ADR decision log? (y/N) " adr_answer
+  else
+    adr_answer="n"
+  fi
+  if [[ "$adr_answer" =~ ^[Yy]$ ]]; then
+    mkdir -p reference/governance
+    cp reference/governance/decisions.md.example reference/governance/decisions.md
+    echo "  Created reference/governance/decisions.md from template."
+  else
+    echo "  Skipped. You can initialize later:"
+    echo "    mkdir -p reference/governance && cp reference/governance/decisions.md.example reference/governance/decisions.md"
+  fi
 fi
 
 # Remind to edit user files

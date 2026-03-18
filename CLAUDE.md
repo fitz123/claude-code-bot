@@ -25,6 +25,17 @@ Four hooks are wired in `.claude/settings.json`:
 - `session-start-recovery.sh` — recovers orphaned staged changes
 - `inject-message.sh` — delivers mid-turn user messages
 
+## Skills
+
+Skills live in `.claude/skills/<name>/SKILL.md`.
+
+- `workspace-health` — comprehensive workspace health audit (size, hooks, config, orphans, platform drift)
+
+## Governance
+
+Architectural decisions are tracked in `reference/governance/decisions.md`.
+Run `setup.sh` to initialize from the template. See `.claude/rules/platform/adr-governance.md` for the enforcement rule.
+
 ## Memory
 
 Use `memory/` for persistent notes. It is gitignored.
