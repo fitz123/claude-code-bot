@@ -46,13 +46,13 @@ is_valid_pid() {
 }
 
 # Verify lock ownership by comparing tokens.
-# Returns 0 (match) or 1 (mismatch).  If lock has no token file, returns 0
-# (backward compat for locks created without token support).
+# Returns 0 (match) or 1 (mismatch).  If lock has no token file, returns 1
+# (fail-closed: missing token means ownership cannot be verified).
 verify_token() {
   local expected_token="$1"
   local token_file="$LOCK_PATH/token"
   if [ ! -f "$token_file" ]; then
-    return 0
+    return 1
   fi
   local stored_token
   stored_token=$(cat "$token_file" 2>/dev/null || echo "")
