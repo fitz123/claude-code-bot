@@ -6,21 +6,18 @@
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
-WORKSPACE="$(cd "$WORKSPACE" && pwd)"
-
 if [ ! -d "$WORKSPACE" ]; then
   echo "ERROR: workspace not found: $WORKSPACE"
   exit 1
 fi
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
 echo "=== Size Audit: $WORKSPACE ==="
 echo ""
 
-# Total workspace size (excluding .git)
-# Use portable approach — GNU --exclude is not available on macOS BSD du
-TOTAL_SIZE=$(du -sh "$WORKSPACE" --exclude='.git' 2>/dev/null) || \
-  TOTAL_SIZE=$(du -csh "$WORKSPACE"/* "$WORKSPACE"/.* 2>/dev/null | grep 'total$' | cut -f1)
-echo "Total size: $(echo "$TOTAL_SIZE" | cut -f1)"
+# Total workspace size
+TOTAL_SIZE=$(du -sh "$WORKSPACE" 2>/dev/null | cut -f1)
+echo "Total size: $TOTAL_SIZE"
 echo ""
 
 # Top 20 largest files (excluding .git)

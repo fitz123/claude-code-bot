@@ -40,12 +40,11 @@ if [ -z "$WORKSPACE" ]; then
   exit 1
 fi
 
-WORKSPACE="$(cd "$WORKSPACE" && pwd)"
-
 if [ ! -d "$WORKSPACE" ]; then
   echo "ERROR: workspace not found: $WORKSPACE"
   exit 1
 fi
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
 if [ "$DRY_RUN" = true ]; then
   echo "=== Cleanup (DRY RUN): $WORKSPACE ==="

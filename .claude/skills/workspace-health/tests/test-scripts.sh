@@ -222,8 +222,8 @@ fi
 # Handles non-git workspaces gracefully
 TESTS=$((TESTS + 1))
 TMPDIR_NONGIT=$(mktemp -d)
-NONGIT_OUTPUT=$(bash "$SCRIPT_DIR/platform-check.sh" "$TMPDIR_NONGIT" 2>&1) || true
-NONGIT_EXIT=$?
+NONGIT_EXIT=0
+NONGIT_OUTPUT=$(bash "$SCRIPT_DIR/platform-check.sh" "$TMPDIR_NONGIT" 2>&1) || NONGIT_EXIT=$?
 [ -n "$TMPDIR_NONGIT" ] && { command -v trash >/dev/null 2>&1 && trash "$TMPDIR_NONGIT" || rm -rf "$TMPDIR_NONGIT"; }
 if [ "$NONGIT_EXIT" -eq 0 ] && echo "$NONGIT_OUTPUT" | grep -qi "skip"; then
   echo "  PASS: platform-check.sh handles non-git workspace gracefully"

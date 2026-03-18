@@ -6,12 +6,11 @@
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
-WORKSPACE="$(cd "$WORKSPACE" && pwd)"
-
 if [ ! -d "$WORKSPACE" ]; then
   echo "ERROR: workspace not found: $WORKSPACE"
   exit 1
 fi
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
 echo "=== Config Check: $WORKSPACE ==="
 echo ""

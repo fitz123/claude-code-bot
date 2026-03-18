@@ -7,12 +7,11 @@
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
-WORKSPACE="$(cd "$WORKSPACE" && pwd)"
-
 if [ ! -d "$WORKSPACE" ]; then
   echo "ERROR: workspace not found: $WORKSPACE"
   exit 0
 fi
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
 echo "=== Platform Check: $WORKSPACE ==="
 echo ""

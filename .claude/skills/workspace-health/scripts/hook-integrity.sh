@@ -6,12 +6,11 @@
 set -euo pipefail
 
 WORKSPACE="${1:-.}"
-WORKSPACE="$(cd "$WORKSPACE" && pwd)"
-
 if [ ! -d "$WORKSPACE" ]; then
   echo "ERROR: workspace not found: $WORKSPACE"
   exit 1
 fi
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
 echo "=== Hook Integrity: $WORKSPACE ==="
 echo ""
@@ -87,7 +86,7 @@ else
     for script in "$HOOKS_DIR"/*.sh; do
       [ -f "$script" ] || continue
       name=$(basename "$script")
-      if ! echo "$HOOK_CMDS" | grep -q "$name"; then
+      if ! echo "$HOOK_CMDS" | grep -qF "$name"; then
         echo "  WARN: $name — exists but not referenced in settings.json"
         WARNINGS=$((WARNINGS + 1))
       fi
