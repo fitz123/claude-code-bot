@@ -39,5 +39,6 @@ find "$SESSION_DIR" -maxdepth 1 -name "*.jsonl" -mtime -2 -type f 2>/dev/null | 
   # Human sessions start with [Chat:
   case "$content" in
     "[Chat:"*) echo "$jsonl_file" ;;
+    *) ;;
   esac
 done

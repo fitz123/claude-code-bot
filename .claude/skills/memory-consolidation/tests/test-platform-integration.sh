@@ -76,9 +76,8 @@ if command -v python3 >/dev/null 2>&1; then
   python3 -c "
 import sys, json
 try:
-    # Use PyYAML if available
     import yaml
-    data = yaml.safe_load(open('$CRONS_FILE'))
+    data = yaml.safe_load(open(sys.argv[1]))
     assert 'crons' in data, 'missing crons key'
     names = [c['name'] for c in data['crons']]
     assert 'memory-consolidation' in names, 'memory-consolidation not in crons'
@@ -87,7 +86,7 @@ except ImportError:
     print('SKIP_YAML')
 except Exception as e:
     print(f'INVALID: {e}')
-  " > "$TEST_DIR/yaml-check.txt" 2>&1
+  " "$CRONS_FILE" > "$TEST_DIR/yaml-check.txt" 2>&1
   yaml_result=$(cat "$TEST_DIR/yaml-check.txt")
   if [ "$yaml_result" = "VALID" ]; then
     assert_eq "crons.yaml.example is valid YAML with memory-consolidation" "VALID" "$yaml_result"

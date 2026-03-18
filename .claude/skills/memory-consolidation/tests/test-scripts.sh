@@ -196,25 +196,32 @@ touch "$MOCK_SESSION_DIR/human-session.jsonl" "$MOCK_SESSION_DIR/cron-session.js
 
 # Test: discovers human session
 result=$(CLAUDE_SESSIONS_BASE="$MOCK_SESSIONS_BASE" bash "$SCRIPT_DIR/discover-sessions.sh" "$MOCK_WORKSPACE" 2>/dev/null)
-if echo "$result" | grep -q "human-session.jsonl"; then
-  assert_eq "discovers human session" "found" "found"
-else
-  assert_eq "discovers human session" "found" "not found"
-fi
 
-# Test: filters out cron session
-if echo "$result" | grep -q "cron-session.jsonl"; then
-  assert_eq "filters out cron session" "filtered" "included"
-else
-  assert_eq "filters out cron session" "filtered" "filtered"
-fi
+assert_contains() {
+  local desc="$1" haystack="$2" needle="$3"
+  if echo "$haystack" | grep -q "$needle"; then
+    PASS=$((PASS + 1))
+    TESTS+=("PASS: $desc")
+  else
+    FAIL=$((FAIL + 1))
+    TESTS+=("FAIL: $desc (output did not contain '$needle')")
+  fi
+}
 
-# Test: filters out review session
-if echo "$result" | grep -q "review-session.jsonl"; then
-  assert_eq "filters out review session" "filtered" "included"
-else
-  assert_eq "filters out review session" "filtered" "filtered"
-fi
+assert_not_contains() {
+  local desc="$1" haystack="$2" needle="$3"
+  if echo "$haystack" | grep -q "$needle"; then
+    FAIL=$((FAIL + 1))
+    TESTS+=("FAIL: $desc (output contained '$needle')")
+  else
+    PASS=$((PASS + 1))
+    TESTS+=("PASS: $desc")
+  fi
+}
+
+assert_contains "discovers human session" "$result" "human-session.jsonl"
+assert_not_contains "filters out cron session" "$result" "cron-session.jsonl"
+assert_not_contains "filters out review session" "$result" "review-session.jsonl"
 
 # Test: non-existent workspace returns empty, no error
 result=$(CLAUDE_SESSIONS_BASE="$MOCK_SESSIONS_BASE" bash "$SCRIPT_DIR/discover-sessions.sh" "$TEST_DIR/nonexistent-workspace" 2>/dev/null || true)

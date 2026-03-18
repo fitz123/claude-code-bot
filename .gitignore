@@ -27,6 +27,7 @@ orphan-allowlist.local.txt
 # Consolidation runtime state
 .consolidation.lock/
 .consolidation-state.json
+*.consolidation-backup
 
 # Ralphex
 completed/
