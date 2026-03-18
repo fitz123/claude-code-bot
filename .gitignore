@@ -19,14 +19,14 @@ memory/*
 .claude/rules/custom/*
 !.claude/rules/custom/.gitkeep
 reference/*
+!reference/plans/
 !reference/governance/
 reference/governance/*
 !reference/governance/decisions.md.example
 orphan-allowlist.local.txt
 
-# Ralphex (track plans, ignore runtime)
-.ralphex/*
-!.ralphex/plans/
+# Ralphex (runtime only, plans live in reference/plans/)
+.ralphex/
 completed/
 
 # Instance config (user creates from .example)
