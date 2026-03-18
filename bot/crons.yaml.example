@@ -15,13 +15,12 @@ crons:
     deliveryChatId: YOUR_CHAT_ID       # Telegram chat ID for delivery
     timeout: 300000                    # 5 minutes
 
-  # Example: weekly health check
-  - name: weekly-health
+  # Weekly workspace health check (uses /workspace-health skill)
+  - name: workspace-health
     enabled: true
     schedule: "0 10 * * 1"             # Monday 10:00 AM
     prompt: >
-      Run a workspace health check. If everything is clean,
-      respond NO_REPLY. Otherwise report issues found.
+      /workspace-health
     agentId: main
     deliveryChatId: YOUR_CHAT_ID
-    timeout: 300000
+    timeout: 600000                    # 10 minutes — AI stages need extra time

@@ -488,6 +488,118 @@ fi
 echo ""
 
 # ============================================================
+# Test: setup.sh integration
+# ============================================================
+echo "--- setup.sh integration ---"
+SETUP_SH="$WORKSPACE/setup.sh"
+
+# setup.sh makes skill scripts executable
+TESTS=$((TESTS + 1))
+if grep -q 'skills/\*/scripts/\*.sh' "$SETUP_SH" 2>/dev/null || grep -q 'skills/.*/scripts/' "$SETUP_SH" 2>/dev/null; then
+  echo "  PASS: setup.sh makes skill scripts executable"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: setup.sh does not make skill scripts executable"
+  FAIL=$((FAIL + 1))
+fi
+
+# setup.sh runs without error
+TESTS=$((TESTS + 1))
+SETUP_OUTPUT=$(cd "$WORKSPACE" && bash setup.sh </dev/null 2>&1) || true
+SETUP_EXIT=$?
+if [ "$SETUP_EXIT" -eq 0 ]; then
+  echo "  PASS: setup.sh runs without error"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: setup.sh exits with code $SETUP_EXIT"
+  echo "    Output: $(echo "$SETUP_OUTPUT" | tail -5)"
+  FAIL=$((FAIL + 1))
+fi
+
+# After setup.sh, skill scripts are executable
+TESTS=$((TESTS + 1))
+ALL_EXECUTABLE=1
+for s in "$SCRIPT_DIR"/*.sh; do
+  if [ ! -x "$s" ]; then
+    ALL_EXECUTABLE=0
+    break
+  fi
+done
+if [ "$ALL_EXECUTABLE" -eq 1 ]; then
+  echo "  PASS: skill scripts are executable after setup.sh"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: some skill scripts are not executable after setup.sh"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: crons.yaml.example
+# ============================================================
+echo "--- crons.yaml.example ---"
+CRONS_EXAMPLE="$WORKSPACE/bot/crons.yaml.example"
+
+# Has workspace-health entry
+TESTS=$((TESTS + 1))
+if grep -q 'workspace-health' "$CRONS_EXAMPLE" 2>/dev/null; then
+  echo "  PASS: crons.yaml.example has workspace-health entry"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: crons.yaml.example missing workspace-health entry"
+  FAIL=$((FAIL + 1))
+fi
+
+# References the skill
+TESTS=$((TESTS + 1))
+if grep -q '/workspace-health' "$CRONS_EXAMPLE" 2>/dev/null; then
+  echo "  PASS: crons.yaml.example references workspace-health skill"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: crons.yaml.example does not reference workspace-health skill"
+  FAIL=$((FAIL + 1))
+fi
+
+# Has adequate timeout (>= 600000 for AI stages)
+TESTS=$((TESTS + 1))
+TIMEOUT_VALUE=$(grep -A10 'workspace-health' "$CRONS_EXAMPLE" 2>/dev/null | grep 'timeout:' | head -1 | sed 's/.*timeout:[[:space:]]*//' | grep -oE '^[0-9]+')
+if [ -n "$TIMEOUT_VALUE" ] && [ "$TIMEOUT_VALUE" -ge 600000 ] 2>/dev/null; then
+  echo "  PASS: workspace-health cron has adequate timeout (${TIMEOUT_VALUE}ms)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: workspace-health cron timeout too low or missing (${TIMEOUT_VALUE:-none})"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: .gitignore coverage
+# ============================================================
+echo "--- .gitignore coverage ---"
+GITIGNORE="$WORKSPACE/.gitignore"
+
+# orphan-allowlist.local.txt is gitignored
+TESTS=$((TESTS + 1))
+if grep -q 'orphan-allowlist.local.txt' "$GITIGNORE" 2>/dev/null; then
+  echo "  PASS: .gitignore includes orphan-allowlist.local.txt"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: .gitignore missing orphan-allowlist.local.txt"
+  FAIL=$((FAIL + 1))
+fi
+
+# reference/governance/decisions.md.example is trackable (not ignored)
+TESTS=$((TESTS + 1))
+if git -C "$WORKSPACE" check-ignore -q reference/governance/decisions.md.example 2>/dev/null; then
+  echo "  FAIL: decisions.md.example is gitignored (should be tracked)"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: decisions.md.example is not gitignored (tracked in git)"
+  PASS=$((PASS + 1))
+fi
+echo ""
+
+# ============================================================
 # Test: No hardcoded paths in any script
 # ============================================================
 echo "--- Global checks ---"

@@ -18,6 +18,13 @@ echo "Making hooks executable..."
 chmod +x .claude/hooks/*.sh
 echo "  Done."
 
+# Make skill scripts executable
+if ls .claude/skills/*/scripts/*.sh >/dev/null 2>&1; then
+  echo "Making skill scripts executable..."
+  chmod +x .claude/skills/*/scripts/*.sh
+  echo "  Done."
+fi
+
 # Install bot dependencies
 if [ -f "bot/package.json" ]; then
   echo ""
