@@ -114,7 +114,7 @@ If issues were found in Parts A-D, offer to run cleanup:
 bash "${CLAUDE_SKILL_DIR}/scripts/cleanup.sh" --workspace "$WORKSPACE"
 ```
 
-This runs in dry-run mode by default. Only pass `--apply` if the user explicitly approves.
+This runs in dry-run mode by default. Only pass `--apply` if the user explicitly approves. Before running with `--apply`, verify that `trash` is installed (`command -v trash`). If not, warn the user that cleanup requires `trash` to ensure recoverable deletion.
 
 ## Git Sync
 

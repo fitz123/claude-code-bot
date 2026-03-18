@@ -46,6 +46,13 @@ if [ ! -d "$WORKSPACE" ]; then
 fi
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
+if [ "$DRY_RUN" = false ] && ! command -v trash >/dev/null 2>&1; then
+  echo "ERROR: 'trash' is not installed — refusing to permanently delete files."
+  echo "  Install: brew install trash (macOS) or apt install trash-cli (Linux)"
+  echo "  Dry-run mode (without --apply) does not require trash."
+  exit 1
+fi
+
 if [ "$DRY_RUN" = true ]; then
   echo "=== Cleanup (DRY RUN): $WORKSPACE ==="
 else
@@ -67,8 +74,9 @@ process_file() {
     if command -v trash >/dev/null 2>&1; then
       trash "$file"
     else
-      echo "  WARN: 'trash' not installed — permanently deleting $rel"
-      rm -f "$file"
+      echo "  ERROR: 'trash' not installed — refusing to permanently delete $rel"
+      echo "  Install: brew install trash (macOS) or apt install trash-cli (Linux)"
+      return 1
     fi
     echo "  REMOVED: $rel ($reason)"
   fi

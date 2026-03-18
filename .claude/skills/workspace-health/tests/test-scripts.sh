@@ -505,8 +505,8 @@ fi
 
 # setup.sh runs without error
 TESTS=$((TESTS + 1))
-SETUP_OUTPUT=$(cd "$WORKSPACE" && bash setup.sh </dev/null 2>&1) || true
-SETUP_EXIT=$?
+SETUP_EXIT=0
+SETUP_OUTPUT=$(cd "$WORKSPACE" && bash setup.sh </dev/null 2>&1) || SETUP_EXIT=$?
 if [ "$SETUP_EXIT" -eq 0 ]; then
   echo "  PASS: setup.sh runs without error"
   PASS=$((PASS + 1))

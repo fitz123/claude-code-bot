@@ -128,7 +128,7 @@ echo ""
 
 # --- Root markdown check ---
 echo "Root markdown files:"
-ALLOWED_ROOT_MD=("CLAUDE.md" "USER.md" "IDENTITY.md" "MEMORY.md" "README.md" "CHANGELOG.md" "LICENSE")
+ALLOWED_ROOT_MD=("CLAUDE.md" "USER.md" "IDENTITY.md" "MEMORY.md" "README.md" "CHANGELOG.md")
 STRAY_MD=()
 for f in "$WORKSPACE"/*.md; do
   [ -f "$f" ] || continue
