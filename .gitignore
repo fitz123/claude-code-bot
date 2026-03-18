@@ -32,3 +32,4 @@ crons.yaml
 *.bak
 *.log
 node_modules/
+.ralphex/progress/
