@@ -60,7 +60,7 @@ else
     echo "  SKIP: jq not available"
   else
     # Extract all hook commands from settings.json
-    HOOK_CMDS=$(jq -r '.. | .command? // empty' "$SETTINGS" 2>/dev/null || true)
+    HOOK_CMDS=$(jq -r '.hooks | .. | .command? // empty' "$SETTINGS" 2>/dev/null || true)
     if [ -z "$HOOK_CMDS" ]; then
       echo "  INFO: no hook commands found in settings.json"
     else

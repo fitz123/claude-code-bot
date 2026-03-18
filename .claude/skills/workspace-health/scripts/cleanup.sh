@@ -13,6 +13,11 @@ DRY_RUN=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --workspace)
+      if [ $# -lt 2 ]; then
+        echo "ERROR: --workspace requires a path argument"
+        echo "Usage: cleanup.sh --workspace <path> [--apply]"
+        exit 1
+      fi
       WORKSPACE="$2"
       shift 2
       ;;

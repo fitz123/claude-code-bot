@@ -93,7 +93,7 @@ echo ""
 echo "Hooks configuration:"
 if [ -f "$SETTINGS" ] && command -v jq >/dev/null 2>&1; then
   # Extract hook commands from settings.json
-  HOOK_CMDS=$(jq -r '.. | .command? // empty' "$SETTINGS" 2>/dev/null || true)
+  HOOK_CMDS=$(jq -r '.hooks | .. | .command? // empty' "$SETTINGS" 2>/dev/null || true)
   if [ -n "$HOOK_CMDS" ]; then
     while IFS= read -r cmd; do
       [ -n "$cmd" ] || continue
