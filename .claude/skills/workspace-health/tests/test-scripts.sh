@@ -376,6 +376,118 @@ fi
 echo ""
 
 # ============================================================
+# Test: ADR governance
+# ============================================================
+echo "--- ADR governance ---"
+
+# ADR template exists
+TESTS=$((TESTS + 1))
+ADR_TEMPLATE="$WORKSPACE/reference/governance/decisions.md.example"
+if [ -f "$ADR_TEMPLATE" ]; then
+  echo "  PASS: decisions.md.example exists"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: decisions.md.example does not exist at $ADR_TEMPLATE"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR template has required fields
+for field in "Status:" "Date:" "Context:" "Decision:" "Consequences:"; do
+  TESTS=$((TESTS + 1))
+  if grep -q "$field" "$ADR_TEMPLATE" 2>/dev/null; then
+    echo "  PASS: ADR template contains $field"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: ADR template missing $field"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+# ADR template is tracked in git (not ignored)
+TESTS=$((TESTS + 1))
+if git -C "$WORKSPACE" add --dry-run reference/governance/decisions.md.example >/dev/null 2>&1; then
+  echo "  PASS: decisions.md.example is trackable by git"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: decisions.md.example is gitignored"
+  FAIL=$((FAIL + 1))
+fi
+
+# User decisions.md would be gitignored (covered by reference/* pattern)
+TESTS=$((TESTS + 1))
+# check-ignore exits 0 if file IS ignored, 1 if not
+if git -C "$WORKSPACE" check-ignore -q reference/governance/decisions.md 2>/dev/null; then
+  echo "  PASS: reference/governance/decisions.md is gitignored (user content protected)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: reference/governance/decisions.md is NOT gitignored"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR governance rule exists as platform rule
+TESTS=$((TESTS + 1))
+ADR_RULE="$WORKSPACE/.claude/rules/platform/adr-governance.md"
+if [ -f "$ADR_RULE" ]; then
+  echo "  PASS: adr-governance.md platform rule exists"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: adr-governance.md platform rule does not exist"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule mentions checking decision log before changes
+TESTS=$((TESTS + 1))
+if grep -qi 'check.*decisions\|prior decisions\|decision.*log' "$ADR_RULE" 2>/dev/null; then
+  echo "  PASS: ADR rule enforces checking decision log"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR rule does not enforce checking decision log"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule mentions recording new decisions
+TESTS=$((TESTS + 1))
+if grep -qi 'recording\|propose.*adding\|suggest.*adding' "$ADR_RULE" 2>/dev/null; then
+  echo "  PASS: ADR rule enforces recording new decisions"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR rule does not mention recording new decisions"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule requires user confirmation
+TESTS=$((TESTS + 1))
+if grep -qi 'user confirmation\|without.*confirm\|never.*create.*without' "$ADR_RULE" 2>/dev/null; then
+  echo "  PASS: ADR rule requires user confirmation"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR rule does not require user confirmation"
+  FAIL=$((FAIL + 1))
+fi
+
+# setup.sh offers ADR initialization
+TESTS=$((TESTS + 1))
+SETUP_SH="$WORKSPACE/setup.sh"
+if grep -q 'decisions.md' "$SETUP_SH" 2>/dev/null; then
+  echo "  PASS: setup.sh offers ADR initialization"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: setup.sh does not offer ADR initialization"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule auto-loads (it's in rules/platform/)
+TESTS=$((TESTS + 1))
+if [ -f "$WORKSPACE/.claude/rules/platform/adr-governance.md" ]; then
+  echo "  PASS: ADR governance rule auto-loads as platform rule"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR governance rule not in platform rules directory"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
 # Test: No hardcoded paths in any script
 # ============================================================
 echo "--- Global checks ---"

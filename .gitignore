@@ -18,7 +18,10 @@ memory/*
 .claude/settings.local.json
 .claude/rules/custom/*
 !.claude/rules/custom/.gitkeep
-reference/
+reference/*
+!reference/governance/
+reference/governance/*
+!reference/governance/decisions.md.example
 orphan-allowlist.local.txt
 
 # Ralphex

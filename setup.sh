@@ -79,6 +79,27 @@ else
   echo "    cp .claude/optional-rules/<rule>.md .claude/rules/custom/"
 fi
 
+# Offer ADR governance initialization
+echo ""
+if [ -f "reference/governance/decisions.md" ]; then
+  echo "ADR governance: already initialized (reference/governance/decisions.md exists)."
+else
+  echo "ADR governance: track architectural decisions in reference/governance/decisions.md."
+  if [ -t 0 ]; then
+    read -r -p "Initialize ADR decision log? (y/N) " adr_answer
+  else
+    adr_answer="n"
+  fi
+  if [[ "$adr_answer" =~ ^[Yy]$ ]]; then
+    mkdir -p reference/governance
+    cp reference/governance/decisions.md.example reference/governance/decisions.md
+    echo "  Created reference/governance/decisions.md from template."
+  else
+    echo "  Skipped. You can initialize later:"
+    echo "    mkdir -p reference/governance && cp reference/governance/decisions.md.example reference/governance/decisions.md"
+  fi
+fi
+
 # Remind to edit user files
 echo ""
 echo "Next steps:"
