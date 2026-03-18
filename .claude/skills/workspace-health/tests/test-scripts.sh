@@ -202,6 +202,177 @@ echo ""
 echo "--- platform-check.sh ---"
 run_test "exits 0 on workspace" 0 bash "$SCRIPT_DIR/platform-check.sh" "$WORKSPACE"
 assert_contains "reports platform check" "Platform Check:" bash "$SCRIPT_DIR/platform-check.sh" "$WORKSPACE"
+
+# Checks platform files (hooks, rules, settings)
+TESTS=$((TESTS + 1))
+CHECKS_HOOKS=0
+CHECKS_RULES=0
+CHECKS_SETTINGS=0
+grep -q 'hooks/' "$SCRIPT_DIR/platform-check.sh" && CHECKS_HOOKS=1
+grep -q 'rules/platform/' "$SCRIPT_DIR/platform-check.sh" && CHECKS_RULES=1
+grep -q 'settings.json' "$SCRIPT_DIR/platform-check.sh" && CHECKS_SETTINGS=1
+if [ "$CHECKS_HOOKS" -eq 1 ] && [ "$CHECKS_RULES" -eq 1 ] && [ "$CHECKS_SETTINGS" -eq 1 ]; then
+  echo "  PASS: platform-check.sh checks hooks, rules, and settings"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: platform-check.sh missing checks for hooks/rules/settings"
+  FAIL=$((FAIL + 1))
+fi
+
+# Handles non-git workspaces gracefully
+TESTS=$((TESTS + 1))
+TMPDIR_NONGIT=$(mktemp -d)
+NONGIT_OUTPUT=$(bash "$SCRIPT_DIR/platform-check.sh" "$TMPDIR_NONGIT" 2>&1) || true
+NONGIT_EXIT=$?
+rm -rf "$TMPDIR_NONGIT"
+if [ "$NONGIT_EXIT" -eq 0 ] && echo "$NONGIT_OUTPUT" | grep -qi "skip"; then
+  echo "  PASS: platform-check.sh handles non-git workspace gracefully"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: platform-check.sh does not handle non-git workspace (exit=$NONGIT_EXIT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Script is executable
+TESTS=$((TESTS + 1))
+if [ -x "$SCRIPT_DIR/platform-check.sh" ] || head -1 "$SCRIPT_DIR/platform-check.sh" | grep -q 'bash'; then
+  echo "  PASS: platform-check.sh is a valid bash script"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: platform-check.sh is not executable or not a bash script"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: SKILL.md
+# ============================================================
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SKILL_MD="$SKILL_DIR/SKILL.md"
+echo "--- SKILL.md ---"
+
+# SKILL.md exists
+TESTS=$((TESTS + 1))
+if [ -f "$SKILL_MD" ]; then
+  echo "  PASS: SKILL.md exists"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md does not exist"
+  FAIL=$((FAIL + 1))
+fi
+
+# No hardcoded absolute paths
+TESTS=$((TESTS + 1))
+HARDCODED_PATH_PATTERN='/''Users/'
+if grep -q "$HARDCODED_PATH_PATTERN" "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md contains hardcoded absolute paths"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md has no hardcoded absolute paths"
+  PASS=$((PASS + 1))
+fi
+
+# Uses CLAUDE_SKILL_DIR for script paths
+TESTS=$((TESTS + 1))
+if grep -q 'CLAUDE_SKILL_DIR' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md uses CLAUDE_SKILL_DIR for portable paths"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md does not use CLAUDE_SKILL_DIR"
+  FAIL=$((FAIL + 1))
+fi
+
+# No ADR number references
+TESTS=$((TESTS + 1))
+if grep -q 'ADR-[0-9]' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md contains ADR number references"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md has no ADR number references"
+  PASS=$((PASS + 1))
+fi
+
+# Does not contain Part H (ADR Compliance Review)
+TESTS=$((TESTS + 1))
+if grep -qi 'ADR [Cc]ompliance [Rr]eview' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md contains ADR Compliance Review stage"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md does not contain ADR Compliance Review"
+  PASS=$((PASS + 1))
+fi
+
+# Includes platform consistency check stage
+TESTS=$((TESTS + 1))
+if grep -qi 'platform' "$SKILL_MD" 2>/dev/null && grep -q 'platform-check.sh' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md includes platform consistency check stage"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md missing platform consistency check stage"
+  FAIL=$((FAIL + 1))
+fi
+
+# Report format includes "Platform check" line
+TESTS=$((TESTS + 1))
+if grep -q 'Platform check' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md report format includes Platform check line"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md report format missing Platform check line"
+  FAIL=$((FAIL + 1))
+fi
+
+# Report format does not include "ADR compliance" line
+TESTS=$((TESTS + 1))
+if grep -qi 'ADR compliance' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md report format contains ADR compliance line"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md report format has no ADR compliance line"
+  PASS=$((PASS + 1))
+fi
+
+# AI stages reference graceful skip for missing files
+TESTS=$((TESTS + 1))
+if grep -qi 'skip.*missing\|missing.*skip\|skip any that are missing' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md AI stages skip gracefully when files missing"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md AI stages do not mention skipping for missing files"
+  FAIL=$((FAIL + 1))
+fi
+
+# Part E references only public-repo files (no private workspace paths)
+TESTS=$((TESTS + 1))
+if grep -q '\.minime\|workspace-coder\|/ninja/' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md Part E references private workspace paths"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md Part E has no private workspace references"
+  PASS=$((PASS + 1))
+fi
+
+# Git sync mentions non-git workspace handling
+TESTS=$((TESTS + 1))
+if grep -qi 'not a git\|non-git\|not.*git.*repo' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md git sync handles non-git workspaces"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md git sync does not handle non-git workspaces"
+  FAIL=$((FAIL + 1))
+fi
+
+# Documents all stages and output format
+TESTS=$((TESTS + 1))
+HAS_REPORT=0
+grep -q 'Summary Report\|summary.*report\|Report' "$SKILL_MD" 2>/dev/null && HAS_REPORT=1
+if [ "$HAS_REPORT" -eq 1 ]; then
+  echo "  PASS: SKILL.md documents expected output format"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md does not document expected output format"
+  FAIL=$((FAIL + 1))
+fi
 echo ""
 
 # ============================================================
@@ -218,13 +389,14 @@ else
   PASS=$((PASS + 1))
 fi
 
-# No ADR references in any script
+# No ADR references in any script or SKILL.md
 TESTS=$((TESTS + 1))
-if grep -rn 'ADR-[0-9]' "$SCRIPT_DIR"/ 2>/dev/null; then
-  echo "  FAIL: ADR number references found in scripts"
+SKILL_PARENT="$(cd "$(dirname "$0")/.." && pwd)"
+if grep -rn 'ADR-[0-9]' "$SCRIPT_DIR"/ "$SKILL_PARENT/SKILL.md" 2>/dev/null; then
+  echo "  FAIL: ADR number references found in skill files"
   FAIL=$((FAIL + 1))
 else
-  echo "  PASS: no ADR number references in any file"
+  echo "  PASS: no ADR number references in any skill file"
   PASS=$((PASS + 1))
 fi
 

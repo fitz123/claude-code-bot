@@ -23,10 +23,11 @@ echo ""
 
 # Top 20 largest files (excluding .git)
 echo "Largest files (top 20):"
-find "$WORKSPACE" -not -path '*/.git/*' -not -path '*/.git' -type f -exec du -h {} + 2>/dev/null \
+LARGEST=$(find "$WORKSPACE" -not -path '*/.git/*' -not -path '*/.git' -type f -exec du -h {} + 2>/dev/null \
   | sort -rh \
-  | head -20 \
-  | while read -r size path; do
+  | head -20 || true)
+echo "$LARGEST" | while read -r size path; do
+    [ -z "$size" ] && continue
     # Show path relative to workspace
     rel="${path#"$WORKSPACE"/}"
     echo "  $size  $rel"
