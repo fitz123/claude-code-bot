@@ -42,8 +42,10 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 
 echo "=== lock.sh ==="
 
-# Test: acquire lock
-result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/test.lock" 60)
+# Test: acquire lock (output format: ACQUIRED <token>)
+full_result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/test.lock" 60)
+result=$(echo "$full_result" | awk '{print $1}')
+token=$(echo "$full_result" | awk '{print $2}')
 assert_eq "lock acquire succeeds" "ACQUIRED" "$result"
 
 # Test: pid file created
@@ -51,6 +53,9 @@ assert_eq "lock creates pid file" "true" "$([ -f "$TEST_DIR/test.lock/pid" ] && 
 
 # Test: timestamp file created
 assert_eq "lock creates timestamp file" "true" "$([ -f "$TEST_DIR/test.lock/timestamp" ] && echo true || echo false)"
+
+# Test: token file created
+assert_eq "lock creates token file" "true" "$([ -f "$TEST_DIR/test.lock/token" ] && echo true || echo false)"
 
 # Test: lock blocks second acquire
 assert_exit_code "lock blocks second acquire" 1 bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/test.lock" 60
@@ -61,8 +66,8 @@ result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/test.lock" 60 2>/dev/null
 set -e
 assert_eq "blocked acquire says LOCKED" "LOCKED" "$result"
 
-# Test: release lock
-result=$(bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/test.lock")
+# Test: release lock (with ownership token)
+result=$(bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/test.lock" "$token")
 assert_eq "lock release succeeds" "RELEASED" "$result"
 
 # Test: lock directory removed after release
@@ -90,8 +95,9 @@ mkdir -p "$TEST_DIR/stale.lock"
 echo "99999" > "$TEST_DIR/stale.lock/pid"
 # Touch pid file to be old (use TTL=0 so any lock with dead PID is stale)
 result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/stale.lock" 0 2>/dev/null)
-assert_eq "stale lock reclaimed (dead pid, ttl=0)" "ACQUIRED" "$result"
-bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/stale.lock" >/dev/null
+assert_eq "stale lock reclaimed (dead pid, ttl=0)" "ACQUIRED" "$(echo "$result" | awk '{print $1}')"
+stale_token=$(echo "$result" | awk '{print $2}')
+bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/stale.lock" "$stale_token" >/dev/null
 
 # Test: alive PID prevents reclaim even if TTL exceeded
 mkdir -p "$TEST_DIR/alive.lock"
@@ -114,11 +120,49 @@ assert_exit_code "refresh non-existent lock fails" 1 bash "$SCRIPT_DIR/lock.sh" 
 # Test: orphaned lock (no pid file) recovery
 mkdir -p "$TEST_DIR/orphan.lock"
 result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/orphan.lock" 60 2>/dev/null)
-assert_eq "orphaned lock reclaimed" "ACQUIRED" "$result"
-bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/orphan.lock" >/dev/null
+assert_eq "orphaned lock reclaimed" "ACQUIRED" "$(echo "$result" | awk '{print $1}')"
+orphan_token=$(echo "$result" | awk '{print $2}')
+bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/orphan.lock" "$orphan_token" >/dev/null
 
 # Test: unknown action
 assert_exit_code "unknown action exits 2" 2 bash "$SCRIPT_DIR/lock.sh" badaction "$TEST_DIR/x"
+
+# Test: refresh with correct token succeeds
+full_result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/token-test.lock" 60)
+token_test_token=$(echo "$full_result" | awk '{print $2}')
+result=$(bash "$SCRIPT_DIR/lock.sh" refresh "$TEST_DIR/token-test.lock" "$token_test_token")
+assert_eq "refresh with correct token" "REFRESHED" "$result"
+
+# Test: refresh with wrong token fails (STOLEN)
+set +e
+result=$(bash "$SCRIPT_DIR/lock.sh" refresh "$TEST_DIR/token-test.lock" "wrong-token-value" 2>/dev/null)
+set -e
+assert_eq "refresh with wrong token says STOLEN" "STOLEN" "$result"
+
+# Test: release with wrong token fails (STOLEN)
+set +e
+result=$(bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/token-test.lock" "wrong-token-value" 2>/dev/null)
+set -e
+assert_eq "release with wrong token says STOLEN" "STOLEN" "$result"
+
+# Cleanup token-test lock with correct token
+bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/token-test.lock" "$token_test_token" >/dev/null
+
+# Test: malformed PID (-1) does not block reclaim
+mkdir -p "$TEST_DIR/badpid.lock"
+echo "-1" > "$TEST_DIR/badpid.lock/pid"
+result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/badpid.lock" 0 2>/dev/null)
+assert_eq "malformed PID (-1) reclaimed" "ACQUIRED" "$(echo "$result" | awk '{print $1}')"
+badpid_token=$(echo "$result" | awk '{print $2}')
+bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/badpid.lock" "$badpid_token" >/dev/null
+
+# Test: non-numeric PID does not block reclaim
+mkdir -p "$TEST_DIR/nanpid.lock"
+echo "abc" > "$TEST_DIR/nanpid.lock/pid"
+result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/nanpid.lock" 0 2>/dev/null)
+assert_eq "non-numeric PID reclaimed" "ACQUIRED" "$(echo "$result" | awk '{print $1}')"
+nanpid_token=$(echo "$result" | awk '{print $2}')
+bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/nanpid.lock" "$nanpid_token" >/dev/null
 
 echo "=== safe-edit.sh ==="
 

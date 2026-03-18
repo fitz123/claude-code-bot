@@ -31,6 +31,7 @@ Execute phases in order. If any phase fails fatally, skip to Phase D (Report) to
    bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" acquire "${CLAUDE_PROJECT_DIR}/.consolidation.lock" 60
    ```
    If lock acquisition fails (another consolidation in progress), output NO_REPLY and exit.
+   The output format is `ACQUIRED <token>` — capture the token and pass it to all subsequent `refresh` and `release` calls to prove ownership.
    The `60` is the stale TTL in minutes — locks older than this are considered abandoned and reclaimed.
    Between phases, refresh the lock to prevent stale reclaim during long runs (see Phase transitions below).
 
@@ -70,8 +71,9 @@ Execute phases in order. If any phase fails fatally, skip to Phase D (Report) to
 
 **Lock refresh:** Before continuing, refresh the lock to reset the TTL clock:
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock" "<token>"
 ```
+If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pipeline immediately and output NO_REPLY.
 
 ### Phase B: Diff & Score
 
@@ -99,8 +101,9 @@ Compare extracted information against current memory state:
 
 **Lock refresh:** Before continuing, refresh the lock:
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock" "<token>"
 ```
+If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pipeline immediately and output NO_REPLY.
 
 ### Phase C: Apply Changes
 
@@ -150,8 +153,9 @@ For each approved change (confidence >= 0.9), in priority order (updates before 
 
 **Lock refresh:** Before continuing, refresh the lock:
 ```bash
-bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock" "<token>"
 ```
+If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pipeline immediately and output NO_REPLY.
 
 ### Phase D: Report & Cleanup
 
@@ -188,7 +192,7 @@ bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.conso
 
 2. **Release consolidation lock:**
    ```bash
-   bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" release "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+   bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" release "${CLAUDE_PROJECT_DIR}/.consolidation.lock" "<token>"
    ```
 
 3. **Output NO_REPLY** — this skill runs silently, never sends messages to chat.
@@ -200,6 +204,7 @@ bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.conso
 - **Memory edit failure:** Rollback the failed edit, stop further mutations, record in diary.
 - **Lock acquisition failure:** Exit immediately with NO_REPLY (another run is in progress).
 - **Maintenance lock present:** Exit immediately with NO_REPLY (another skill is running).
+- **Lock stolen (STOLEN on refresh/release):** Another run reclaimed the lock because TTL was exceeded. Abort immediately with NO_REPLY — do not write diary or release lock.
 
 ## What This Skill Does NOT Do
 
