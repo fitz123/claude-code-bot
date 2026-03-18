@@ -61,7 +61,9 @@ export interface DiscordConfig {
 export interface CronJob {
   name: string;
   schedule: string;
-  prompt: string;
+  type: "llm" | "script";
+  prompt?: string;
+  command?: string;
   agentId: string;
   deliveryChatId: number;
   deliveryThreadId?: number;
@@ -91,6 +93,8 @@ export interface BotConfig {
   metricsPort?: number;
   discord?: DiscordConfig;
   adminChatId?: number;
+  defaultDeliveryChatId?: number;
+  defaultDeliveryThreadId?: number;
 }
 
 /**

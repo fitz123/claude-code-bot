@@ -32,7 +32,12 @@ interface CronsYaml {
   crons: Array<Record<string, unknown>>;
 }
 
-function loadCronTask(taskName: string, cronsPath?: string): CronJob {
+export interface DeliveryDefaults {
+  defaultDeliveryChatId?: number;
+  defaultDeliveryThreadId?: number;
+}
+
+function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryDefaults): CronJob {
   const raw: CronsYaml = parseYaml(readFileSync(cronsPath ?? CRONS_PATH, "utf8"));
   if (!raw?.crons || !Array.isArray(raw.crons)) {
     throw new Error("crons.yaml missing 'crons' array");
@@ -48,17 +53,58 @@ function loadCronTask(taskName: string, cronsPath?: string): CronJob {
   }
 
   const c = found as Record<string, unknown>;
-  if (typeof c.deliveryChatId !== "number") {
-    throw new Error(`Task "${taskName}" missing required 'deliveryChatId' in crons.yaml`);
+
+  // Resolve deliveryChatId: cron-level > config default. Error on present-but-invalid.
+  let deliveryChatId: number | undefined;
+  if (c.deliveryChatId !== undefined) {
+    if (typeof c.deliveryChatId !== "number" || !Number.isInteger(c.deliveryChatId) || c.deliveryChatId === 0) {
+      throw new Error(`Task "${taskName}" has invalid 'deliveryChatId' (${c.deliveryChatId}): must be a non-zero integer`);
+    }
+    deliveryChatId = c.deliveryChatId;
+  } else {
+    deliveryChatId = defaults?.defaultDeliveryChatId;
   }
+  if (typeof deliveryChatId !== "number") {
+    throw new Error(`Task "${taskName}" missing 'deliveryChatId' (not in cron config or config defaults)`);
+  }
+
+  // Resolve deliveryThreadId: cron-level > config default.
+  // Only inherit default thread when targeting the default chat (thread IDs are chat-specific).
+  const usedDefaultChat = c.deliveryChatId === undefined || c.deliveryChatId === defaults?.defaultDeliveryChatId;
+  let deliveryThreadId: number | undefined;
+  if (c.deliveryThreadId !== undefined) {
+    if (typeof c.deliveryThreadId !== "number" || !Number.isInteger(c.deliveryThreadId) || c.deliveryThreadId === 0) {
+      throw new Error(`Task "${taskName}" has invalid 'deliveryThreadId' (${c.deliveryThreadId}): must be a non-zero integer`);
+    }
+    deliveryThreadId = c.deliveryThreadId;
+  } else if (usedDefaultChat) {
+    deliveryThreadId = defaults?.defaultDeliveryThreadId;
+  }
+
+  if (c.type !== undefined && c.type !== "llm" && c.type !== "script") {
+    throw new Error(`Task "${taskName}" has invalid type "${c.type}" (must be "llm" or "script")`);
+  }
+  const cronType = c.type === "script" ? "script" as const : "llm" as const;
+
+  if (cronType === "script") {
+    if (typeof c.command !== "string" || !c.command.trim()) {
+      throw new Error(`Task "${taskName}" is type 'script' but missing required 'command' field`);
+    }
+  } else {
+    if (typeof c.prompt !== "string" || !c.prompt.trim()) {
+      throw new Error(`Task "${taskName}" missing required 'prompt' field`);
+    }
+  }
+
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
-    prompt: String(c.prompt),
+    type: cronType,
+    prompt: cronType === "llm" ? String(c.prompt) : undefined,
+    command: cronType === "script" ? String(c.command) : undefined,
     agentId: String(c.agentId ?? "main"),
-    deliveryChatId: c.deliveryChatId,
-    deliveryThreadId:
-      typeof c.deliveryThreadId === "number" ? c.deliveryThreadId : undefined,
+    deliveryChatId,
+    deliveryThreadId,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
     maxBudget: typeof c.maxBudget === "number" ? c.maxBudget : undefined,
   };
@@ -87,6 +133,29 @@ export function loadAdminChatId(configPath?: string): number | undefined {
   }
   process.stderr.write(`[cron-runner] WARN: invalid adminChatId in config (${raw.adminChatId}), ignoring\n`);
   return undefined;
+}
+
+export function loadDefaultDelivery(configPath?: string): DeliveryDefaults {
+  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+    defaultDeliveryChatId?: unknown;
+    defaultDeliveryThreadId?: unknown;
+  };
+  const result: DeliveryDefaults = {};
+  if (raw?.defaultDeliveryChatId !== undefined) {
+    if (typeof raw.defaultDeliveryChatId === "number" && Number.isInteger(raw.defaultDeliveryChatId) && raw.defaultDeliveryChatId !== 0) {
+      result.defaultDeliveryChatId = raw.defaultDeliveryChatId;
+    } else {
+      process.stderr.write(`[cron-runner] WARN: invalid defaultDeliveryChatId in config (${raw.defaultDeliveryChatId}), ignoring\n`);
+    }
+  }
+  if (raw?.defaultDeliveryThreadId !== undefined) {
+    if (typeof raw.defaultDeliveryThreadId === "number" && Number.isInteger(raw.defaultDeliveryThreadId) && raw.defaultDeliveryThreadId !== 0) {
+      result.defaultDeliveryThreadId = raw.defaultDeliveryThreadId;
+    } else {
+      process.stderr.write(`[cron-runner] WARN: invalid defaultDeliveryThreadId in config (${raw.defaultDeliveryThreadId}), ignoring\n`);
+    }
+  }
+  return result;
 }
 
 export function handleDeliveryFailure(
@@ -134,6 +203,30 @@ function deliver(
   }
 }
 
+function runScript(cron: CronJob): string {
+  if (!cron.command) {
+    throw new Error(`Script-mode cron "${cron.name}" has no command`);
+  }
+  const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
+
+  // Strip sensitive env vars — match runClaude's sanitization
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  delete env.ANTHROPIC_API_KEY;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+
+  const output = execSync(cron.command, {
+    encoding: "utf8",
+    timeout: timeoutMs,
+    shell: "/bin/bash",
+    env,
+    maxBuffer: 10 * 1024 * 1024, // 10MB
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  return output.trim();
+}
+
 function runClaude(cron: CronJob, workspaceCwd: string): string {
   const today = new Date().toISOString().split("T")[0];
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
@@ -141,7 +234,7 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
   const args: string[] = [
     "claude",
     "-p",
-    cron.prompt,
+    cron.prompt!,
     "--output-format",
     "text",
     "--no-session-persistence",
@@ -198,9 +291,16 @@ async function main(): Promise<void> {
 
   log(taskName, `Starting cron task: ${taskName}`);
 
+  let defaults: DeliveryDefaults = {};
+  try {
+    defaults = loadDefaultDelivery();
+  } catch (err) {
+    log(taskName, `WARN: could not load delivery defaults from config: ${(err as Error).message}`);
+  }
+
   let cron: CronJob;
   try {
-    cron = loadCronTask(taskName);
+    cron = loadCronTask(taskName, undefined, defaults);
   } catch (err) {
     log(taskName, `FAIL: ${(err as Error).message}`);
     process.exit(1);
@@ -213,27 +313,34 @@ async function main(): Promise<void> {
     log(taskName, `WARN: could not load adminChatId from config: ${(err as Error).message}`);
   }
 
-  log(taskName, `Loaded: agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
+  log(taskName, `Loaded: type=${cron.type}, agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
 
-  let workspaceCwd: string;
-  try {
-    workspaceCwd = getAgentWorkspace(cron.agentId);
-  } catch (err) {
-    log(taskName, `FAIL: ${(err as Error).message}`);
-    process.exit(1);
+  let workspaceCwd: string | undefined;
+  if (cron.type !== "script") {
+    try {
+      workspaceCwd = getAgentWorkspace(cron.agentId);
+    } catch (err) {
+      log(taskName, `FAIL: ${(err as Error).message}`);
+      process.exit(1);
+    }
   }
 
   let output: string;
   try {
-    output = runClaude(cron, workspaceCwd);
-    log(taskName, `Claude returned ${output.length} chars`);
+    if (cron.type === "script") {
+      output = runScript(cron);
+      log(taskName, `Script returned ${output.length} chars`);
+    } else {
+      output = runClaude(cron, workspaceCwd!);
+      log(taskName, `Claude returned ${output.length} chars`);
+    }
   } catch (err) {
     const errMsg = `Cron task "${taskName}" failed: ${(err as Error).message}`;
     log(taskName, `FAIL: ${errMsg}`);
 
     // Send failure notification to delivery chat; use admin fallback if delivery fails
     try {
-      deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`);
+      deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`, cron.deliveryThreadId);
     } catch (deliveryErr) {
       handleDeliveryFailure(
         taskName,
@@ -245,8 +352,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (!output || output === "NO_REPLY" || output.trim() === "NO_REPLY") {
-    log(taskName, output ? "NO_REPLY — skipping delivery" : "WARN: empty output");
+  if (!output) {
+    log(taskName, "WARN: empty output — skipping delivery");
+    log(taskName, "DONE");
+    return;
+  }
+  if (cron.type === "llm" && output === "NO_REPLY") {
+    log(taskName, "NO_REPLY — skipping delivery");
     log(taskName, "DONE");
     return;
   }
@@ -271,4 +383,4 @@ if (isMain) {
   main();
 }
 
-export { loadCronTask, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, shellEscape };
+export { loadCronTask, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, runScript, shellEscape };

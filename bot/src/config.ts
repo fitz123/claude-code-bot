@@ -21,6 +21,8 @@ interface RawConfig {
     bindings?: unknown[];
   };
   adminChatId?: number;
+  defaultDeliveryChatId?: number;
+  defaultDeliveryThreadId?: number;
 }
 
 function resolveKeychainSecret(service: string): string {
@@ -299,7 +301,25 @@ export function loadConfig(configPath?: string): BotConfig {
     adminChatId = raw.adminChatId;
   }
 
-  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, discord, adminChatId };
+  // defaultDeliveryChatId (optional — used by cron-runner as fallback delivery target)
+  let defaultDeliveryChatId: number | undefined;
+  if (raw.defaultDeliveryChatId !== undefined) {
+    if (!Number.isInteger(raw.defaultDeliveryChatId) || raw.defaultDeliveryChatId === 0) {
+      throw new Error(`Invalid defaultDeliveryChatId: ${raw.defaultDeliveryChatId} (must be a non-zero integer)`);
+    }
+    defaultDeliveryChatId = raw.defaultDeliveryChatId;
+  }
+
+  // defaultDeliveryThreadId (optional — used with defaultDeliveryChatId)
+  let defaultDeliveryThreadId: number | undefined;
+  if (raw.defaultDeliveryThreadId !== undefined) {
+    if (!Number.isInteger(raw.defaultDeliveryThreadId) || raw.defaultDeliveryThreadId === 0) {
+      throw new Error(`Invalid defaultDeliveryThreadId: ${raw.defaultDeliveryThreadId} (must be a non-zero integer)`);
+    }
+    defaultDeliveryThreadId = raw.defaultDeliveryThreadId;
+  }
+
+  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, discord, adminChatId, defaultDeliveryChatId, defaultDeliveryThreadId };
 }
 
 // CLI: validate config

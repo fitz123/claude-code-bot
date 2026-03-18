@@ -84,15 +84,27 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
 1. Edit `crons.yaml` — add a new entry:
    ```yaml
+   # LLM cron (default) — runs claude -p with the given prompt
    - name: my-task
      schedule: "30 9 * * *"       # cron syntax, local timezone
      prompt: >
        Do the thing.
      agentId: main                # must match an agent in config.yaml
-     deliveryChatId: YOUR_CHAT_ID  # where to send results
+     deliveryChatId: YOUR_CHAT_ID  # where to send results (optional if defaultDeliveryChatId set)
      timeout: 300000              # ms, optional
      maxBudget: 0.50              # USD, optional
+
+   # Script cron — runs a shell command directly (no LLM)
+   - name: backup-db
+     schedule: "0 2 * * *"
+     type: script                 # "script" or "llm" (default)
+     command: "/usr/bin/backup.sh --full"  # shell command to execute
+     agentId: main
+     deliveryChatId: YOUR_CHAT_ID
+     timeout: 300000              # ms, optional
    ```
+
+   Script-mode crons execute the command via `/bin/bash`, capture stdout, and deliver it the same way as LLM crons. They skip all Claude-specific setup (model, workspace, env vars). Empty output skips delivery.
 
 2. Generate launchd plists:
    ```bash
@@ -111,6 +123,13 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    ```
 
 To remove a cron: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete the entry from `crons.yaml`, regenerate.
+
+**Default delivery target:** Set `defaultDeliveryChatId` and optionally `defaultDeliveryThreadId` (top-level in `config.yaml`) to provide a default delivery target for all crons. Individual crons can still override with their own `deliveryChatId` / `deliveryThreadId`. If a cron omits `deliveryChatId` and no config default is set, an error is thrown.
+
+```yaml
+defaultDeliveryChatId: -1001234567890  # optional; default delivery target for all crons
+defaultDeliveryThreadId: 42            # optional; default thread for cron delivery
+```
 
 **Admin notifications:** Set `adminChatId` (top-level in `config.yaml`) to receive a fallback Telegram notification when cron delivery to `deliveryChatId` fails (e.g. bot blocked, chat deleted). Must be a non-zero integer (use a negative ID for groups/supergroups). If not set, failures are logged locally only.
 
