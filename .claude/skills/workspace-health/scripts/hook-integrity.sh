@@ -68,10 +68,14 @@ else
         [ -n "$cmd" ] || continue
         # Extract script path — resolve CLAUDE_PROJECT_DIR without splitting on spaces
         if echo "$cmd" | grep -qF 'CLAUDE_PROJECT_DIR'; then
-          rel_path=$(echo "$cmd" | sed 's/.*CLAUDE_PROJECT_DIR["/ ]*//; s/\.sh.*/\.sh/')
+          rel_path=$(echo "$cmd" | sed 's/.*CLAUDE_PROJECT_DIR[}"/ ]*//; s/\.sh.*/\.sh/')
           script_path="$WORKSPACE/$rel_path"
         else
-          script_path=$(echo "$cmd" | grep -oE '[^ ]*\.sh' | head -1 || true)
+          # Try quoted path first (handles spaces), then fall back to unquoted
+          script_path=$(echo "$cmd" | sed -n 's|.*"\([^"]*\.sh\)".*|\1|p')
+          if [ -z "$script_path" ]; then
+            script_path=$(echo "$cmd" | grep -oE '[^ ]*\.sh' | head -1 || true)
+          fi
         fi
         [ -n "$script_path" ] || continue
         script_name=$(basename "$script_path")
