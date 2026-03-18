@@ -73,6 +73,13 @@ case "$ACTION" in
   rollback)
     if [ -f "$BACKUP_PATH" ]; then
       cp "$BACKUP_PATH" "$FILEPATH"
+      # Verify copy succeeded before removing backup
+      backup_size=$(wc -c < "$BACKUP_PATH" | tr -d ' ')
+      restored_size=$(wc -c < "$FILEPATH" | tr -d ' ')
+      if [ "$backup_size" != "$restored_size" ]; then
+        echo "ROLLBACK_COPY_FAILED"
+        exit 1
+      fi
       rm -f "$BACKUP_PATH"
       echo "ROLLED_BACK"
     else

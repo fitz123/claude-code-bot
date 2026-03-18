@@ -35,7 +35,7 @@ if [ ! -d "$SESSION_DIR" ]; then
 fi
 
 # Find JSONL files modified in the last 48 hours
-find "$SESSION_DIR" -maxdepth 1 -name "*.jsonl" -mtime -2 -type f 2>/dev/null | while read -r jsonl_file; do
+while read -r jsonl_file; do
   # Check if this is a human session by examining the first line
   first_line=$(head -1 "$jsonl_file" 2>/dev/null) || continue
 
@@ -47,4 +47,4 @@ find "$SESSION_DIR" -maxdepth 1 -name "*.jsonl" -mtime -2 -type f 2>/dev/null | 
     "[Chat:"*) echo "$jsonl_file" ;;
     *) ;;
   esac
-done
+done < <(find "$SESSION_DIR" -maxdepth 1 -name "*.jsonl" -mtime -2 -type f 2>/dev/null)
