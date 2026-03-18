@@ -1,0 +1,21 @@
+# Architectural Decision Records
+
+Track architectural decisions so future sessions know what was decided and why.
+
+## Template
+
+Copy this block to add a new decision:
+
+```
+### ADR-NNN: <Title>
+
+- Status: proposed | accepted | deprecated | superseded
+- Date: YYYY-MM-DD
+- Context: What prompted the decision
+- Decision: What was decided
+- Consequences: What changes as a result
+```
+
+## Decisions
+
+<!-- Add new decisions below this line, newest first -->

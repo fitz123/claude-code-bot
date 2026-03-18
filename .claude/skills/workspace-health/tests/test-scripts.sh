@@ -1,0 +1,647 @@
+#!/bin/bash
+# test-scripts.sh — Tests for workspace-health scripts
+# Usage: bash test-scripts.sh [workspace-path]
+# Runs each script against the workspace and verifies expected behavior.
+set -euo pipefail
+
+WORKSPACE="${1:-.}"
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts" && pwd)"
+
+PASS=0
+FAIL=0
+TESTS=0
+
+# Helper: run a test case
+run_test() {
+  local name="$1"
+  local expected_exit="$2"
+  shift 2
+  local cmd=("$@")
+
+  TESTS=$((TESTS + 1))
+  local output
+  local actual_exit=0
+  output=$("${cmd[@]}" 2>&1) || actual_exit=$?
+
+  if [ "$actual_exit" -eq "$expected_exit" ]; then
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name (expected exit $expected_exit, got $actual_exit)"
+    echo "    Output: $(echo "$output" | head -5)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Helper: check output contains a string
+assert_contains() {
+  local name="$1"
+  local pattern="$2"
+  shift 2
+  local cmd=("$@")
+
+  TESTS=$((TESTS + 1))
+  local output
+  output=$("${cmd[@]}" 2>&1) || true
+
+  if echo "$output" | grep -q "$pattern"; then
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name (output missing: '$pattern')"
+    echo "    Output: $(echo "$output" | head -5)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Helper: check output does NOT contain a string
+assert_not_contains() {
+  local name="$1"
+  local pattern="$2"
+  shift 2
+  local cmd=("$@")
+
+  TESTS=$((TESTS + 1))
+  local output
+  output=$("${cmd[@]}" 2>&1) || true
+
+  if echo "$output" | grep -q "$pattern"; then
+    echo "  FAIL: $name (output should not contain: '$pattern')"
+    echo "    Output: $(echo "$output" | head -5)"
+    FAIL=$((FAIL + 1))
+  else
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  fi
+}
+
+echo "=== Workspace Health Script Tests ==="
+echo "Workspace: $WORKSPACE"
+echo "Scripts: $SCRIPT_DIR"
+echo ""
+
+# ============================================================
+# Test: size-audit.sh
+# ============================================================
+echo "--- size-audit.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+assert_contains "reports total size" "Total size:" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+assert_contains "reports largest files" "Largest files" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+assert_contains "includes bloat check" "Bloat check:" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+
+# Test with explicit workspace path argument
+assert_contains "accepts workspace path argument" "Size Audit:" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+echo ""
+
+# ============================================================
+# Test: config-check.sh
+# ============================================================
+echo "--- config-check.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks required files" "Required files:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks MEMORY.md at root" "MEMORY.md" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks settings" "Settings:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks hooks config" "Hooks configuration:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks root markdown" "Root markdown files:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "reports summary" "Summary:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+
+# MEMORY.md should be found at workspace root (not memory/auto/)
+assert_not_contains "no memory/auto path" "memory/auto" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+
+# MEMORY.md should not be flagged as stray
+TESTS=$((TESTS + 1))
+CONFIG_OUTPUT=$(bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE" 2>&1 || true)
+if echo "$CONFIG_OUTPUT" | grep -i "stray\|unexpected" | grep -q "MEMORY.md"; then
+  echo "  FAIL: MEMORY.md is flagged as stray in config-check output"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: MEMORY.md not flagged as stray"
+  PASS=$((PASS + 1))
+fi
+
+# settings.local.json missing should not be a FAIL
+assert_not_contains "missing settings.local.json is not a FAIL" "FAIL.*settings.local.json" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+
+# No ADR references
+TESTS=$((TESTS + 1))
+if grep -q 'ADR-[0-9]' "$SCRIPT_DIR/config-check.sh"; then
+  echo "  FAIL: config-check.sh contains ADR number references"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no ADR number references in config-check.sh"
+  PASS=$((PASS + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: hook-integrity.sh
+# ============================================================
+echo "--- hook-integrity.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+assert_contains "checks hook scripts" "Hook scripts:" bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+assert_contains "cross-references settings" "Settings cross-reference:" bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+assert_contains "reports summary" "Summary:" bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+echo ""
+
+# ============================================================
+# Test: orphan-scan.sh
+# ============================================================
+echo "--- orphan-scan.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/orphan-scan.sh" "$WORKSPACE"
+assert_contains "reports scan" "Orphan Scan:" bash "$SCRIPT_DIR/orphan-scan.sh" "$WORKSPACE"
+
+# Allowlist should not contain workspace-specific entries
+TESTS=$((TESTS + 1))
+ALLOWLIST="$SCRIPT_DIR/orphan-allowlist.txt"
+if grep -qE '^(bot|config\.yaml|crons\.yaml|monitoring|data|archive|assets|\.beads|\.minime|\.playwright-mcp|\.consolidation-state|\.maintenance\.lock|templates|reference|scripts|skills)$' "$ALLOWLIST" 2>/dev/null; then
+  echo "  FAIL: orphan-allowlist.txt contains workspace-specific entries"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: orphan-allowlist.txt contains only platform-generic entries"
+  PASS=$((PASS + 1))
+fi
+
+# Local allowlist mechanism exists
+TESTS=$((TESTS + 1))
+if grep -q "orphan-allowlist.local.txt" "$SCRIPT_DIR/orphan-scan.sh"; then
+  echo "  PASS: orphan-scan.sh supports local allowlist"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: orphan-scan.sh does not reference local allowlist"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: cleanup.sh
+# ============================================================
+echo "--- cleanup.sh ---"
+run_test "exits 0 with --workspace flag" 0 bash "$SCRIPT_DIR/cleanup.sh" --workspace "$WORKSPACE"
+assert_contains "dry run by default" "DRY RUN" bash "$SCRIPT_DIR/cleanup.sh" --workspace "$WORKSPACE"
+assert_contains "reports workspace" "Cleanup" bash "$SCRIPT_DIR/cleanup.sh" --workspace "$WORKSPACE"
+
+# Should require --workspace flag
+run_test "exits 1 without --workspace flag" 1 bash "$SCRIPT_DIR/cleanup.sh"
+
+# Should not contain hardcoded workspace paths
+TESTS=$((TESTS + 1))
+HARDCODED_PATH_PATTERN='/''Users/'
+if grep -q "$HARDCODED_PATH_PATTERN" "$SCRIPT_DIR/cleanup.sh"; then
+  echo "  FAIL: cleanup.sh contains hardcoded user paths"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no hardcoded user paths in cleanup.sh"
+  PASS=$((PASS + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: platform-check.sh
+# ============================================================
+echo "--- platform-check.sh ---"
+run_test "exits 0 on workspace" 0 bash "$SCRIPT_DIR/platform-check.sh" "$WORKSPACE"
+assert_contains "reports platform check" "Platform Check:" bash "$SCRIPT_DIR/platform-check.sh" "$WORKSPACE"
+
+# Checks platform files (hooks, rules, settings)
+TESTS=$((TESTS + 1))
+CHECKS_HOOKS=0
+CHECKS_RULES=0
+CHECKS_SETTINGS=0
+grep -q 'hooks/' "$SCRIPT_DIR/platform-check.sh" && CHECKS_HOOKS=1
+grep -q 'rules/platform/' "$SCRIPT_DIR/platform-check.sh" && CHECKS_RULES=1
+grep -q 'settings.json' "$SCRIPT_DIR/platform-check.sh" && CHECKS_SETTINGS=1
+if [ "$CHECKS_HOOKS" -eq 1 ] && [ "$CHECKS_RULES" -eq 1 ] && [ "$CHECKS_SETTINGS" -eq 1 ]; then
+  echo "  PASS: platform-check.sh checks hooks, rules, and settings"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: platform-check.sh missing checks for hooks/rules/settings"
+  FAIL=$((FAIL + 1))
+fi
+
+# Handles non-git workspaces gracefully
+TESTS=$((TESTS + 1))
+TMPDIR_NONGIT=$(mktemp -d)
+NONGIT_EXIT=0
+NONGIT_OUTPUT=$(bash "$SCRIPT_DIR/platform-check.sh" "$TMPDIR_NONGIT" 2>&1) || NONGIT_EXIT=$?
+[ -n "$TMPDIR_NONGIT" ] && { command -v trash >/dev/null 2>&1 && trash "$TMPDIR_NONGIT" || rm -rf "$TMPDIR_NONGIT"; }
+if [ "$NONGIT_EXIT" -eq 0 ] && echo "$NONGIT_OUTPUT" | grep -qi "skip"; then
+  echo "  PASS: platform-check.sh handles non-git workspace gracefully"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: platform-check.sh does not handle non-git workspace (exit=$NONGIT_EXIT)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Script is executable
+TESTS=$((TESTS + 1))
+if [ -x "$SCRIPT_DIR/platform-check.sh" ] || head -1 "$SCRIPT_DIR/platform-check.sh" | grep -q 'bash'; then
+  echo "  PASS: platform-check.sh is a valid bash script"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: platform-check.sh is not executable or not a bash script"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: SKILL.md
+# ============================================================
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SKILL_MD="$SKILL_DIR/SKILL.md"
+echo "--- SKILL.md ---"
+
+# SKILL.md exists
+TESTS=$((TESTS + 1))
+if [ -f "$SKILL_MD" ]; then
+  echo "  PASS: SKILL.md exists"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md does not exist"
+  FAIL=$((FAIL + 1))
+fi
+
+# No hardcoded absolute paths
+TESTS=$((TESTS + 1))
+HARDCODED_PATH_PATTERN='/''Users/'
+if grep -q "$HARDCODED_PATH_PATTERN" "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md contains hardcoded absolute paths"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md has no hardcoded absolute paths"
+  PASS=$((PASS + 1))
+fi
+
+# Uses CLAUDE_SKILL_DIR for script paths
+TESTS=$((TESTS + 1))
+if grep -q 'CLAUDE_SKILL_DIR' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md uses CLAUDE_SKILL_DIR for portable paths"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md does not use CLAUDE_SKILL_DIR"
+  FAIL=$((FAIL + 1))
+fi
+
+# No ADR number references
+TESTS=$((TESTS + 1))
+if grep -q 'ADR-[0-9]' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md contains ADR number references"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md has no ADR number references"
+  PASS=$((PASS + 1))
+fi
+
+# Does not contain Part H (ADR Compliance Review)
+TESTS=$((TESTS + 1))
+if grep -qi 'ADR [Cc]ompliance [Rr]eview' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md contains ADR Compliance Review stage"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md does not contain ADR Compliance Review"
+  PASS=$((PASS + 1))
+fi
+
+# Includes platform consistency check stage
+TESTS=$((TESTS + 1))
+if grep -qi 'platform' "$SKILL_MD" 2>/dev/null && grep -q 'platform-check.sh' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md includes platform consistency check stage"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md missing platform consistency check stage"
+  FAIL=$((FAIL + 1))
+fi
+
+# Report format includes "Platform check" line
+TESTS=$((TESTS + 1))
+if grep -q 'Platform check' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md report format includes Platform check line"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md report format missing Platform check line"
+  FAIL=$((FAIL + 1))
+fi
+
+# Report format does not include "ADR compliance" line
+TESTS=$((TESTS + 1))
+if grep -qi 'ADR compliance' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md report format contains ADR compliance line"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md report format has no ADR compliance line"
+  PASS=$((PASS + 1))
+fi
+
+# AI stages reference graceful skip for missing files
+TESTS=$((TESTS + 1))
+if grep -qi 'skip.*missing\|missing.*skip\|skip any that are missing' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md AI stages skip gracefully when files missing"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md AI stages do not mention skipping for missing files"
+  FAIL=$((FAIL + 1))
+fi
+
+# Part E references only public-repo files (no private workspace paths)
+TESTS=$((TESTS + 1))
+if grep -q '\.minime\|workspace-coder\|/ninja/' "$SKILL_MD" 2>/dev/null; then
+  echo "  FAIL: SKILL.md Part E references private workspace paths"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: SKILL.md Part E has no private workspace references"
+  PASS=$((PASS + 1))
+fi
+
+# Git sync mentions non-git workspace handling
+TESTS=$((TESTS + 1))
+if grep -qi 'not a git\|non-git\|not.*git.*repo' "$SKILL_MD" 2>/dev/null; then
+  echo "  PASS: SKILL.md git sync handles non-git workspaces"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md git sync does not handle non-git workspaces"
+  FAIL=$((FAIL + 1))
+fi
+
+# Documents all stages and output format
+TESTS=$((TESTS + 1))
+HAS_REPORT=0
+grep -q 'Summary Report\|summary.*report\|Report' "$SKILL_MD" 2>/dev/null && HAS_REPORT=1
+if [ "$HAS_REPORT" -eq 1 ]; then
+  echo "  PASS: SKILL.md documents expected output format"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: SKILL.md does not document expected output format"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: ADR governance
+# ============================================================
+echo "--- ADR governance ---"
+
+# ADR template exists
+TESTS=$((TESTS + 1))
+ADR_TEMPLATE="$WORKSPACE/reference/governance/decisions.md.example"
+if [ -f "$ADR_TEMPLATE" ]; then
+  echo "  PASS: decisions.md.example exists"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: decisions.md.example does not exist at $ADR_TEMPLATE"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR template has required fields
+for field in "Status:" "Date:" "Context:" "Decision:" "Consequences:"; do
+  TESTS=$((TESTS + 1))
+  if grep -q "$field" "$ADR_TEMPLATE" 2>/dev/null; then
+    echo "  PASS: ADR template contains $field"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: ADR template missing $field"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+# ADR template is tracked in git (not ignored)
+TESTS=$((TESTS + 1))
+if git -C "$WORKSPACE" add --dry-run reference/governance/decisions.md.example >/dev/null 2>&1; then
+  echo "  PASS: decisions.md.example is trackable by git"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: decisions.md.example is gitignored"
+  FAIL=$((FAIL + 1))
+fi
+
+# User decisions.md would be gitignored (covered by reference/* pattern)
+TESTS=$((TESTS + 1))
+# check-ignore exits 0 if file IS ignored, 1 if not
+if git -C "$WORKSPACE" check-ignore -q reference/governance/decisions.md 2>/dev/null; then
+  echo "  PASS: reference/governance/decisions.md is gitignored (user content protected)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: reference/governance/decisions.md is NOT gitignored"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR governance rule exists as platform rule
+TESTS=$((TESTS + 1))
+ADR_RULE="$WORKSPACE/.claude/rules/platform/adr-governance.md"
+if [ -f "$ADR_RULE" ]; then
+  echo "  PASS: adr-governance.md platform rule exists"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: adr-governance.md platform rule does not exist"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule mentions checking decision log before changes
+TESTS=$((TESTS + 1))
+if grep -qi 'check.*decisions\|prior decisions\|decision.*log' "$ADR_RULE" 2>/dev/null; then
+  echo "  PASS: ADR rule enforces checking decision log"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR rule does not enforce checking decision log"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule mentions recording new decisions
+TESTS=$((TESTS + 1))
+if grep -qi 'recording\|propose.*adding\|suggest.*adding' "$ADR_RULE" 2>/dev/null; then
+  echo "  PASS: ADR rule enforces recording new decisions"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR rule does not mention recording new decisions"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule requires user confirmation
+TESTS=$((TESTS + 1))
+if grep -qi 'user confirmation\|without.*confirm\|never.*create.*without' "$ADR_RULE" 2>/dev/null; then
+  echo "  PASS: ADR rule requires user confirmation"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR rule does not require user confirmation"
+  FAIL=$((FAIL + 1))
+fi
+
+# setup.sh offers ADR initialization
+TESTS=$((TESTS + 1))
+SETUP_SH="$WORKSPACE/setup.sh"
+if grep -q 'decisions.md' "$SETUP_SH" 2>/dev/null; then
+  echo "  PASS: setup.sh offers ADR initialization"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: setup.sh does not offer ADR initialization"
+  FAIL=$((FAIL + 1))
+fi
+
+# ADR rule auto-loads (it's in rules/platform/)
+TESTS=$((TESTS + 1))
+if [ -f "$WORKSPACE/.claude/rules/platform/adr-governance.md" ]; then
+  echo "  PASS: ADR governance rule auto-loads as platform rule"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: ADR governance rule not in platform rules directory"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: setup.sh integration
+# ============================================================
+echo "--- setup.sh integration ---"
+SETUP_SH="$WORKSPACE/setup.sh"
+
+# setup.sh makes skill scripts executable
+TESTS=$((TESTS + 1))
+if grep -q 'skills/\*/scripts/\*.sh' "$SETUP_SH" 2>/dev/null || grep -q 'skills/.*/scripts/' "$SETUP_SH" 2>/dev/null; then
+  echo "  PASS: setup.sh makes skill scripts executable"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: setup.sh does not make skill scripts executable"
+  FAIL=$((FAIL + 1))
+fi
+
+# setup.sh runs without error
+TESTS=$((TESTS + 1))
+SETUP_EXIT=0
+SETUP_OUTPUT=$(cd "$WORKSPACE" && bash setup.sh </dev/null 2>&1) || SETUP_EXIT=$?
+if [ "$SETUP_EXIT" -eq 0 ]; then
+  echo "  PASS: setup.sh runs without error"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: setup.sh exits with code $SETUP_EXIT"
+  echo "    Output: $(echo "$SETUP_OUTPUT" | tail -5)"
+  FAIL=$((FAIL + 1))
+fi
+
+# After setup.sh, skill scripts are executable
+TESTS=$((TESTS + 1))
+ALL_EXECUTABLE=1
+for s in "$SCRIPT_DIR"/*.sh; do
+  if [ ! -x "$s" ]; then
+    ALL_EXECUTABLE=0
+    break
+  fi
+done
+if [ "$ALL_EXECUTABLE" -eq 1 ]; then
+  echo "  PASS: skill scripts are executable after setup.sh"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: some skill scripts are not executable after setup.sh"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: crons.yaml.example
+# ============================================================
+echo "--- crons.yaml.example ---"
+CRONS_EXAMPLE="$WORKSPACE/bot/crons.yaml.example"
+
+# Has workspace-health entry
+TESTS=$((TESTS + 1))
+if grep -q 'workspace-health' "$CRONS_EXAMPLE" 2>/dev/null; then
+  echo "  PASS: crons.yaml.example has workspace-health entry"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: crons.yaml.example missing workspace-health entry"
+  FAIL=$((FAIL + 1))
+fi
+
+# References the skill
+TESTS=$((TESTS + 1))
+if grep -q '/workspace-health' "$CRONS_EXAMPLE" 2>/dev/null; then
+  echo "  PASS: crons.yaml.example references workspace-health skill"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: crons.yaml.example does not reference workspace-health skill"
+  FAIL=$((FAIL + 1))
+fi
+
+# Has adequate timeout (>= 600000 for AI stages)
+TESTS=$((TESTS + 1))
+TIMEOUT_VALUE=$(grep -A10 'workspace-health' "$CRONS_EXAMPLE" 2>/dev/null | grep 'timeout:' | head -1 | sed 's/.*timeout:[[:space:]]*//' | grep -oE '^[0-9]+')
+if [ -n "$TIMEOUT_VALUE" ] && [ "$TIMEOUT_VALUE" -ge 600000 ] 2>/dev/null; then
+  echo "  PASS: workspace-health cron has adequate timeout (${TIMEOUT_VALUE}ms)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: workspace-health cron timeout too low or missing (${TIMEOUT_VALUE:-none})"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: .gitignore coverage
+# ============================================================
+echo "--- .gitignore coverage ---"
+GITIGNORE="$WORKSPACE/.gitignore"
+
+# orphan-allowlist.local.txt is gitignored
+TESTS=$((TESTS + 1))
+if grep -q 'orphan-allowlist.local.txt' "$GITIGNORE" 2>/dev/null; then
+  echo "  PASS: .gitignore includes orphan-allowlist.local.txt"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: .gitignore missing orphan-allowlist.local.txt"
+  FAIL=$((FAIL + 1))
+fi
+
+# reference/governance/decisions.md.example is trackable (not ignored)
+TESTS=$((TESTS + 1))
+if git -C "$WORKSPACE" check-ignore -q reference/governance/decisions.md.example 2>/dev/null; then
+  echo "  FAIL: decisions.md.example is gitignored (should be tracked)"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: decisions.md.example is not gitignored (tracked in git)"
+  PASS=$((PASS + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: No hardcoded paths in any script
+# ============================================================
+echo "--- Global checks ---"
+TESTS=$((TESTS + 1))
+HARDCODED_PATH_PATTERN='/''Users/'
+if grep -r "$HARDCODED_PATH_PATTERN" "$SCRIPT_DIR"/*.sh 2>/dev/null; then
+  echo "  FAIL: hardcoded user paths found in scripts"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no hardcoded user paths in any script"
+  PASS=$((PASS + 1))
+fi
+
+# No ADR references in any script or SKILL.md
+TESTS=$((TESTS + 1))
+SKILL_PARENT="$(cd "$(dirname "$0")/.." && pwd)"
+if grep -rn 'ADR-[0-9]' "$SCRIPT_DIR"/ "$SKILL_PARENT/SKILL.md" 2>/dev/null; then
+  echo "  FAIL: ADR number references found in skill files"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no ADR number references in any skill file"
+  PASS=$((PASS + 1))
+fi
+
+# All scripts accept workspace path argument
+for script in "$SCRIPT_DIR"/*.sh; do
+  name=$(basename "$script")
+  TESTS=$((TESTS + 1))
+  if head -10 "$script" | grep -qi 'workspace\|path'; then
+    echo "  PASS: $name documents workspace path usage"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name does not document workspace path usage"
+    FAIL=$((FAIL + 1))
+  fi
+done
+echo ""
+
+# ============================================================
+# Summary
+# ============================================================
+echo "=== Results: $PASS passed, $FAIL failed, $TESTS total ==="
+if [ "$FAIL" -gt 0 ]; then
+  exit 1
+fi
