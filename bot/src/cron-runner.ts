@@ -141,11 +141,19 @@ export function loadDefaultDelivery(configPath?: string): DeliveryDefaults {
     defaultDeliveryThreadId?: unknown;
   };
   const result: DeliveryDefaults = {};
-  if (typeof raw?.defaultDeliveryChatId === "number" && Number.isInteger(raw.defaultDeliveryChatId) && raw.defaultDeliveryChatId !== 0) {
-    result.defaultDeliveryChatId = raw.defaultDeliveryChatId;
+  if (raw?.defaultDeliveryChatId !== undefined) {
+    if (typeof raw.defaultDeliveryChatId === "number" && Number.isInteger(raw.defaultDeliveryChatId) && raw.defaultDeliveryChatId !== 0) {
+      result.defaultDeliveryChatId = raw.defaultDeliveryChatId;
+    } else {
+      process.stderr.write(`[cron-runner] WARN: invalid defaultDeliveryChatId in config (${raw.defaultDeliveryChatId}), ignoring\n`);
+    }
   }
-  if (typeof raw?.defaultDeliveryThreadId === "number" && Number.isInteger(raw.defaultDeliveryThreadId) && raw.defaultDeliveryThreadId !== 0) {
-    result.defaultDeliveryThreadId = raw.defaultDeliveryThreadId;
+  if (raw?.defaultDeliveryThreadId !== undefined) {
+    if (typeof raw.defaultDeliveryThreadId === "number" && Number.isInteger(raw.defaultDeliveryThreadId) && raw.defaultDeliveryThreadId !== 0) {
+      result.defaultDeliveryThreadId = raw.defaultDeliveryThreadId;
+    } else {
+      process.stderr.write(`[cron-runner] WARN: invalid defaultDeliveryThreadId in config (${raw.defaultDeliveryThreadId}), ignoring\n`);
+    }
   }
   return result;
 }
