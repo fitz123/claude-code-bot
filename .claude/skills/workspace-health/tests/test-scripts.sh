@@ -1,0 +1,251 @@
+#!/bin/bash
+# test-scripts.sh — Tests for workspace-health scripts
+# Usage: bash test-scripts.sh [workspace-path]
+# Runs each script against the workspace and verifies expected behavior.
+set -euo pipefail
+
+WORKSPACE="${1:-.}"
+WORKSPACE="$(cd "$WORKSPACE" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts" && pwd)"
+
+PASS=0
+FAIL=0
+TESTS=0
+
+# Helper: run a test case
+run_test() {
+  local name="$1"
+  local expected_exit="$2"
+  shift 2
+  local cmd=("$@")
+
+  TESTS=$((TESTS + 1))
+  local output
+  local actual_exit=0
+  output=$("${cmd[@]}" 2>&1) || actual_exit=$?
+
+  if [ "$actual_exit" -eq "$expected_exit" ]; then
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name (expected exit $expected_exit, got $actual_exit)"
+    echo "    Output: $(echo "$output" | head -5)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Helper: check output contains a string
+assert_contains() {
+  local name="$1"
+  local pattern="$2"
+  shift 2
+  local cmd=("$@")
+
+  TESTS=$((TESTS + 1))
+  local output
+  output=$("${cmd[@]}" 2>&1) || true
+
+  if echo "$output" | grep -q "$pattern"; then
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name (output missing: '$pattern')"
+    echo "    Output: $(echo "$output" | head -5)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Helper: check output does NOT contain a string
+assert_not_contains() {
+  local name="$1"
+  local pattern="$2"
+  shift 2
+  local cmd=("$@")
+
+  TESTS=$((TESTS + 1))
+  local output
+  output=$("${cmd[@]}" 2>&1) || true
+
+  if echo "$output" | grep -q "$pattern"; then
+    echo "  FAIL: $name (output should not contain: '$pattern')"
+    echo "    Output: $(echo "$output" | head -5)"
+    FAIL=$((FAIL + 1))
+  else
+    echo "  PASS: $name"
+    PASS=$((PASS + 1))
+  fi
+}
+
+echo "=== Workspace Health Script Tests ==="
+echo "Workspace: $WORKSPACE"
+echo "Scripts: $SCRIPT_DIR"
+echo ""
+
+# ============================================================
+# Test: size-audit.sh
+# ============================================================
+echo "--- size-audit.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+assert_contains "reports total size" "Total size:" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+assert_contains "reports largest files" "Largest files" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+assert_contains "includes bloat check" "Bloat check:" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+
+# Test with explicit workspace path argument
+assert_contains "accepts workspace path argument" "Size Audit:" bash "$SCRIPT_DIR/size-audit.sh" "$WORKSPACE"
+echo ""
+
+# ============================================================
+# Test: config-check.sh
+# ============================================================
+echo "--- config-check.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks required files" "Required files:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks MEMORY.md at root" "MEMORY.md" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks settings" "Settings:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks hooks config" "Hooks configuration:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "checks root markdown" "Root markdown files:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+assert_contains "reports summary" "Summary:" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+
+# MEMORY.md should be found at workspace root (not memory/auto/)
+assert_not_contains "no memory/auto path" "memory/auto" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+
+# MEMORY.md should not be flagged as stray
+TESTS=$((TESTS + 1))
+CONFIG_OUTPUT=$(bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE" 2>&1 || true)
+if echo "$CONFIG_OUTPUT" | grep -i "stray\|unexpected" | grep -q "MEMORY.md"; then
+  echo "  FAIL: MEMORY.md is flagged as stray in config-check output"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: MEMORY.md not flagged as stray"
+  PASS=$((PASS + 1))
+fi
+
+# settings.local.json missing should not be a FAIL
+assert_not_contains "missing settings.local.json is not a FAIL" "FAIL.*settings.local.json" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
+
+# No ADR references
+TESTS=$((TESTS + 1))
+if grep -q 'ADR-[0-9]' "$SCRIPT_DIR/config-check.sh"; then
+  echo "  FAIL: config-check.sh contains ADR number references"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no ADR number references in config-check.sh"
+  PASS=$((PASS + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: hook-integrity.sh
+# ============================================================
+echo "--- hook-integrity.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+assert_contains "checks hook scripts" "Hook scripts:" bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+assert_contains "cross-references settings" "Settings cross-reference:" bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+assert_contains "reports summary" "Summary:" bash "$SCRIPT_DIR/hook-integrity.sh" "$WORKSPACE"
+echo ""
+
+# ============================================================
+# Test: orphan-scan.sh
+# ============================================================
+echo "--- orphan-scan.sh ---"
+run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/orphan-scan.sh" "$WORKSPACE"
+assert_contains "reports scan" "Orphan Scan:" bash "$SCRIPT_DIR/orphan-scan.sh" "$WORKSPACE"
+
+# Allowlist should not contain workspace-specific entries
+TESTS=$((TESTS + 1))
+ALLOWLIST="$SCRIPT_DIR/orphan-allowlist.txt"
+if grep -qE '^(bot|config\.yaml|crons\.yaml|monitoring|data|archive|assets|\.beads|\.minime|\.playwright-mcp|\.consolidation-state|\.maintenance\.lock|templates|reference|scripts|skills)$' "$ALLOWLIST" 2>/dev/null; then
+  echo "  FAIL: orphan-allowlist.txt contains workspace-specific entries"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: orphan-allowlist.txt contains only platform-generic entries"
+  PASS=$((PASS + 1))
+fi
+
+# Local allowlist mechanism exists
+TESTS=$((TESTS + 1))
+if grep -q "orphan-allowlist.local.txt" "$SCRIPT_DIR/orphan-scan.sh"; then
+  echo "  PASS: orphan-scan.sh supports local allowlist"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: orphan-scan.sh does not reference local allowlist"
+  FAIL=$((FAIL + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: cleanup.sh
+# ============================================================
+echo "--- cleanup.sh ---"
+run_test "exits 0 with --workspace flag" 0 bash "$SCRIPT_DIR/cleanup.sh" --workspace "$WORKSPACE"
+assert_contains "dry run by default" "DRY RUN" bash "$SCRIPT_DIR/cleanup.sh" --workspace "$WORKSPACE"
+assert_contains "reports workspace" "Cleanup" bash "$SCRIPT_DIR/cleanup.sh" --workspace "$WORKSPACE"
+
+# Should require --workspace flag
+run_test "exits 1 without --workspace flag" 1 bash "$SCRIPT_DIR/cleanup.sh"
+
+# Should not contain hardcoded workspace paths
+TESTS=$((TESTS + 1))
+HARDCODED_PATH_PATTERN='/''Users/'
+if grep -q "$HARDCODED_PATH_PATTERN" "$SCRIPT_DIR/cleanup.sh"; then
+  echo "  FAIL: cleanup.sh contains hardcoded user paths"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no hardcoded user paths in cleanup.sh"
+  PASS=$((PASS + 1))
+fi
+echo ""
+
+# ============================================================
+# Test: platform-check.sh
+# ============================================================
+echo "--- platform-check.sh ---"
+run_test "exits 0 on workspace" 0 bash "$SCRIPT_DIR/platform-check.sh" "$WORKSPACE"
+assert_contains "reports platform check" "Platform Check:" bash "$SCRIPT_DIR/platform-check.sh" "$WORKSPACE"
+echo ""
+
+# ============================================================
+# Test: No hardcoded paths in any script
+# ============================================================
+echo "--- Global checks ---"
+TESTS=$((TESTS + 1))
+HARDCODED_PATH_PATTERN='/''Users/'
+if grep -r "$HARDCODED_PATH_PATTERN" "$SCRIPT_DIR"/*.sh 2>/dev/null; then
+  echo "  FAIL: hardcoded user paths found in scripts"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no hardcoded user paths in any script"
+  PASS=$((PASS + 1))
+fi
+
+# No ADR references in any script
+TESTS=$((TESTS + 1))
+if grep -rn 'ADR-[0-9]' "$SCRIPT_DIR"/ 2>/dev/null; then
+  echo "  FAIL: ADR number references found in scripts"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: no ADR number references in any file"
+  PASS=$((PASS + 1))
+fi
+
+# All scripts accept workspace path argument
+for script in "$SCRIPT_DIR"/*.sh; do
+  name=$(basename "$script")
+  TESTS=$((TESTS + 1))
+  if head -10 "$script" | grep -qi 'workspace\|path'; then
+    echo "  PASS: $name documents workspace path usage"
+    PASS=$((PASS + 1))
+  else
+    echo "  FAIL: $name does not document workspace path usage"
+    FAIL=$((FAIL + 1))
+  fi
+done
+echo ""
+
+# ============================================================
+# Summary
+# ============================================================
+echo "=== Results: $PASS passed, $FAIL failed, $TESTS total ==="
+if [ "$FAIL" -gt 0 ]; then
+  exit 1
+fi

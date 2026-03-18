@@ -19,6 +19,7 @@ memory/*
 .claude/rules/custom/*
 !.claude/rules/custom/.gitkeep
 reference/
+orphan-allowlist.local.txt
 
 # Ralphex
 .ralphex/

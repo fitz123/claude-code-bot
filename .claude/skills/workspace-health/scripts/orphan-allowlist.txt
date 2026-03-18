@@ -1,0 +1,4 @@
+# Platform-generic orphan allowlist
+# Root-level items that are expected in a normal workspace but not tracked by git.
+# One entry per line. Lines starting with # are comments.
+# Users can add workspace-specific entries to orphan-allowlist.local.txt (gitignored).
