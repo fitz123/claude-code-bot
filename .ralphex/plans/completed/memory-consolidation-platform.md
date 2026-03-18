@@ -253,11 +253,11 @@ What we want:
 - `memory-protocol.md` optional rule references `memory/diary/` instead of `memory/daily/`
 - `setup.sh` runs without error on a fresh clone
 
-- [ ] `setup.sh` creates `memory/auto/` and `memory/diary/` directories
-- [ ] Skill scripts in `.claude/skills/*/scripts/` are made executable by `setup.sh`
-- [ ] `crons.yaml.example` has `memory-consolidation` entry with nightly schedule and adequate timeout
-- [ ] `.gitignore` covers consolidation lock and state files
-- [ ] `memory-protocol.md` optional rule references `memory/diary/` (not `memory/daily/`)
-- [ ] `bash setup.sh` runs without error on a fresh clone
-- [ ] Add tests verifying setup.sh creates memory subdirectories and crons.yaml.example parses correctly
-- [ ] Verify existing tests pass
+- [x] `setup.sh` creates `memory/auto/` and `memory/diary/` directories
+- [x] Skill scripts in `.claude/skills/*/scripts/` are made executable by `setup.sh`
+- [x] `crons.yaml.example` has `memory-consolidation` entry with nightly schedule and adequate timeout
+- [x] `.gitignore` covers consolidation lock and state files
+- [x] `memory-protocol.md` optional rule references `memory/diary/` (not `memory/daily/`)
+- [x] `bash setup.sh` runs without error on a fresh clone
+- [x] Add tests verifying setup.sh creates memory subdirectories and crons.yaml.example parses correctly
+- [x] Verify existing tests pass
