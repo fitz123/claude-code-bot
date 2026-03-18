@@ -270,16 +270,16 @@ describe("cron-runner", () => {
       assert.strictEqual(cron.deliveryChatId, 999999999);
     });
 
-    it("falls back to config default deliveryThreadId when cron omits it", () => {
+    it("falls back to config default deliveryThreadId when cron uses default chat", () => {
       writeFileSync(CRONS_FILE, `crons:
   - name: test-task
     schedule: "0 9 * * *"
     prompt: "test prompt"
     agentId: main
-    deliveryChatId: 111111111
 `);
       const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890, defaultDeliveryThreadId: 42 };
       const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryChatId, -1001234567890);
       assert.strictEqual(cron.deliveryThreadId, 42);
     });
 
@@ -305,6 +305,56 @@ describe("cron-runner", () => {
     agentId: main
 `);
       assert.throws(() => loadCronTask("test-task", CRONS_FILE, {}), /missing 'deliveryChatId'/);
+    });
+
+    it("throws when cron has invalid deliveryChatId (float) instead of falling back", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 3.14
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890 };
+      assert.throws(() => loadCronTask("test-task", CRONS_FILE, defaults), /invalid 'deliveryChatId'/);
+    });
+
+    it("throws when cron has invalid deliveryChatId (zero) instead of falling back", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 0
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890 };
+      assert.throws(() => loadCronTask("test-task", CRONS_FILE, defaults), /invalid 'deliveryChatId'/);
+    });
+
+    it("throws when cron has invalid deliveryThreadId (float)", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 111111111
+    deliveryThreadId: 3.14
+`);
+      assert.throws(() => loadCronTask("test-task", CRONS_FILE), /invalid 'deliveryThreadId'/);
+    });
+
+    it("does not inherit default thread when cron overrides chat", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 999999999
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890, defaultDeliveryThreadId: 42 };
+      const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryChatId, 999999999);
+      assert.strictEqual(cron.deliveryThreadId, undefined);
     });
   });
 
@@ -365,6 +415,29 @@ describe("cron-runner", () => {
   - name: bad-llm
     schedule: "0 9 * * *"
     type: llm
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      assert.throws(() => loadCronTask("bad-llm", CRONS_FILE), /missing required 'prompt' field/);
+    });
+
+    it("throws when script command is whitespace-only", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-script
+    schedule: "0 2 * * *"
+    type: script
+    command: "   "
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      assert.throws(() => loadCronTask("bad-script", CRONS_FILE), /missing required 'command' field/);
+    });
+
+    it("throws when llm prompt is whitespace-only", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-llm
+    schedule: "0 9 * * *"
+    prompt: "   "
     agentId: main
     deliveryChatId: 111111111
 `);

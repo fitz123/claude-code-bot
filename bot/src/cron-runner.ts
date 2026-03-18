@@ -53,15 +53,33 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   }
 
   const c = found as Record<string, unknown>;
-  const deliveryChatId = (typeof c.deliveryChatId === "number" && Number.isInteger(c.deliveryChatId) && c.deliveryChatId !== 0)
-    ? c.deliveryChatId
-    : defaults?.defaultDeliveryChatId;
+
+  // Resolve deliveryChatId: cron-level > config default. Error on present-but-invalid.
+  let deliveryChatId: number | undefined;
+  if (c.deliveryChatId !== undefined) {
+    if (typeof c.deliveryChatId !== "number" || !Number.isInteger(c.deliveryChatId) || c.deliveryChatId === 0) {
+      throw new Error(`Task "${taskName}" has invalid 'deliveryChatId' (${c.deliveryChatId}): must be a non-zero integer`);
+    }
+    deliveryChatId = c.deliveryChatId;
+  } else {
+    deliveryChatId = defaults?.defaultDeliveryChatId;
+  }
   if (typeof deliveryChatId !== "number") {
     throw new Error(`Task "${taskName}" missing 'deliveryChatId' (not in cron config or config defaults)`);
   }
-  const deliveryThreadId = (typeof c.deliveryThreadId === "number" && Number.isInteger(c.deliveryThreadId) && c.deliveryThreadId !== 0)
-    ? c.deliveryThreadId
-    : defaults?.defaultDeliveryThreadId;
+
+  // Resolve deliveryThreadId: cron-level > config default.
+  // Only inherit default thread when also using the default chat (thread IDs are chat-specific).
+  const usedDefaultChat = c.deliveryChatId === undefined;
+  let deliveryThreadId: number | undefined;
+  if (c.deliveryThreadId !== undefined) {
+    if (typeof c.deliveryThreadId !== "number" || !Number.isInteger(c.deliveryThreadId) || c.deliveryThreadId === 0) {
+      throw new Error(`Task "${taskName}" has invalid 'deliveryThreadId' (${c.deliveryThreadId}): must be a non-zero integer`);
+    }
+    deliveryThreadId = c.deliveryThreadId;
+  } else if (usedDefaultChat) {
+    deliveryThreadId = defaults?.defaultDeliveryThreadId;
+  }
 
   if (c.type !== undefined && c.type !== "llm" && c.type !== "script") {
     throw new Error(`Task "${taskName}" has invalid type "${c.type}" (must be "llm" or "script")`);
@@ -69,11 +87,11 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   const cronType = c.type === "script" ? "script" as const : "llm" as const;
 
   if (cronType === "script") {
-    if (typeof c.command !== "string" || !c.command) {
+    if (typeof c.command !== "string" || !c.command.trim()) {
       throw new Error(`Task "${taskName}" is type 'script' but missing required 'command' field`);
     }
   } else {
-    if (typeof c.prompt !== "string" || !c.prompt) {
+    if (typeof c.prompt !== "string" || !c.prompt.trim()) {
       throw new Error(`Task "${taskName}" missing required 'prompt' field`);
     }
   }
