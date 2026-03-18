@@ -21,7 +21,6 @@ memory/*
 reference/
 
 # Ralphex
-.ralphex/
 completed/
 
 # Instance config (user creates from .example)
