@@ -8,6 +8,12 @@
 #                          Useful for testing without touching real session files.
 set -euo pipefail
 
+# Fail loudly if jq is not available — silent skip would look like "no sessions"
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required but not found in PATH" >&2
+  exit 1
+fi
+
 WORKSPACE_PATH="${1:?Usage: discover-sessions.sh WORKSPACE_PATH}"
 
 # Resolve to absolute path

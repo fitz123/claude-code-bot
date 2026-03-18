@@ -85,13 +85,20 @@ set -e
 assert_eq "check-maintenance says MAINTENANCE" "MAINTENANCE" "$result"
 rmdir "$TEST_DIR/.maintenance.lock"
 
-# Test: stale lock recovery
+# Test: stale lock recovery (dead PID)
 mkdir -p "$TEST_DIR/stale.lock"
 echo "99999" > "$TEST_DIR/stale.lock/pid"
-# Touch pid file to be old (use TTL=0 so any lock is stale)
+# Touch pid file to be old (use TTL=0 so any lock with dead PID is stale)
 result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/stale.lock" 0 2>/dev/null)
-assert_eq "stale lock reclaimed (ttl=0)" "ACQUIRED" "$result"
+assert_eq "stale lock reclaimed (dead pid, ttl=0)" "ACQUIRED" "$result"
 bash "$SCRIPT_DIR/lock.sh" release "$TEST_DIR/stale.lock" >/dev/null
+
+# Test: alive PID prevents reclaim even if TTL exceeded
+mkdir -p "$TEST_DIR/alive.lock"
+echo "$$" > "$TEST_DIR/alive.lock/pid"
+# Current process PID is alive, so lock should NOT be reclaimed even with TTL=0
+assert_exit_code "alive PID prevents reclaim" 1 bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/alive.lock" 0
+rm -rf "$TEST_DIR/alive.lock"
 
 # Test: orphaned lock (no pid file) recovery
 mkdir -p "$TEST_DIR/orphan.lock"

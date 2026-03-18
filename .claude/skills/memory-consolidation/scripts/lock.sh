@@ -40,11 +40,17 @@ case "$ACTION" in
     if [ -d "$LOCK_PATH" ]; then
       lock_pid_file="$LOCK_PATH/pid"
       if [ -f "$lock_pid_file" ]; then
+        lock_pid=$(cat "$lock_pid_file" 2>/dev/null || echo "")
+        # If the lock-holding process is still alive, the lock is valid regardless of age
+        if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+          echo "LOCKED"
+          exit 1
+        fi
         lock_time=$(file_mtime "$lock_pid_file")
         now=$(date +%s)
         age_minutes=$(( (now - lock_time) / 60 ))
         if [ "$age_minutes" -ge "$STALE_TTL" ]; then
-          echo "Reclaiming stale lock (age: ${age_minutes}m, ttl: ${STALE_TTL}m)" >&2
+          echo "Reclaiming stale lock (pid $lock_pid dead, age: ${age_minutes}m, ttl: ${STALE_TTL}m)" >&2
           rm -rf "$LOCK_PATH"
         else
           echo "LOCKED"
