@@ -93,6 +93,8 @@ fi
 echo ""
 if [ -f "reference/governance/decisions.md" ]; then
   echo "ADR governance: already initialized (reference/governance/decisions.md exists)."
+elif [ ! -f "reference/governance/decisions.md.example" ]; then
+  echo "ADR governance: template not found (reference/governance/decisions.md.example missing). Skipped."
 else
   echo "ADR governance: track architectural decisions in reference/governance/decisions.md."
   if [ -t 0 ]; then

@@ -124,7 +124,7 @@ else
     fi
   done
   echo ""
-  echo "To suppress: add entries to orphan-allowlist.local.txt"
+  echo "To suppress: add entries to .claude/skills/workspace-health/scripts/orphan-allowlist.local.txt"
 fi
 
 echo ""
