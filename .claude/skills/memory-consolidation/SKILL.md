@@ -32,6 +32,7 @@ Execute phases in order. If any phase fails fatally, skip to Phase D (Report) to
    ```
    If lock acquisition fails (another consolidation in progress), output NO_REPLY and exit.
    The `60` is the stale TTL in minutes — locks older than this are considered abandoned and reclaimed.
+   Between phases, refresh the lock to prevent stale reclaim during long runs (see Phase transitions below).
 
 3. Verify directories exist: `memory/`, `memory/auto/`, `memory/diary/`.
    Create any missing directories silently.
@@ -67,6 +68,11 @@ Execute phases in order. If any phase fails fatally, skip to Phase D (Report) to
 4. If session reading fails for any file, note the error and continue with remaining files.
    Partial data is better than no data.
 
+**Lock refresh:** Before continuing, refresh the lock to reset the TTL clock:
+```bash
+bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+```
+
 ### Phase B: Diff & Score
 
 Compare extracted information against current memory state:
@@ -90,6 +96,11 @@ Compare extracted information against current memory state:
 3. Only items with confidence >= 0.9 are applied automatically.
    Items with 0.5 <= confidence < 0.9 are noted in the diary for manual curation.
    Items below 0.5 are discarded.
+
+**Lock refresh:** Before continuing, refresh the lock:
+```bash
+bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+```
 
 ### Phase C: Apply Changes
 
@@ -136,6 +147,11 @@ For each approved change (confidence >= 0.9), in priority order (updates before 
    If any mutation fails, increment `mutations_failed` and stop further mutations.
 
 **Critical: Never modify CLAUDE.md, USER.md, or IDENTITY.md.**
+
+**Lock refresh:** Before continuing, refresh the lock:
+```bash
+bash "${CLAUDE_SKILL_DIR}/scripts/lock.sh" refresh "${CLAUDE_PROJECT_DIR}/.consolidation.lock"
+```
 
 ### Phase D: Report & Cleanup
 

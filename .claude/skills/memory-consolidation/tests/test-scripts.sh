@@ -100,6 +100,17 @@ echo "$$" > "$TEST_DIR/alive.lock/pid"
 assert_exit_code "alive PID prevents reclaim" 1 bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/alive.lock" 0
 rm -rf "$TEST_DIR/alive.lock"
 
+# Test: refresh existing lock
+mkdir -p "$TEST_DIR/refresh.lock"
+echo "12345" > "$TEST_DIR/refresh.lock/pid"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$TEST_DIR/refresh.lock/timestamp"
+result=$(bash "$SCRIPT_DIR/lock.sh" refresh "$TEST_DIR/refresh.lock")
+assert_eq "refresh existing lock" "REFRESHED" "$result"
+rm -rf "$TEST_DIR/refresh.lock"
+
+# Test: refresh non-existent lock
+assert_exit_code "refresh non-existent lock fails" 1 bash "$SCRIPT_DIR/lock.sh" refresh "$TEST_DIR/no-such.lock"
+
 # Test: orphaned lock (no pid file) recovery
 mkdir -p "$TEST_DIR/orphan.lock"
 result=$(bash "$SCRIPT_DIR/lock.sh" acquire "$TEST_DIR/orphan.lock" 60 2>/dev/null)

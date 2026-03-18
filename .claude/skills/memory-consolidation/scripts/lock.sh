@@ -1,20 +1,26 @@
 #!/bin/bash
 # Atomic lock management using mkdir.
-# Usage: lock.sh {acquire|release|check-maintenance} LOCK_PATH [STALE_TTL_MINUTES]
+# Usage: lock.sh {acquire|release|refresh|check-maintenance} LOCK_PATH [STALE_TTL_MINUTES]
 #
 # Actions:
 #   acquire          — create lock directory atomically; reclaim if stale
 #   release          — remove lock directory
+#   refresh          — touch lock files to reset TTL clock (prevents stale reclaim)
 #   check-maintenance — check if .maintenance.lock exists in LOCK_PATH (workspace dir)
 #
+# The PID stored in the lock is best-effort: in execution models where each
+# command runs in a short-lived shell (e.g., Claude Code's Bash tool), the PID
+# will be dead by the time it's checked.  Use 'refresh' between long-running
+# phases to keep the lock alive via TTL.
+#
 # Exit codes:
-#   0 — success (ACQUIRED / RELEASED / CLEAR)
-#   1 — blocked (LOCKED / MAINTENANCE)
+#   0 — success (ACQUIRED / RELEASED / REFRESHED / CLEAR)
+#   1 — blocked (LOCKED / MAINTENANCE) or refresh failure (NO_LOCK)
 #   2 — usage error
 set -euo pipefail
 
 usage() {
-  echo "Usage: lock.sh {acquire|release|check-maintenance} LOCK_PATH [STALE_TTL_MINUTES]" >&2
+  echo "Usage: lock.sh {acquire|release|refresh|check-maintenance} LOCK_PATH [STALE_TTL_MINUTES]" >&2
   exit 2
 }
 
@@ -75,6 +81,19 @@ case "$ACTION" in
     fi
     ;;
 
+  refresh)
+    # Touch lock files to reset the TTL clock.
+    # Call this between long-running phases to prevent stale-lock reclaim.
+    if [ -d "$LOCK_PATH" ]; then
+      touch "$LOCK_PATH/pid" "$LOCK_PATH/timestamp" 2>/dev/null
+      echo "REFRESHED"
+      exit 0
+    else
+      echo "NO_LOCK"
+      exit 1
+    fi
+    ;;
+
   release)
     if [ -d "$LOCK_PATH" ]; then
       rm -rf "$LOCK_PATH"
@@ -97,7 +116,7 @@ case "$ACTION" in
 
   *)
     echo "Unknown action: $ACTION" >&2
-    echo "Usage: lock.sh {acquire|release|check-maintenance} LOCK_PATH [STALE_TTL_MINUTES]" >&2
+    echo "Usage: lock.sh {acquire|release|refresh|check-maintenance} LOCK_PATH [STALE_TTL_MINUTES]" >&2
     exit 2
     ;;
 esac
