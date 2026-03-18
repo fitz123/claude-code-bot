@@ -24,8 +24,9 @@ reference/governance/*
 !reference/governance/decisions.md.example
 orphan-allowlist.local.txt
 
-# Ralphex
-.ralphex/
+# Ralphex (track plans, ignore runtime)
+.ralphex/*
+!.ralphex/plans/
 completed/
 
 # Instance config (user creates from .example)
