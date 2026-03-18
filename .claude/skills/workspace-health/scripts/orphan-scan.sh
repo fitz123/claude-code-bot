@@ -27,7 +27,8 @@ for f in "$ALLOWLIST" "$ALLOWLIST_LOCAL"; do
     while IFS= read -r line; do
       # Skip comments and blank lines
       line="${line%%#*}"
-      line="$(echo "$line" | xargs 2>/dev/null || true)"
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
       [ -n "$line" ] && ALLOWED+=("$line")
     done < "$f"
   fi
@@ -48,7 +49,8 @@ GITIGNORED=()
 if [ -f "$WORKSPACE/.gitignore" ]; then
   while IFS= read -r line; do
     line="${line%%#*}"
-    line="$(echo "$line" | xargs 2>/dev/null || true)"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
     # Strip trailing slashes for directory patterns
     line="${line%/}"
     # Skip negation rules and empty lines

@@ -68,7 +68,7 @@ echo ""
 DRIFTED=0
 MISSING_UPSTREAM=0
 
-for file in "${PLATFORM_FILES[@]}"; do
+for file in "${PLATFORM_FILES[@]+"${PLATFORM_FILES[@]}"}"; do
   local_path="$WORKSPACE/$file"
 
   # Check if file exists upstream
