@@ -92,28 +92,28 @@ process_file() {
 echo "macOS metadata:"
 while IFS= read -r f; do
   [ -n "$f" ] && process_file "$f" ".DS_Store"
-done < <(find "$WORKSPACE" -not -path '*/.git/*' -name '.DS_Store' 2>/dev/null || true)
+done < <(find "$WORKSPACE" -not -path '*/.git/*' -type f -name '.DS_Store' 2>/dev/null || true)
 echo ""
 
 # --- Backup files ---
 echo "Backup files:"
 while IFS= read -r f; do
   [ -n "$f" ] && process_file "$f" "backup"
-done < <(find "$WORKSPACE" -not -path '*/.git/*' \( -name '*.bak' -o -name '*~' \) 2>/dev/null || true)
+done < <(find "$WORKSPACE" -not -path '*/.git/*' -type f \( -name '*.bak' -o -name '*~' \) 2>/dev/null || true)
 echo ""
 
 # --- Temporary files ---
 echo "Temporary files:"
 while IFS= read -r f; do
   [ -n "$f" ] && process_file "$f" "temp"
-done < <(find "$WORKSPACE" -not -path '*/.git/*' \( -name '*.tmp' -o -name '*.swp' -o -name '*.swo' \) 2>/dev/null || true)
+done < <(find "$WORKSPACE" -not -path '*/.git/*' -type f \( -name '*.tmp' -o -name '*.swp' -o -name '*.swo' \) 2>/dev/null || true)
 echo ""
 
 # --- Empty log files ---
 echo "Empty log files:"
 while IFS= read -r f; do
   [ -n "$f" ] && process_file "$f" "empty log"
-done < <(find "$WORKSPACE" -not -path '*/.git/*' -name '*.log' -empty 2>/dev/null || true)
+done < <(find "$WORKSPACE" -not -path '*/.git/*' -type f -name '*.log' -empty 2>/dev/null || true)
 echo ""
 
 # --- Summary ---

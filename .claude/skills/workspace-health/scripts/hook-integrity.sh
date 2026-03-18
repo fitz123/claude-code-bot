@@ -66,11 +66,13 @@ else
     else
       while IFS= read -r cmd; do
         [ -n "$cmd" ] || continue
-        # Resolve $CLAUDE_PROJECT_DIR to workspace path and extract script path
-        resolved="$cmd"
-        resolved="${resolved//\"\$CLAUDE_PROJECT_DIR\"/$WORKSPACE}"
-        resolved="${resolved//\$CLAUDE_PROJECT_DIR/$WORKSPACE}"
-        script_path=$(echo "$resolved" | grep -oE '[^ ]*\.sh' | head -1 || true)
+        # Extract script path — resolve CLAUDE_PROJECT_DIR without splitting on spaces
+        if echo "$cmd" | grep -qF 'CLAUDE_PROJECT_DIR'; then
+          rel_path=$(echo "$cmd" | sed 's/.*CLAUDE_PROJECT_DIR["/ ]*//; s/\.sh.*/\.sh/')
+          script_path="$WORKSPACE/$rel_path"
+        else
+          script_path=$(echo "$cmd" | grep -oE '[^ ]*\.sh' | head -1 || true)
+        fi
         [ -n "$script_path" ] || continue
         script_name=$(basename "$script_path")
         if [ -f "$script_path" ]; then

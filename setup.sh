@@ -29,8 +29,11 @@ fi
 if [ -f "bot/package.json" ]; then
   echo ""
   echo "Installing bot dependencies..."
-  (cd bot && npm install)
-  echo "  Done."
+  if (cd bot && npm install); then
+    echo "  Done."
+  else
+    echo "  Warning: npm install failed (offline or npm unavailable). Bot dependencies not installed."
+  fi
 fi
 
 # Ensure memory directory exists

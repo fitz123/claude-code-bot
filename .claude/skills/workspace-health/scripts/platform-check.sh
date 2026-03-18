@@ -62,6 +62,23 @@ if [ -z "$UPSTREAM_BRANCH" ]; then
   exit 0
 fi
 
+# Also discover platform files from upstream (catches upstream-only files)
+while IFS= read -r ufile; do
+  [ -n "$ufile" ] || continue
+  ALREADY=false
+  for existing in "${PLATFORM_FILES[@]+"${PLATFORM_FILES[@]}"}"; do
+    [ "$existing" = "$ufile" ] && { ALREADY=true; break; }
+  done
+  [ "$ALREADY" = false ] && PLATFORM_FILES+=("$ufile")
+done < <(git -C "$WORKSPACE" ls-tree -r --name-only "$UPSTREAM_BRANCH" -- .claude/hooks/ .claude/rules/platform/ 2>/dev/null | grep -E '\.(sh|md)$' || true)
+if git -C "$WORKSPACE" cat-file -e "$UPSTREAM_BRANCH:.claude/settings.json" 2>/dev/null; then
+  ALREADY=false
+  for existing in "${PLATFORM_FILES[@]+"${PLATFORM_FILES[@]}"}"; do
+    [ "$existing" = ".claude/settings.json" ] && { ALREADY=true; break; }
+  done
+  [ "$ALREADY" = false ] && PLATFORM_FILES+=(".claude/settings.json")
+fi
+
 echo "Comparing against $UPSTREAM_BRANCH:"
 echo ""
 
@@ -73,6 +90,7 @@ for file in "${PLATFORM_FILES[@]+"${PLATFORM_FILES[@]}"}"; do
 
   # Check if file exists upstream
   if ! git -C "$WORKSPACE" cat-file -e "$UPSTREAM_BRANCH:$file" 2>/dev/null; then
+    echo "  LOCAL-ONLY: $file (not in upstream)"
     MISSING_UPSTREAM=$((MISSING_UPSTREAM + 1))
     continue
   fi
@@ -97,10 +115,11 @@ done
 echo ""
 
 # Summary
-if [ "$DRIFTED" -eq 0 ]; then
+if [ "$DRIFTED" -eq 0 ] && [ "$MISSING_UPSTREAM" -eq 0 ]; then
   echo "Platform files are in sync with upstream."
 else
-  echo "$DRIFTED file(s) have drifted from upstream."
+  [ "$DRIFTED" -gt 0 ] && echo "$DRIFTED file(s) have drifted from upstream."
+  [ "$MISSING_UPSTREAM" -gt 0 ] && echo "$MISSING_UPSTREAM file(s) exist only locally (not in upstream)."
   echo "Review changes and update as needed."
 fi
 
