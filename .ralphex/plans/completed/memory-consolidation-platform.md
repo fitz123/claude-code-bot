@@ -223,23 +223,23 @@ What we want:
 - CLAUDE.md, USER.md, and IDENTITY.md are never modified
 - Silent operation — never sends messages to any chat, always NO_REPLY for cron context
 
-- [ ] SKILL.md exists at `.claude/skills/memory-consolidation/SKILL.md` with complete pipeline documentation
-- [ ] Recent human sessions (48h window) are discovered from any workspace path without configuration
-- [ ] Cron/automated sessions are correctly filtered out (only `[Chat:` prefixed sessions processed)
-- [ ] Concurrent runs are prevented with stale-lock recovery
-- [ ] workspace-health's `.maintenance.lock` is respected before acquiring consolidation lock
-- [ ] No hardcoded user-specific paths anywhere in skill files
-- [ ] Script references are portable and resolve correctly from any workspace clone
-- [ ] MEMORY.md edits are safe: backup before changes, verify after (file non-empty, size reasonable), rollback on failure
-- [ ] memory/auto/ files use correct frontmatter format (name, description, type)
-- [ ] memory/diary/ entries are narrative digests, not raw fact lists
-- [ ] Mutation limit enforced (default 5, stop-on-failure)
-- [ ] Partial failures degrade gracefully (diary-only on read errors, append-only on partial data)
-- [ ] Skill does not reference task systems (beads, reminders, task_index)
-- [ ] Skill does not reference profiles or memory markers
-- [ ] All scripts run without error on the public repo workspace (`bash script.sh "$(pwd)"`)
-- [ ] Add tests for helper scripts
-- [ ] Verify existing tests pass
+- [x] SKILL.md exists at `.claude/skills/memory-consolidation/SKILL.md` with complete pipeline documentation
+- [x] Recent human sessions (48h window) are discovered from any workspace path without configuration
+- [x] Cron/automated sessions are correctly filtered out (only `[Chat:` prefixed sessions processed)
+- [x] Concurrent runs are prevented with stale-lock recovery
+- [x] workspace-health's `.maintenance.lock` is respected before acquiring consolidation lock
+- [x] No hardcoded user-specific paths anywhere in skill files
+- [x] Script references are portable and resolve correctly from any workspace clone
+- [x] MEMORY.md edits are safe: backup before changes, verify after (file non-empty, size reasonable), rollback on failure
+- [x] memory/auto/ files use correct frontmatter format (name, description, type)
+- [x] memory/diary/ entries are narrative digests, not raw fact lists
+- [x] Mutation limit enforced (default 5, stop-on-failure)
+- [x] Partial failures degrade gracefully (diary-only on read errors, append-only on partial data)
+- [x] Skill does not reference task systems (beads, reminders, task_index)
+- [x] Skill does not reference profiles or memory markers
+- [x] All scripts run without error on the public repo workspace (`bash script.sh "$(pwd)"`)
+- [x] Add tests for helper scripts
+- [x] Verify existing tests pass
 
 ### Task 2: Update platform integration (#19, P2)
 
