@@ -69,8 +69,8 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   }
 
   // Resolve deliveryThreadId: cron-level > config default.
-  // Only inherit default thread when also using the default chat (thread IDs are chat-specific).
-  const usedDefaultChat = c.deliveryChatId === undefined;
+  // Only inherit default thread when targeting the default chat (thread IDs are chat-specific).
+  const usedDefaultChat = c.deliveryChatId === undefined || c.deliveryChatId === defaults?.defaultDeliveryChatId;
   let deliveryThreadId: number | undefined;
   if (c.deliveryThreadId !== undefined) {
     if (typeof c.deliveryThreadId !== "number" || !Number.isInteger(c.deliveryThreadId) || c.deliveryThreadId === 0) {

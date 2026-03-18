@@ -343,6 +343,20 @@ describe("cron-runner", () => {
       assert.throws(() => loadCronTask("test-task", CRONS_FILE), /invalid 'deliveryThreadId'/);
     });
 
+    it("inherits default thread when cron explicitly sets same chat as default", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: -1001234567890
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890, defaultDeliveryThreadId: 42 };
+      const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryChatId, -1001234567890);
+      assert.strictEqual(cron.deliveryThreadId, 42);
+    });
+
     it("does not inherit default thread when cron overrides chat", () => {
       writeFileSync(CRONS_FILE, `crons:
   - name: test-task
