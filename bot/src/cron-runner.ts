@@ -32,7 +32,12 @@ interface CronsYaml {
   crons: Array<Record<string, unknown>>;
 }
 
-function loadCronTask(taskName: string, cronsPath?: string): CronJob {
+export interface DeliveryDefaults {
+  defaultDeliveryChatId?: number;
+  defaultDeliveryThreadId?: number;
+}
+
+function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryDefaults): CronJob {
   const raw: CronsYaml = parseYaml(readFileSync(cronsPath ?? CRONS_PATH, "utf8"));
   if (!raw?.crons || !Array.isArray(raw.crons)) {
     throw new Error("crons.yaml missing 'crons' array");
@@ -48,17 +53,22 @@ function loadCronTask(taskName: string, cronsPath?: string): CronJob {
   }
 
   const c = found as Record<string, unknown>;
-  if (typeof c.deliveryChatId !== "number") {
-    throw new Error(`Task "${taskName}" missing required 'deliveryChatId' in crons.yaml`);
+  const deliveryChatId = typeof c.deliveryChatId === "number"
+    ? c.deliveryChatId
+    : defaults?.defaultDeliveryChatId;
+  if (typeof deliveryChatId !== "number") {
+    throw new Error(`Task "${taskName}" missing 'deliveryChatId' (not in cron config or config defaults)`);
   }
+  const deliveryThreadId = typeof c.deliveryThreadId === "number"
+    ? c.deliveryThreadId
+    : defaults?.defaultDeliveryThreadId;
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
     prompt: String(c.prompt),
     agentId: String(c.agentId ?? "main"),
-    deliveryChatId: c.deliveryChatId,
-    deliveryThreadId:
-      typeof c.deliveryThreadId === "number" ? c.deliveryThreadId : undefined,
+    deliveryChatId,
+    deliveryThreadId,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
     maxBudget: typeof c.maxBudget === "number" ? c.maxBudget : undefined,
   };
@@ -87,6 +97,21 @@ export function loadAdminChatId(configPath?: string): number | undefined {
   }
   process.stderr.write(`[cron-runner] WARN: invalid adminChatId in config (${raw.adminChatId}), ignoring\n`);
   return undefined;
+}
+
+export function loadDefaultDelivery(configPath?: string): DeliveryDefaults {
+  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+    defaultDeliveryChatId?: unknown;
+    defaultDeliveryThreadId?: unknown;
+  };
+  const result: DeliveryDefaults = {};
+  if (typeof raw?.defaultDeliveryChatId === "number" && Number.isInteger(raw.defaultDeliveryChatId) && raw.defaultDeliveryChatId !== 0) {
+    result.defaultDeliveryChatId = raw.defaultDeliveryChatId;
+  }
+  if (typeof raw?.defaultDeliveryThreadId === "number" && Number.isInteger(raw.defaultDeliveryThreadId) && raw.defaultDeliveryThreadId !== 0) {
+    result.defaultDeliveryThreadId = raw.defaultDeliveryThreadId;
+  }
+  return result;
 }
 
 export function handleDeliveryFailure(
@@ -198,9 +223,16 @@ async function main(): Promise<void> {
 
   log(taskName, `Starting cron task: ${taskName}`);
 
+  let defaults: DeliveryDefaults = {};
+  try {
+    defaults = loadDefaultDelivery();
+  } catch (err) {
+    log(taskName, `WARN: could not load delivery defaults from config: ${(err as Error).message}`);
+  }
+
   let cron: CronJob;
   try {
-    cron = loadCronTask(taskName);
+    cron = loadCronTask(taskName, undefined, defaults);
   } catch (err) {
     log(taskName, `FAIL: ${(err as Error).message}`);
     process.exit(1);

@@ -2,7 +2,8 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape, loadAdminChatId, handleDeliveryFailure } from "../cron-runner.js";
+import { loadCronTask, getAgentWorkspace, buildDeliverCommand, shellEscape, loadAdminChatId, handleDeliveryFailure, loadDefaultDelivery } from "../cron-runner.js";
+import type { DeliveryDefaults } from "../cron-runner.js";
 
 // We test the pure functions. runClaude and deliver require real claude/Telegram.
 
@@ -175,7 +176,7 @@ describe("cron-runner", () => {
     prompt: "test prompt"
     agentId: main
 `);
-      assert.throws(() => loadCronTask("test-task", CRONS_FILE), /missing required 'deliveryChatId'/);
+      assert.throws(() => loadCronTask("test-task", CRONS_FILE), /missing 'deliveryChatId'/);
     });
 
     it("throws when task name not found", () => {
@@ -187,6 +188,122 @@ describe("cron-runner", () => {
     deliveryChatId: 111111111
 `);
       assert.throws(() => loadCronTask("nonexistent", CRONS_FILE), /not found in crons.yaml/);
+    });
+  });
+
+  describe("loadDefaultDelivery — with temp config.yaml", () => {
+    const CONFIG_DIR = join(TEST_DIR, "delivery-config");
+    const CONFIG_FILE = join(CONFIG_DIR, "config.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(CONFIG_DIR, { recursive: true, force: true });
+    });
+
+    it("returns both defaults when present", () => {
+      writeFileSync(CONFIG_FILE, `defaultDeliveryChatId: -1001234567890\ndefaultDeliveryThreadId: 99\n`);
+      const d = loadDefaultDelivery(CONFIG_FILE);
+      assert.strictEqual(d.defaultDeliveryChatId, -1001234567890);
+      assert.strictEqual(d.defaultDeliveryThreadId, 99);
+    });
+
+    it("returns empty object when neither field present", () => {
+      writeFileSync(CONFIG_FILE, `agents: {}\n`);
+      const d = loadDefaultDelivery(CONFIG_FILE);
+      assert.strictEqual(d.defaultDeliveryChatId, undefined);
+      assert.strictEqual(d.defaultDeliveryThreadId, undefined);
+    });
+
+    it("ignores zero values", () => {
+      writeFileSync(CONFIG_FILE, `defaultDeliveryChatId: 0\ndefaultDeliveryThreadId: 0\n`);
+      const d = loadDefaultDelivery(CONFIG_FILE);
+      assert.strictEqual(d.defaultDeliveryChatId, undefined);
+      assert.strictEqual(d.defaultDeliveryThreadId, undefined);
+    });
+
+    it("ignores non-integer values", () => {
+      writeFileSync(CONFIG_FILE, `defaultDeliveryChatId: 3.14\ndefaultDeliveryThreadId: "abc"\n`);
+      const d = loadDefaultDelivery(CONFIG_FILE);
+      assert.strictEqual(d.defaultDeliveryChatId, undefined);
+      assert.strictEqual(d.defaultDeliveryThreadId, undefined);
+    });
+  });
+
+  describe("loadCronTask — config default delivery fallback", () => {
+    const CRONS_DIR = join(TEST_DIR, "cron-defaults");
+    const CRONS_FILE = join(CRONS_DIR, "crons.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CRONS_DIR, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(CRONS_DIR, { recursive: true, force: true });
+    });
+
+    it("falls back to config default deliveryChatId when cron omits it", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890 };
+      const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryChatId, -1001234567890);
+    });
+
+    it("cron-level deliveryChatId overrides config default", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 999999999
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890 };
+      const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryChatId, 999999999);
+    });
+
+    it("falls back to config default deliveryThreadId when cron omits it", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryChatId: -1001234567890, defaultDeliveryThreadId: 42 };
+      const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryThreadId, 42);
+    });
+
+    it("cron-level deliveryThreadId overrides config default", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+    deliveryChatId: 111111111
+    deliveryThreadId: 77
+`);
+      const defaults: DeliveryDefaults = { defaultDeliveryThreadId: 42 };
+      const cron = loadCronTask("test-task", CRONS_FILE, defaults);
+      assert.strictEqual(cron.deliveryThreadId, 77);
+    });
+
+    it("throws when neither cron nor config has deliveryChatId", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: test-task
+    schedule: "0 9 * * *"
+    prompt: "test prompt"
+    agentId: main
+`);
+      assert.throws(() => loadCronTask("test-task", CRONS_FILE, {}), /missing 'deliveryChatId'/);
     });
   });
 });
