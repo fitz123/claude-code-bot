@@ -93,8 +93,6 @@ export interface BotConfig {
   metricsPort?: number;
   discord?: DiscordConfig;
   adminChatId?: number;
-  defaultDeliveryChatId?: number;
-  defaultDeliveryThreadId?: number;
 }
 
 /**

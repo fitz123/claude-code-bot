@@ -27,7 +27,7 @@ interface CronDef {
   prompt?: string;
   command?: string;
   agentId: string;
-  deliveryChatId: number;
+  deliveryChatId?: number;
   timeout?: number;
   maxBudget?: number;
   enabled?: boolean;

@@ -53,16 +53,19 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   }
 
   const c = found as Record<string, unknown>;
-  const deliveryChatId = typeof c.deliveryChatId === "number"
+  const deliveryChatId = (typeof c.deliveryChatId === "number" && Number.isInteger(c.deliveryChatId) && c.deliveryChatId !== 0)
     ? c.deliveryChatId
     : defaults?.defaultDeliveryChatId;
   if (typeof deliveryChatId !== "number") {
     throw new Error(`Task "${taskName}" missing 'deliveryChatId' (not in cron config or config defaults)`);
   }
-  const deliveryThreadId = typeof c.deliveryThreadId === "number"
+  const deliveryThreadId = (typeof c.deliveryThreadId === "number" && Number.isInteger(c.deliveryThreadId) && c.deliveryThreadId !== 0)
     ? c.deliveryThreadId
     : defaults?.defaultDeliveryThreadId;
 
+  if (c.type !== undefined && c.type !== "llm" && c.type !== "script") {
+    throw new Error(`Task "${taskName}" has invalid type "${c.type}" (must be "llm" or "script")`);
+  }
   const cronType = c.type === "script" ? "script" as const : "llm" as const;
 
   if (cronType === "script") {
@@ -180,10 +183,17 @@ function runScript(cron: CronJob): string {
   }
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
 
+  // Strip sensitive env vars — match runClaude's sanitization
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  delete env.ANTHROPIC_API_KEY;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+
   const output = execSync(cron.command, {
     encoding: "utf8",
     timeout: timeoutMs,
     shell: "/bin/bash",
+    env,
     maxBuffer: 10 * 1024 * 1024, // 10MB
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -279,20 +289,23 @@ async function main(): Promise<void> {
 
   log(taskName, `Loaded: type=${cron.type}, agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
 
+  let workspaceCwd: string | undefined;
+  if (cron.type !== "script") {
+    try {
+      workspaceCwd = getAgentWorkspace(cron.agentId);
+    } catch (err) {
+      log(taskName, `FAIL: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  }
+
   let output: string;
   try {
     if (cron.type === "script") {
       output = runScript(cron);
       log(taskName, `Script returned ${output.length} chars`);
     } else {
-      let workspaceCwd: string;
-      try {
-        workspaceCwd = getAgentWorkspace(cron.agentId);
-      } catch (err) {
-        log(taskName, `FAIL: ${(err as Error).message}`);
-        process.exit(1);
-      }
-      output = runClaude(cron, workspaceCwd);
+      output = runClaude(cron, workspaceCwd!);
       log(taskName, `Claude returned ${output.length} chars`);
     }
   } catch (err) {
@@ -301,7 +314,7 @@ async function main(): Promise<void> {
 
     // Send failure notification to delivery chat; use admin fallback if delivery fails
     try {
-      deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`);
+      deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`, cron.deliveryThreadId);
     } catch (deliveryErr) {
       handleDeliveryFailure(
         taskName,
@@ -313,8 +326,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (!output || output === "NO_REPLY" || output.trim() === "NO_REPLY") {
-    log(taskName, output ? "NO_REPLY — skipping delivery" : "WARN: empty output");
+  if (!output) {
+    log(taskName, "WARN: empty output — skipping delivery");
+    log(taskName, "DONE");
+    return;
+  }
+  if (cron.type === "llm" && (output === "NO_REPLY" || output.trim() === "NO_REPLY")) {
+    log(taskName, "NO_REPLY — skipping delivery");
     log(taskName, "DONE");
     return;
   }

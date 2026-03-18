@@ -371,6 +371,18 @@ describe("cron-runner", () => {
       assert.throws(() => loadCronTask("bad-llm", CRONS_FILE), /missing required 'prompt' field/);
     });
 
+    it("throws when type is invalid", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-type
+    schedule: "0 9 * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    type: scrpt
+`);
+      assert.throws(() => loadCronTask("bad-type", CRONS_FILE), /invalid type "scrpt"/);
+    });
+
     it("script-mode cron uses config default delivery", () => {
       writeFileSync(CRONS_FILE, `crons:
   - name: script-task
