@@ -39,16 +39,15 @@ if ! git -C "$WORKSPACE" fetch upstream --quiet 2>/dev/null; then
 fi
 echo ""
 
-# Platform files to check
-PLATFORM_FILES=(
-  ".claude/hooks/auto-stage.sh"
-  ".claude/hooks/inject-message.sh"
-  ".claude/hooks/session-end-commit.sh"
-  ".claude/hooks/session-start-recovery.sh"
-  ".claude/rules/platform/safety.md"
-  ".claude/rules/platform/no-nested-cli.md"
-  ".claude/settings.json"
-)
+# Discover platform files dynamically (hooks, platform rules, settings)
+PLATFORM_FILES=()
+for f in "$WORKSPACE"/.claude/hooks/*.sh; do
+  [ -f "$f" ] && PLATFORM_FILES+=(".claude/hooks/$(basename "$f")")
+done
+for f in "$WORKSPACE"/.claude/rules/platform/*.md; do
+  [ -f "$f" ] && PLATFORM_FILES+=(".claude/rules/platform/$(basename "$f")")
+done
+[ -f "$WORKSPACE/.claude/settings.json" ] && PLATFORM_FILES+=(".claude/settings.json")
 
 # Determine upstream default branch
 UPSTREAM_BRANCH=""

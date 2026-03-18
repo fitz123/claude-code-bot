@@ -67,11 +67,13 @@ else
     else
       while IFS= read -r cmd; do
         [ -n "$cmd" ] || continue
-        # Extract the .sh filename from the command
-        script_name=$(echo "$cmd" | grep -o '[^/]*\.sh' || true)
-        [ -n "$script_name" ] || continue
-
-        script_path="$HOOKS_DIR/$script_name"
+        # Resolve $CLAUDE_PROJECT_DIR to workspace path and extract script path
+        resolved="$cmd"
+        resolved="${resolved//\"\$CLAUDE_PROJECT_DIR\"/$WORKSPACE}"
+        resolved="${resolved//\$CLAUDE_PROJECT_DIR/$WORKSPACE}"
+        script_path=$(echo "$resolved" | grep -oE '[^ ]*\.sh' | head -1 || true)
+        [ -n "$script_path" ] || continue
+        script_name=$(basename "$script_path")
         if [ -f "$script_path" ]; then
           echo "  OK: $script_name — referenced and exists"
         else
@@ -86,7 +88,8 @@ else
       [ -f "$script" ] || continue
       name=$(basename "$script")
       if ! echo "$HOOK_CMDS" | grep -q "$name"; then
-        echo "  INFO: $name — exists but not referenced in settings.json"
+        echo "  WARN: $name — exists but not referenced in settings.json"
+        WARNINGS=$((WARNINGS + 1))
       fi
     done
   fi

@@ -68,6 +68,7 @@ process_file() {
     if command -v trash >/dev/null 2>&1; then
       trash "$file"
     else
+      echo "  WARN: 'trash' not installed — permanently deleting $rel"
       rm -f "$file"
     fi
     echo "  REMOVED: $rel ($reason)"

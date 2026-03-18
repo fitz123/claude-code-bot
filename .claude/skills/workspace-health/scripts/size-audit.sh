@@ -17,8 +17,10 @@ echo "=== Size Audit: $WORKSPACE ==="
 echo ""
 
 # Total workspace size (excluding .git)
-TOTAL_SIZE=$(du -sh "$WORKSPACE" --exclude='.git' 2>/dev/null || du -sh "$WORKSPACE" 2>/dev/null | head -1)
-echo "Total size: $TOTAL_SIZE" | head -1
+# Use portable approach — GNU --exclude is not available on macOS BSD du
+TOTAL_SIZE=$(du -sh "$WORKSPACE" --exclude='.git' 2>/dev/null) || \
+  TOTAL_SIZE=$(du -csh "$WORKSPACE"/* "$WORKSPACE"/.* 2>/dev/null | grep 'total$' | cut -f1)
+echo "Total size: $(echo "$TOTAL_SIZE" | cut -f1)"
 echo ""
 
 # Top 20 largest files (excluding .git)
