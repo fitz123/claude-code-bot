@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { execSync, type ExecSyncOptions } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -63,6 +63,22 @@ describe("protect-files.sh", () => {
       PROTECT_FILES,
       {
         tool_name: "Write",
+        tool_input: {
+          file_path: "/workspace/.claude/skills/workspace-health/SKILL.md",
+        },
+      },
+      { CRON_NAME: "nightly-consolidation" },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("Blocked"));
+    assert.ok(result.stderr.includes("nightly-consolidation"));
+  });
+
+  it("blocks cron from editing .claude/skills/", () => {
+    const result = runHook(
+      PROTECT_FILES,
+      {
+        tool_name: "Edit",
         tool_input: {
           file_path: "/workspace/.claude/skills/workspace-health/SKILL.md",
         },
@@ -213,24 +229,31 @@ describe("guardian.sh", () => {
     assert.equal(result.exitCode, 0);
   });
 
+  it("blocks Write without file_path", () => {
+    const result = runHook(
+      GUARDIAN,
+      {
+        tool_name: "Write",
+        tool_input: {},
+      },
+      { CLAUDE_PROJECT_DIR: TMP_WORKSPACE },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("Write tool called without file_path"));
+  });
+
   it("blocks when CLAUDE_PROJECT_DIR is not set", () => {
-    // Remove CLAUDE_PROJECT_DIR from env entirely
-    const env: Record<string, string> = {};
-    // Copy env but exclude CLAUDE_PROJECT_DIR
-    for (const [k, v] of Object.entries(process.env)) {
-      if (k !== "CLAUDE_PROJECT_DIR" && v !== undefined) {
-        env[k] = v;
-      }
-    }
+    // Explicitly set CLAUDE_PROJECT_DIR to empty to ensure it's unset,
+    // regardless of what the test runner's process.env contains.
     const result = runHook(
       GUARDIAN,
       {
         tool_name: "Write",
         tool_input: { file_path: "/workspace/some/file.txt" },
       },
-      env,
+      { CLAUDE_PROJECT_DIR: "" },
     );
-    // Should block because CLAUDE_PROJECT_DIR is not set
+    // Should block because CLAUDE_PROJECT_DIR is empty
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("CLAUDE_PROJECT_DIR not set"));
   });

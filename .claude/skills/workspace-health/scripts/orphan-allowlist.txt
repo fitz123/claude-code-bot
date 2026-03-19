@@ -26,7 +26,10 @@ completed
 .gitignore
 .DS_Store
 
-# Root-level file patterns (glob matching works in guardian.sh)
+# Root-level file patterns
+# NOTE: Glob patterns are supported by guardian.sh but NOT by orphan-scan.sh,
+# which uses exact matching only. For orphan-scan, add exact names to
+# orphan-allowlist.local.txt (gitignored).
 *.md
 *.sh
 *.txt
