@@ -1,26 +1,27 @@
 # ADR Governance
 
-Architectural decisions must be tracked so future sessions know what was decided and why.
+Architectural and operational decisions must be tracked so future sessions know what was decided and why.
 
-## Before Proposing Architectural Changes
+## Before Proposing Changes
 
 Check `reference/governance/decisions.md` for prior decisions that relate to the change. If the file exists, read it and confirm the proposed change does not contradict an accepted decision. If it does, flag the conflict to the user before proceeding.
 
 If the file does not exist, skip this check — ADR tracking has not been initialized.
 
-## During Conversation
+## When to Propose an ADR
 
-When an architectural decision is made (technology choice, structural change, convention adoption, trade-off resolution), propose recording it:
+When you notice any of the following during conversation, ask the user: "Record as ADR?"
 
-- Suggest adding an ADR entry with context, decision, and consequences
-- Never create or modify `reference/governance/decisions.md` without user confirmation
-- Use the template format from `reference/governance/decisions.md.example`
+- New tool, library, or service adopted or rejected
+- Architecture pattern chosen (how components interact)
+- Operational procedure established (how to deploy, monitor, recover)
+- Policy decision (what's allowed, what's not)
+- Migration or deprecation decided
+- Project structure or file organization conventions changed
+- Competing approaches evaluated with long-term impact
 
-## What Counts as an Architectural Decision
+Do NOT create or modify `reference/governance/decisions.md` without user confirmation. Use the template format from `reference/governance/decisions.md.example`.
 
-- Adding, removing, or replacing a dependency or tool
-- Changing project structure or file organization conventions
-- Choosing between competing approaches with long-term impact
-- Establishing a new convention or overriding an existing one
+## What Does NOT Count
 
 Routine code changes, bug fixes, and minor refactors are not architectural decisions.
