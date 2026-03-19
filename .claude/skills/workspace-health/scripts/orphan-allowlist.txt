@@ -2,3 +2,35 @@
 # Root-level items that are expected in a normal workspace but not tracked by git.
 # One entry per line. Lines starting with # are comments.
 # Users can add workspace-specific entries to orphan-allowlist.local.txt (gitignored).
+
+# Directories — standard workspace structure
+memory
+reference
+data
+bot
+scripts
+archive
+assets
+config
+templates
+completed
+
+# Hidden directories
+.claude
+.ralphex
+.beads
+
+# Hidden files (runtime state)
+.consolidation-state.json
+.consolidation.lock
+.gitignore
+.DS_Store
+
+# Root-level file patterns (glob matching works in guardian.sh)
+*.md
+*.sh
+*.txt
+*.yaml
+*.yml
+LICENSE
+Makefile

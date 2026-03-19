@@ -178,16 +178,16 @@ Two safety hooks exist in production but are missing from the platform template.
 - orphan-allowlist.txt populated with standard workspace root entries that both guardian.sh and orphan-scan.sh recognize
 - guardian.sh fallback workspace path removed (must use only `$CLAUDE_PROJECT_DIR`)
 
-- [ ] protect-files.sh exists in `.claude/hooks/`, blocks `$CRON_NAME` sessions from writing to `.claude/skills/*`
-- [ ] guardian.sh exists in `.claude/hooks/`, blocks new files outside allowed workspace structure
-- [ ] guardian.sh has no hardcoded workspace paths (uses only `$CLAUDE_PROJECT_DIR`)
-- [ ] settings.json PreToolUse has Edit|Write matcher with both hooks
-- [ ] CLAUDE.md documents all six hooks
-- [ ] orphan-allowlist.txt contains entries for standard workspace structure (memory, reference, data, bot, scripts, etc.)
-- [ ] guardian.sh blocks new file in unlisted root location (manual test: `echo test | .claude/hooks/guardian.sh` with crafted JSON)
-- [ ] guardian.sh allows new file in listed root location
-- [ ] guardian.sh allows overwrite of existing file
-- [ ] protect-files.sh blocks when CRON_NAME is set and path is in .claude/skills/
-- [ ] protect-files.sh allows when CRON_NAME is not set
-- [ ] Add tests for both hooks
-- [ ] Verify existing tests pass
+- [x] protect-files.sh exists in `.claude/hooks/`, blocks `$CRON_NAME` sessions from writing to `.claude/skills/*`
+- [x] guardian.sh exists in `.claude/hooks/`, blocks new files outside allowed workspace structure
+- [x] guardian.sh has no hardcoded workspace paths (uses only `$CLAUDE_PROJECT_DIR`)
+- [x] settings.json PreToolUse has Edit|Write matcher with both hooks
+- [x] CLAUDE.md documents all six hooks
+- [x] orphan-allowlist.txt contains entries for standard workspace structure (memory, reference, data, bot, scripts, etc.)
+- [x] guardian.sh blocks new file in unlisted root location (manual test: `echo test | .claude/hooks/guardian.sh` with crafted JSON)
+- [x] guardian.sh allows new file in listed root location
+- [x] guardian.sh allows overwrite of existing file
+- [x] protect-files.sh blocks when CRON_NAME is set and path is in .claude/skills/
+- [x] protect-files.sh allows when CRON_NAME is not set
+- [x] Add tests for both hooks
+- [x] Verify existing tests pass
