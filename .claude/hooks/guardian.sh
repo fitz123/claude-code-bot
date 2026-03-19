@@ -49,18 +49,25 @@ if [[ "$FILE_PATH" != "$WORKSPACE/"* ]]; then
   exit 0
 fi
 
-# If file already exists, it's an overwrite — always allowed
-if [[ -e "$FILE_PATH" ]]; then
-  exit 0
-fi
-
 # Extract first path component relative to workspace root
 REL_PATH="${FILE_PATH#"$WORKSPACE/"}"
 
-# Block path traversal attempts (e.g. memory/../evil/file.txt)
+# Block path traversal attempts BEFORE existing-file check (defense-in-depth:
+# -e resolves ".." so an attacker could escape the workspace via existing targets)
 if [[ "$REL_PATH" == *".."* ]]; then
   echo "BLOCKED by directory guardian: path contains '..' traversal: ${REL_PATH}" >&2
   exit 2
+fi
+
+# Normalize path: collapse /./ segments
+while [[ "$REL_PATH" == *"/./"* ]]; do
+  REL_PATH="${REL_PATH//\/.\//\/}"
+done
+REL_PATH="${REL_PATH#./}"
+
+# If file already exists, it's an overwrite — always allowed
+if [[ -e "$FILE_PATH" ]]; then
+  exit 0
 fi
 
 ROOT_COMPONENT="${REL_PATH%%/*}"

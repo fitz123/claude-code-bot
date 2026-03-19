@@ -18,8 +18,16 @@ function runHook(
   input: object,
   env: Record<string, string> = {},
 ): { exitCode: number; stderr: string } {
+  return runHookRaw(hookPath, JSON.stringify(input), env);
+}
+
+function runHookRaw(
+  hookPath: string,
+  rawInput: string,
+  env: Record<string, string> = {},
+): { exitCode: number; stderr: string } {
   const opts: ExecSyncOptions = {
-    input: JSON.stringify(input),
+    input: rawInput,
     env: { ...process.env, ...env },
     encoding: "utf-8" as const,
     stdio: ["pipe", "pipe", "pipe"],
@@ -96,6 +104,28 @@ describe("protect-files.sh", () => {
       tool_input: {},
     });
     assert.equal(result.exitCode, 0);
+  });
+
+  it("blocks on malformed JSON input (fail-closed)", () => {
+    const result = runHookRaw(PROTECT_FILES, "{");
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("failed to parse"));
+  });
+
+  it("blocks cron even with /./  in path (path normalization)", () => {
+    const result = runHook(
+      PROTECT_FILES,
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path:
+            "/workspace/.claude/./skills/workspace-health/SKILL.md",
+        },
+      },
+      { CRON_NAME: "nightly-consolidation" },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("Blocked"));
   });
 });
 
@@ -209,6 +239,22 @@ describe("guardian.sh", () => {
         tool_name: "Write",
         tool_input: {
           file_path: TMP_WORKSPACE + "/memory/../evil/file.txt",
+        },
+      },
+      { CLAUDE_PROJECT_DIR: TMP_WORKSPACE },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("traversal"));
+  });
+
+  it("blocks traversal even when resolved target exists", () => {
+    // bot/src/existing.ts exists, but the path uses ".." — must still block
+    const result = runHook(
+      GUARDIAN,
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: TMP_WORKSPACE + "/bot/../bot/src/existing.ts",
         },
       },
       { CLAUDE_PROJECT_DIR: TMP_WORKSPACE },
