@@ -24,3 +24,12 @@ crons:
     agentId: main
     deliveryChatId: YOUR_CHAT_ID
     timeout: 600000                    # 10 minutes — AI stages need extra time
+
+  # Nightly memory consolidation — crystallizes session transcripts into persistent memory
+  - name: memory-consolidation
+    enabled: true
+    schedule: "0 2 * * *"              # 2:00 AM daily
+    prompt: /memory-consolidation
+    agentId: main
+    deliveryChatId: YOUR_CHAT_ID
+    timeout: 600000                    # 10 minutes — AI processing may be slow

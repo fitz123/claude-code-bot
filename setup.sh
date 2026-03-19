@@ -18,7 +18,7 @@ echo "Making hooks executable..."
 chmod +x .claude/hooks/*.sh
 echo "  Done."
 
-# Make skill scripts executable
+# Make skill scripts executable (if any exist)
 if ls .claude/skills/*/scripts/*.sh >/dev/null 2>&1; then
   echo "Making skill scripts executable..."
   chmod +x .claude/skills/*/scripts/*.sh
@@ -36,7 +36,7 @@ if [ -f "bot/package.json" ]; then
   fi
 fi
 
-# Ensure memory directory exists
+# Ensure memory directory and subdirectories exist
 if [ ! -d "memory" ]; then
   mkdir -p memory
   touch memory/.gitkeep
@@ -44,6 +44,7 @@ if [ ! -d "memory" ]; then
 else
   echo "memory/ directory already exists."
 fi
+mkdir -p memory/auto memory/diary
 
 # Ensure custom rules directory exists
 if [ ! -d ".claude/rules/custom" ]; then
