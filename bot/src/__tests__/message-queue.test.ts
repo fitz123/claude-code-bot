@@ -443,7 +443,7 @@ describe("MessageQueue error handling", () => {
     await wait(100);
 
     assert.strictEqual(callCount, 2);
-    assert.ok(repliedText.includes("Something went wrong processing queued messages"));
+    assert.ok(repliedText.includes("Something went wrong:"));
     assert.strictEqual(queue.isBusy("chat1"), false);
 
     queue.clearAll();
