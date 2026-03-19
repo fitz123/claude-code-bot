@@ -9,7 +9,8 @@ Claude Code sessions are stateless — each conversation starts fresh with no re
 
 - **Long-term index:** `MEMORY.md` — curated index of memory files in `memory/`
 - **Memory files:** `memory/*.md` — individual notes on topics worth remembering across sessions
-- **Daily notes (optional):** `memory/daily/YYYY-MM-DD.md` — consolidation digests
+- **Auto-generated memories:** `memory/auto/*.md` — created by the memory-consolidation skill
+- **Diary (optional):** `memory/diary/YYYY-MM-DD.md` — consolidation digests
 
 ## Guidelines
 
