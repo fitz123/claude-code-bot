@@ -38,7 +38,7 @@ if [[ -z "$FILE_PATH" ]]; then
 fi
 
 # Determine workspace root (no hardcoded fallback — must have CLAUDE_PROJECT_DIR)
-WORKSPACE="${CLAUDE_PROJECT_DIR}"
+WORKSPACE="${CLAUDE_PROJECT_DIR%/}"
 if [[ -z "$WORKSPACE" ]]; then
   echo "BLOCKED by directory guardian: CLAUDE_PROJECT_DIR not set" >&2
   exit 2
@@ -54,7 +54,8 @@ REL_PATH="${FILE_PATH#"$WORKSPACE/"}"
 
 # Block path traversal attempts BEFORE existing-file check (defense-in-depth:
 # -e resolves ".." so an attacker could escape the workspace via existing targets)
-if [[ "$REL_PATH" == *".."* ]]; then
+# Only match ".." as a path component, not inside filenames like "file..bak"
+if [[ "$REL_PATH" == ../* ]] || [[ "$REL_PATH" == */../* ]] || [[ "$REL_PATH" == */.. ]] || [[ "$REL_PATH" == ".." ]]; then
   echo "BLOCKED by directory guardian: path contains '..' traversal: ${REL_PATH}" >&2
   exit 2
 fi
