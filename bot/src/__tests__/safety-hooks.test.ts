@@ -127,6 +127,38 @@ describe("protect-files.sh", () => {
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
   });
+
+  it("blocks cron with .. path bypass attempt", () => {
+    const result = runHook(
+      PROTECT_FILES,
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path:
+            "/workspace/.claude/notskills/../skills/workspace-health/SKILL.md",
+        },
+      },
+      { CRON_NAME: "nightly-consolidation" },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("Blocked"));
+  });
+
+  it("blocks cron with // path bypass attempt", () => {
+    const result = runHook(
+      PROTECT_FILES,
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path:
+            "/workspace/.claude//skills/workspace-health/SKILL.md",
+        },
+      },
+      { CRON_NAME: "nightly-consolidation" },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("Blocked"));
+  });
 });
 
 // -------------------------------------------------------------------

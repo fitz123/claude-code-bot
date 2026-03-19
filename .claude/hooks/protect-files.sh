@@ -22,9 +22,20 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
-# Normalize path: collapse /./  segments to prevent pattern bypass
+# Normalize path: prevent bypass via non-canonical paths
+# Collapse multiple slashes: // → /
+while [[ "$FILE_PATH" == *//* ]]; do
+  FILE_PATH="${FILE_PATH//\/\//\/}"
+done
+# Collapse /./ → /
 while [[ "$FILE_PATH" == *"/./"* ]]; do
   FILE_PATH="${FILE_PATH//\/.\//\/}"
+done
+# Resolve /component/.. sequences
+while [[ "$FILE_PATH" == *"/.."* ]]; do
+  _prev="$FILE_PATH"
+  FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's|/[^/][^/]*/\.\./|/|;s|/[^/][^/]*/\.\.$||')
+  [[ "$FILE_PATH" == "$_prev" ]] && break
 done
 
 # Protected: skill files (read-only for crons/autonomous agents)

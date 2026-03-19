@@ -59,7 +59,10 @@ if [[ "$REL_PATH" == *".."* ]]; then
   exit 2
 fi
 
-# Normalize path: collapse /./ segments
+# Normalize path: collapse // and /./ segments
+while [[ "$REL_PATH" == *//* ]]; do
+  REL_PATH="${REL_PATH//\/\//\/}"
+done
 while [[ "$REL_PATH" == *"/./"* ]]; do
   REL_PATH="${REL_PATH//\/.\//\/}"
 done
