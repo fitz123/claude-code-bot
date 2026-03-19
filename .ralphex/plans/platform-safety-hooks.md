@@ -1,100 +1,144 @@
-# Platform Safety Hooks
+# Platform Safety Hooks — Round 1
 
-**Issue:** https://github.com/fitz123/claude-code-bot/issues/22
-**Branch:** `platform-safety-hooks`
-**Base:** `main`
+## Goal
 
-## Context
+Add two safety hooks (protect-files, directory guardian) to the platform template so all workspaces get active prevention against cron skill corruption and rogue file creation. These hooks have been running in production since mid-March 2026 and are ready for platformization.
 
-The workspace template has 4 hooks but lacks two safety hooks that prevent workspace degradation:
-1. **protect-files.sh** — blocks cron/autonomous sessions from modifying skill files
-2. **guardian.sh** — blocks creation of new files in workspace root outside the allowed structure
+## Validation Commands
 
-Both have been running in production since mid-March 2026. This task upstreams them to the platform template.
-
-## Tasks
-
-### Task 1: Add protect-files.sh and guardian.sh hooks
-
-**Priority:** P1
-**Files to create:**
-- `.claude/hooks/protect-files.sh`
-- `.claude/hooks/guardian.sh`
-
-**Requirements:**
-- protect-files.sh: Block writes to `.claude/skills/*` when `$CRON_NAME` env var is set. Exit 0 if no file_path or not a skill path. Exit 2 to block.
-- guardian.sh: Fail-closed design. Block Write tool creating new files in workspace root if the root-level path component is not in the orphan-allowlist.txt. Edit tool always allowed. Overwriting existing files always allowed. Uses `$CLAUDE_PROJECT_DIR` for workspace root (not hardcoded path). Depends on `jq`. Loads allowlist from `.claude/skills/workspace-health/scripts/orphan-allowlist.txt`. Supports exact and glob matching. Blocks path traversal (`..`).
-- Both scripts must be POSIX-compatible bash, use `jq` for JSON parsing of hook input
-- Hook input format: JSON on stdin with `tool_name` and `tool_input.file_path` fields
-
-**Acceptance criteria:**
-- [ ] protect-files.sh blocks skill file writes when CRON_NAME is set
-- [ ] protect-files.sh allows skill file writes when CRON_NAME is unset
-- [ ] guardian.sh blocks new files outside allowlist
-- [ ] guardian.sh allows overwrites of existing files
-- [ ] guardian.sh allows Edit tool unconditionally
-- [ ] guardian.sh fails closed when jq is missing
-- [ ] guardian.sh fails closed when allowlist is missing
-- [ ] guardian.sh blocks path traversal attempts
-- [ ] No hardcoded workspace paths (uses $CLAUDE_PROJECT_DIR)
-- [ ] Both scripts are executable
-
-### Task 2: Update settings.json to register new hooks
-
-**Priority:** P1
-**Files to modify:**
-- `.claude/settings.json`
-
-**Requirements:**
-- Add a second PreToolUse entry with matcher `Edit|Write` containing both `protect-files.sh` and `guardian.sh`
-- Keep existing PreToolUse entry for `inject-message.sh` (matcher `*`) unchanged
-- Hook command format: `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<script>.sh`
-
-**Current state (to modify):**
-```json
-"PreToolUse": [
-  {
-    "matcher": "*",
-    "hooks": [{"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/inject-message.sh"}]
-  }
-]
+```bash
+npx tsc --noEmit
+npm test
+# Verify hooks are executable
+find .claude/hooks -name '*.sh' ! -perm -u+x -print | grep -c . | grep -q '^0$'
+# Verify all hooks referenced in settings.json exist
+for hook in $(grep -oP '(?<=hooks/)[^"]+' .claude/settings.json); do test -f ".claude/hooks/$hook" || echo "MISSING: $hook"; done
+# Verify allowlist is not empty (has non-comment lines)
+grep -v '^#' .claude/skills/workspace-health/scripts/orphan-allowlist.txt | grep -v '^[[:space:]]*$' | grep -c . | grep -qv '^0$'
 ```
 
-**Target state:**
+## Reference: Current hook configuration (public repo)
+
+File: `.claude/settings.json` (public repo, 48 lines)
+
 ```json
-"PreToolUse": [
-  {
-    "matcher": "*",
-    "hooks": [{"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/inject-message.sh"}]
-  },
-  {
-    "matcher": "Edit|Write",
-    "hooks": [
-      {"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-files.sh"},
-      {"type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guardian.sh"}
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/inject-message.sh" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/auto-stage.sh" }]
+      }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-end-commit.sh" }] }
+    ],
+    "SessionStart": [
+      { "matcher": "", "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start-recovery.sh" }] }
     ]
   }
-]
+}
 ```
 
-**Acceptance criteria:**
-- [ ] settings.json is valid JSON after modification
-- [ ] Both new hooks are registered under PreToolUse with Edit|Write matcher
-- [ ] Existing hooks are unchanged
+Missing: no `protect-files.sh` or `guardian.sh` in PreToolUse.
 
-### Task 3: Update CLAUDE.md documentation
+## Reference: Production hook configuration (workspace)
 
-**Priority:** P2
-**Files to modify:**
-- `CLAUDE.md`
+File: `/Users/user/.minime/workspace/.claude/settings.json` (lines 4-27)
 
-**Requirements:**
-- Update hook count from "Four" to "Six"
-- Add entries for `protect-files.sh` and `guardian.sh` with brief descriptions
-- Preserve existing hook entries and their descriptions
+The workspace has an additional PreToolUse matcher for Edit|Write:
 
-**Current text to replace (CLAUDE.md lines 22-26):**
+```json
+{
+  "matcher": "Edit|Write",
+  "hooks": [
+    { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-files.sh" },
+    { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guardian.sh" }
+  ]
+}
 ```
+
+Both hooks run on Edit|Write tools, before auto-stage.sh (which runs PostToolUse).
+
+## Reference: protect-files.sh (production, 30 lines)
+
+File: `/Users/user/.minime/workspace/.claude/hooks/protect-files.sh`
+
+```bash
+#!/bin/bash
+# protect-files.sh — PreToolUse hook
+# Blocks writes to protected skill files (for crons/autonomous agents only)
+# and prevents deletion of task artifacts.
+
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# Protected: skill files (read-only for crons/autonomous agents)
+if [[ "$FILE_PATH" == */.claude/skills/* ]]; then
+  if [ -n "$CRON_NAME" ]; then
+    echo "Blocked: cron '$CRON_NAME' cannot modify skill files: $FILE_PATH" >&2
+    exit 2
+  fi
+fi
+
+# Protected: task artifacts — never delete
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
+if [[ "$FILE_PATH" == */reference/tasks/* ]] && [[ "$TOOL_NAME" == "Write" ]]; then
+  :
+fi
+
+exit 0
+```
+
+Detection of cron context: `$CRON_NAME` env var, set by `bot/scripts/run-cron.sh:27` (`export CRON_NAME="$TASK_NAME"`). This is NOT set in plists directly — it's set in the shell wrapper that plists invoke.
+
+## Reference: guardian.sh (production, 101 lines)
+
+File: `/Users/user/.minime/workspace/.claude/hooks/guardian.sh`
+
+Key design:
+- **Edit tool:** always allowed (line 30-32)
+- **Write tool:** allowed if file already exists as overwrite (line 48-51)
+- **New files:** ROOT_COMPONENT of relative path checked against allowlist
+- **Fail-closed:** blocks if jq missing (line 12-14), if tool_name unparseable (line 24-27), if allowlist missing (line 67-71)
+- **Path traversal protection:** blocks `..` in paths (line 57-59)
+- **Allowlist path:** `$WORKSPACE/.claude/skills/workspace-health/scripts/orphan-allowlist.txt` (line 65)
+- **Workspace detection:** `${CLAUDE_PROJECT_DIR:-/Users/user/.minime/workspace}` (line 41) — hardcoded fallback must be removed for platform
+
+## Reference: orphan-allowlist.txt (EMPTY — bug)
+
+File: `.claude/skills/workspace-health/scripts/orphan-allowlist.txt` (both repos)
+
+```
+# Platform-generic orphan allowlist
+# Root-level items that are expected in a normal workspace but not tracked by git.
+# One entry per line. Lines starting with # are comments.
+# Users can add workspace-specific entries to orphan-allowlist.local.txt (gitignored).
+```
+
+**Contains only comments — zero actual entries.** This means:
+- guardian.sh blocks ALL new file creation (even in expected dirs like `memory/`, `reference/`)
+- orphan-scan.sh flags everything that's not git-tracked or gitignored as orphan
+
+Both scripts need actual entries in this file to function correctly. Standard workspace structure items: `memory`, `reference`, `data`, `bot`, `scripts`, plus dotfiles and markdown files at root.
+
+## Reference: CLAUDE.md hooks section (public repo)
+
+File: `CLAUDE.md` (line 20-26)
+
+```markdown
+## Hooks
+
 Four hooks are wired in `.claude/settings.json`:
 - `auto-stage.sh` — stages files after Edit/Write
 - `session-end-commit.sh` — commits staged changes on session exit
@@ -102,44 +146,48 @@ Four hooks are wired in `.claude/settings.json`:
 - `inject-message.sh` — delivers mid-turn user messages
 ```
 
-**Target text:**
-```
-Six hooks are wired in `.claude/settings.json`:
-- `inject-message.sh` — delivers mid-turn user messages
-- `protect-files.sh` — blocks cron/agent writes to skill files
-- `guardian.sh` — enforces workspace directory structure
-- `auto-stage.sh` — stages files after Edit/Write
-- `session-end-commit.sh` — commits staged changes on session exit
-- `session-start-recovery.sh` — recovers orphaned staged changes
-```
+Needs updating to six hooks with protect-files.sh and guardian.sh listed.
 
-**Acceptance criteria:**
-- [ ] Hook count is "Six"
-- [ ] Both new hooks are listed with accurate descriptions
-- [ ] Existing hooks are preserved
+## Reference: setup.sh hook permissions
 
-## Reference
+File: `setup.sh` (line 16-19)
 
-### Hook input format (PreToolUse)
-```json
-{
-  "tool_name": "Write",
-  "tool_input": {
-    "file_path": "/path/to/file",
-    "content": "..."
-  }
-}
+```bash
+echo "Making hook scripts executable..."
+chmod +x .claude/hooks/*.sh
 ```
 
-### Exit codes
-- `0` — allow
-- `2` — block (Claude Code shows stderr to user)
+Already handles `*.sh` glob — new hooks will be covered automatically.
 
-### Orphan allowlist location
-`.claude/skills/workspace-health/scripts/orphan-allowlist.txt` — one pattern per line, `#` comments, blank lines ignored. Used by both `orphan-scan.sh` and `guardian.sh`.
+## Tasks
 
-### $CRON_NAME convention
-Environment variable set by `generate-plists.ts` in cron plist EnvironmentVariables dict. Present = autonomous/cron session. Absent = interactive session with user.
+### Task 1: Add safety hooks to platform template (#22, P2)
 
-### settings.json is protected by .gitattributes
-`.claude/settings.json` has `merge=ours` in `.gitattributes` — workspace versions are preserved during upstream merge. The platform version in the public repo is the template default.
+Two safety hooks exist in production but are missing from the platform template. Without them, workspaces have no active prevention — only passive detection (orphan-scan reports orphans after the fact, nothing prevents cron skill corruption).
+
+**Evidence:**
+- Public repo `.claude/hooks/` has 4 files, workspace has 6 — diff is protect-files.sh and guardian.sh
+- Public repo `.claude/settings.json` has no Edit|Write PreToolUse matcher
+- CLAUDE.md says "Four hooks" but workspace has six
+- orphan-allowlist.txt is empty (only comments) — guardian.sh and orphan-scan.sh both rely on it for allowed root entries
+
+**What we want:**
+- Both hooks added to `.claude/hooks/` in the public repo, genericized (no hardcoded paths)
+- `settings.json` updated with the Edit|Write PreToolUse matcher containing both hooks
+- CLAUDE.md hooks section updated from four to six, listing all hooks with descriptions
+- orphan-allowlist.txt populated with standard workspace root entries that both guardian.sh and orphan-scan.sh recognize
+- guardian.sh fallback workspace path removed (must use only `$CLAUDE_PROJECT_DIR`)
+
+- [x] protect-files.sh exists in `.claude/hooks/`, blocks `$CRON_NAME` sessions from writing to `.claude/skills/*`
+- [x] guardian.sh exists in `.claude/hooks/`, blocks new files outside allowed workspace structure
+- [x] guardian.sh has no hardcoded workspace paths (uses only `$CLAUDE_PROJECT_DIR`)
+- [x] settings.json PreToolUse has Edit|Write matcher with both hooks
+- [x] CLAUDE.md documents all six hooks
+- [x] orphan-allowlist.txt contains entries for standard workspace structure (memory, reference, data, bot, scripts, etc.)
+- [x] guardian.sh blocks new file in unlisted root location (manual test: `echo test | .claude/hooks/guardian.sh` with crafted JSON)
+- [x] guardian.sh allows new file in listed root location
+- [x] guardian.sh allows overwrite of existing file
+- [x] protect-files.sh blocks when CRON_NAME is set and path is in .claude/skills/
+- [x] protect-files.sh allows when CRON_NAME is not set
+- [x] Add tests for both hooks
+- [x] Verify existing tests pass
