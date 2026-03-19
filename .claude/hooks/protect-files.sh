@@ -39,7 +39,8 @@ while [[ "$FILE_PATH" == *"/.."* ]]; do
 done
 
 # Protected: skill files (read-only for crons/autonomous agents)
-if [[ "$FILE_PATH" == */.claude/skills/* ]]; then
+# Match both absolute (*/…) and relative (.claude/skills/…) paths
+if [[ "$FILE_PATH" == */.claude/skills/* ]] || [[ "$FILE_PATH" == .claude/skills/* ]]; then
   if [ -n "$CRON_NAME" ]; then
     echo "Blocked: cron '$CRON_NAME' cannot modify skill files: $FILE_PATH" >&2
     exit 2

@@ -144,6 +144,21 @@ describe("protect-files.sh", () => {
     assert.ok(result.stderr.includes("Blocked"));
   });
 
+  it("blocks cron with relative path (no leading slash)", () => {
+    const result = runHook(
+      PROTECT_FILES,
+      {
+        tool_name: "Write",
+        tool_input: {
+          file_path: ".claude/skills/workspace-health/SKILL.md",
+        },
+      },
+      { CRON_NAME: "nightly-consolidation" },
+    );
+    assert.equal(result.exitCode, 2);
+    assert.ok(result.stderr.includes("Blocked"));
+  });
+
   it("blocks cron with // path bypass attempt", () => {
     const result = runHook(
       PROTECT_FILES,
