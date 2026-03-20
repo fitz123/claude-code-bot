@@ -15,7 +15,6 @@ crons:
     deliveryChatId: YOUR_CHAT_ID       # Telegram chat ID for delivery
     deliveryThreadId: 42               # optional: Telegram forum topic ID
     timeout: 300000                    # 5 minutes
-    maxBudget: 1.00                    # optional: cost cap in USD per run
 
   # Weekly workspace health check (uses /workspace-health skill)
   - name: workspace-health

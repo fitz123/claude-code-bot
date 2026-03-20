@@ -17,7 +17,6 @@ describe("cron field documentation", () => {
   const cronFields = [
     "type",
     "timeout",
-    "maxBudget",
     "deliveryThreadId",
     "enabled",
   ];
@@ -54,13 +53,6 @@ describe("cron field documentation", () => {
     );
   });
 
-  it("crons.yaml.example demonstrates maxBudget field", () => {
-    const example = readRepoFile("bot/crons.yaml.example");
-    assert.ok(
-      example.includes("maxBudget"),
-      "crons.yaml.example does not demonstrate maxBudget field"
-    );
-  });
 });
 
 describe("CronJob type includes enabled field", () => {

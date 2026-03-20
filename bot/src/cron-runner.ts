@@ -99,10 +99,6 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   if (typeof c.timeout === "number" && (!Number.isFinite(c.timeout) || c.timeout <= 0)) {
     throw new Error(`Task "${taskName}" has invalid 'timeout' (${c.timeout}): must be a positive number`);
   }
-  if (typeof c.maxBudget === "number" && (!Number.isFinite(c.maxBudget) || c.maxBudget <= 0)) {
-    throw new Error(`Task "${taskName}" has invalid 'maxBudget' (${c.maxBudget}): must be a positive number`);
-  }
-
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
@@ -113,7 +109,6 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
     deliveryChatId,
     deliveryThreadId,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
-    maxBudget: typeof c.maxBudget === "number" ? c.maxBudget : undefined,
     enabled: c.enabled === false ? false : undefined,
   };
 }
@@ -258,10 +253,6 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
     "--append-system-prompt",
     `Today is ${today}. Respond concisely.`,
   ];
-
-  if (cron.maxBudget != null) {
-    args.push("--max-budget-usd", String(cron.maxBudget));
-  }
 
   // Build env without CLAUDECODE and without ANTHROPIC_API_KEY
   const env = { ...process.env };

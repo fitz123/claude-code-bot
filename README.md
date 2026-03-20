@@ -92,7 +92,6 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
      agentId: main                # must match an agent in config.yaml
      deliveryChatId: YOUR_CHAT_ID  # where to send results (optional if defaultDeliveryChatId set)
      timeout: 300000              # ms, optional
-     maxBudget: 0.50              # USD, optional
 
    # Script cron — runs a shell command directly (no LLM)
    - name: backup-db
@@ -119,7 +118,6 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    | `deliveryChatId` | number | from config default | Telegram chat ID for result delivery |
    | `deliveryThreadId` | number | from config default | Telegram forum topic ID for delivery |
    | `timeout` | number | `300000` | Per-cron timeout in milliseconds (5 min default) |
-   | `maxBudget` | number | — | Cost cap per run in USD (LLM crons only) |
    | `enabled` | boolean | `true` | Set `false` to skip plist generation for this cron |
 
 2. Generate launchd plists:
