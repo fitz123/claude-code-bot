@@ -155,6 +155,41 @@ describe("SessionStore", () => {
     assert.ok(existsSync(deepPath));
   });
 
+  it("persists and loads displayName", () => {
+    const store1 = new SessionStore(TEST_PATH);
+    store1.setSession("123", {
+      sessionId: "uuid-1",
+      chatId: "123",
+      agentId: "main",
+      lastActivity: 1000,
+      displayName: "my-session",
+    });
+
+    // Load from same path
+    const store2 = new SessionStore(TEST_PATH);
+    const session = store2.getSession("123");
+    assert.ok(session);
+    assert.strictEqual(session!.displayName, "my-session");
+  });
+
+  it("loads session without displayName (backward compatible)", () => {
+    // Write JSON without displayName field
+    writeFileSync(TEST_PATH, JSON.stringify({
+      "456": {
+        sessionId: "uuid-2",
+        chatId: "456",
+        agentId: "main",
+        lastActivity: 2000,
+      },
+    }));
+
+    const store = new SessionStore(TEST_PATH);
+    const session = store.getSession("456");
+    assert.ok(session);
+    assert.strictEqual(session!.sessionId, "uuid-2");
+    assert.strictEqual(session!.displayName, undefined);
+  });
+
   it("default path resolves relative to project dir (not hardcoded)", () => {
     // Verify the default path is derived from module location, ending with data/sessions.json
     const store = new SessionStore();

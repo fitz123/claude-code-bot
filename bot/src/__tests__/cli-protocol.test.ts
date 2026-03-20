@@ -94,6 +94,32 @@ describe("buildSpawnArgs", () => {
     assert.ok(!args.includes("--max-turns"));
     assert.ok(!args.includes("--append-system-prompt"));
     assert.ok(!args.includes("--effort"));
+    assert.ok(!args.includes("--name"));
+  });
+
+  it("includes --name when displayName is provided", () => {
+    const args = buildSpawnArgs({ agent: testAgent, displayName: "my-session" });
+    assert.ok(args.includes("--name"));
+    const idx = args.indexOf("--name");
+    assert.strictEqual(args[idx + 1], "my-session");
+  });
+
+  it("omits --name when displayName is undefined", () => {
+    const args = buildSpawnArgs({ agent: testAgent });
+    assert.ok(!args.includes("--name"));
+  });
+
+  it("includes --name with --resume when both are set", () => {
+    const args = buildSpawnArgs({
+      agent: testAgent,
+      sessionId: "test-uuid",
+      resume: true,
+      displayName: "my-session",
+    });
+    assert.ok(args.includes("--resume"));
+    assert.ok(args.includes("--name"));
+    const nameIdx = args.indexOf("--name");
+    assert.strictEqual(args[nameIdx + 1], "my-session");
   });
 
   it("includes outbox path in system prompt when provided", () => {
