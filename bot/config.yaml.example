@@ -42,9 +42,9 @@ bindings:
   #       label: Dev Topic
 
 sessionDefaults:
-  idleTimeoutMs: 3600000              # 1 hour
-  maxConcurrentSessions: 6
-  maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart
+  idleTimeoutMs: 3600000              # 1 hour (default)
+  maxConcurrentSessions: 12           # default
+  maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart (default)
 
 metricsPort: 9091
 

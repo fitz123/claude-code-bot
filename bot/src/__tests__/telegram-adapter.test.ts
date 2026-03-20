@@ -80,17 +80,17 @@ describe("createTelegramAdapter", () => {
   });
 
   describe("streamingUpdates and typingIndicator flags", () => {
-    it("defaults to false when binding has no flags", () => {
+    it("defaults to true when binding has no flags", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
-      assert.strictEqual(adapter.streamingUpdates, false);
+      assert.strictEqual(adapter.streamingUpdates, true);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 
-    it("defaults to false when no binding provided", () => {
+    it("defaults to true when no binding provided", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx);
-      assert.strictEqual(adapter.streamingUpdates, false);
+      assert.strictEqual(adapter.streamingUpdates, true);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 

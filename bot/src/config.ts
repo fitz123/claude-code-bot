@@ -204,13 +204,13 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
   return { token, bindings };
 }
 
-function validateSessionDefaults(raw: unknown): SessionDefaults {
+export function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 900000, maxConcurrentSessions: 3, maxMessageAgeMs: 300000 };
+    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000 };
   }
   const obj = raw as Record<string, unknown>;
 
-  let maxMessageAgeMs = 300000;
+  let maxMessageAgeMs = 600000;
   if (typeof obj.maxMessageAgeMs === "number") {
     if (!Number.isFinite(obj.maxMessageAgeMs) || obj.maxMessageAgeMs <= 0) {
       throw new Error(`Invalid maxMessageAgeMs: ${obj.maxMessageAgeMs} (must be a finite positive number)`);
@@ -219,8 +219,8 @@ function validateSessionDefaults(raw: unknown): SessionDefaults {
   }
 
   return {
-    idleTimeoutMs: typeof obj.idleTimeoutMs === "number" ? obj.idleTimeoutMs : 900000,
-    maxConcurrentSessions: typeof obj.maxConcurrentSessions === "number" ? obj.maxConcurrentSessions : 3,
+    idleTimeoutMs: typeof obj.idleTimeoutMs === "number" ? obj.idleTimeoutMs : 3600000,
+    maxConcurrentSessions: typeof obj.maxConcurrentSessions === "number" ? obj.maxConcurrentSessions : 12,
     maxMessageAgeMs,
   };
 }
