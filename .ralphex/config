@@ -17,4 +17,4 @@ plans_dir = .ralphex/plans
 notify_channels = custom
 notify_on_error = true
 notify_on_complete = true
-notify_custom_script = /Users/ninja/.minime/workspace/.ralphex/scripts/notify-minime.sh
+notify_custom_script = /Users/user/.minime/workspace/.ralphex/scripts/notify-minime.sh

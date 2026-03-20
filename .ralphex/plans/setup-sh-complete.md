@@ -7,7 +7,7 @@ A user cloning the repo should get a running bot by following clear, numbered st
 ## Validation Commands
 
 ```bash
-cd /Users/ninja/src/claude-code-bot && cd bot && npx tsc --noEmit && npm test
+cd /Users/user/src/claude-code-bot && cd bot && npx tsc --noEmit && npm test
 ```
 
 ## Reference: config.ts validation — required fields
