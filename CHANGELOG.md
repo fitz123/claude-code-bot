@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.1
+
+### Named Sessions
+
+- `/rename <name>` command — assign a human-readable name to the current session
+- Named sessions can be resumed from console via `claude --resume <name>`
+- Session names displayed in `/status` output
+- Names persisted across bot restarts via session store
+- Session names restricted to shell-safe characters (alphanumeric, hyphens, underscores)
+
+### Bug Fixes
+
+- Removed `maxBudget` from cron examples (unused feature)
+
 ## v0.1.0
 
 Initial public release of Minime — a multi-platform bot that routes messages to Claude Code CLI subprocesses, designed for Claude Max subscription users.
