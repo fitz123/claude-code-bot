@@ -364,7 +364,7 @@ If a session crashes 5 times in a row, it is circuit-broken — the bot refuses 
 Sessions have a 1-hour idle timeout and max 12 concurrent (LRU eviction). If a session is stuck:
 - Check per-session stderr logs for subprocess crash details: `~/.minime/logs/session-<chatId>.log`
 - Check bot stderr log for bot-level errors
-- The session store persists across restarts: `~/.minime/bot/data/sessions.json` (at repo root, not inside `bot/`)
+- The session store persists across restarts: `~/.minime/data/sessions.json`
 - Restarting the bot cleanly closes all sessions (graceful SIGTERM)
 
 **Cron not firing**
