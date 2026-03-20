@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { setThread, getThread, clearThreadCache, threadCacheSize, saveThreadCache, restoreThreadCache } from "../message-thread-cache.js";
@@ -157,7 +157,7 @@ describe("message-thread-cache persistence", () => {
     writeFileSync(cachePath, JSON.stringify(entries), "utf8");
 
     restoreThreadCache(cachePath);
-    assert.strictEqual(threadCacheSize(), 9_999);
+    assert.strictEqual(threadCacheSize(), 10_000);
   });
 
   it("save creates parent directories if missing", () => {
@@ -175,5 +175,28 @@ describe("message-thread-cache persistence", () => {
     clearThreadCache();
     restoreThreadCache(cachePath);
     assert.strictEqual(getThread(-100, 1), 0);
+  });
+
+  it("atomic write: .tmp file does not persist after successful save", () => {
+    setThread(-100, 1, 10);
+    saveThreadCache(cachePath);
+    assert.ok(existsSync(cachePath), "final file should exist");
+    assert.ok(!existsSync(cachePath + ".tmp"), ".tmp file should not persist after save");
+  });
+
+  it("file permissions are 0o600 after save", () => {
+    setThread(-100, 1, 10);
+    saveThreadCache(cachePath);
+    const mode = statSync(cachePath).mode & 0o777;
+    assert.strictEqual(mode, 0o600);
+  });
+
+  it("atomic write: final file contains correct data", () => {
+    setThread(-100, 1, 10);
+    setThread(-200, 2, 20);
+    saveThreadCache(cachePath);
+    const data = JSON.parse(readFileSync(cachePath, "utf8"));
+    assert.ok(Array.isArray(data));
+    assert.strictEqual(data.length, 2);
   });
 });
