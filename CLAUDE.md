@@ -38,7 +38,7 @@ Available skills:
 ## Governance
 
 Architectural decisions are tracked in `reference/governance/decisions.md`.
-Run `setup.sh` to initialize from the template. See `.claude/rules/platform/adr-governance.md` for the enforcement rule.
+See `.claude/rules/platform/adr-governance.md` for the enforcement rule.
 
 ## Memory
 

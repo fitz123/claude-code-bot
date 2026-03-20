@@ -467,8 +467,8 @@ Available metrics:
 
 | Log | Path |
 |-----|------|
-| Bot stdout | `~/.minime/logs/telegram-bot-stdout.log` |
-| Bot stderr | `~/.minime/logs/telegram-bot-stderr.log` |
+| Bot stdout | `~/.minime/logs/telegram-bot.stdout.log` |
+| Bot stderr | `~/.minime/logs/telegram-bot.stderr.log` |
 | Session stderr (per-chat/topic) | `~/.minime/logs/session-<chatId>[_<topicId>].log` |
 | Cron (per-task) | `~/.minime/logs/cron-<name>.log` |
 | Message delivery | `~/.minime/logs/cron-delivery.log` |
