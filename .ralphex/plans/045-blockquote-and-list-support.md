@@ -75,12 +75,12 @@ What we want:
 - Lists inside fenced code blocks are not converted (already guaranteed by the pipeline)
 - Lists inside `<pre>` table blocks are not converted
 
-- [ ] `- item` at line start converts to `• item`
-- [ ] `* item` at line start converts to `• item` without breaking italic syntax
-- [ ] Indented `  - nested` preserves indentation and converts marker
-- [ ] Numbered lists (`1. text`) pass through unchanged
-- [ ] Lists inside fenced code blocks are not converted
-- [ ] Inline markdown in list items works (bold, links, etc.)
-- [ ] Existing 45 tests still pass
-- [ ] Converter stays under ~300 lines total
-- [ ] Add tests covering the above cases
+- [x] `- item` at line start converts to `• item`
+- [x] `* item` at line start converts to `• item` without breaking italic syntax
+- [x] Indented `  - nested` preserves indentation and converts marker
+- [x] Numbered lists (`1. text`) pass through unchanged
+- [x] Lists inside fenced code blocks are not converted
+- [x] Inline markdown in list items works (bold, links, etc.)
+- [x] Existing 45 tests still pass
+- [x] Converter stays under ~300 lines total
+- [x] Add tests covering the above cases

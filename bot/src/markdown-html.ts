@@ -70,6 +70,11 @@ function convertInline(text: string): string {
   // Step 2: Escape HTML in remaining text
   processed = escapeHtml(processed);
 
+  // Step 2b: List bullet normalization — replace - and * list markers at line start with •
+  // Multiline flag makes ^ match each line start. Space after marker ensures *italic* is not touched.
+  processed = processed.replace(/^(\s*)-(\s)/gm, "$1\u2022$2");
+  processed = processed.replace(/^(\s*)\*(\s)/gm, "$1\u2022$2");
+
   // Step 3: Convert markdown patterns (order matters — bold+italic before bold before italic)
   // Bold+Italic: ***text*** (must come before bold to avoid overlapping tags)
   processed = processed.replace(/\*\*\*(.+?)\*\*\*/g, "<b><i>$1</i></b>");

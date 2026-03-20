@@ -356,6 +356,54 @@ describe("markdownToHtml", () => {
     });
   });
 
+  describe("list bullet normalization", () => {
+    it("converts - item at line start to • item", () => {
+      assert.strictEqual(markdownToHtml("- foo"), "• foo");
+    });
+
+    it("converts * item at line start to • item", () => {
+      assert.strictEqual(markdownToHtml("* foo"), "• foo");
+    });
+
+    it("preserves indentation on nested list items", () => {
+      assert.strictEqual(markdownToHtml("  - nested"), "  • nested");
+    });
+
+    it("does not convert numbered lists", () => {
+      assert.strictEqual(markdownToHtml("1. item"), "1. item");
+    });
+
+    it("does not convert - inside a fenced code block", () => {
+      assert.strictEqual(markdownToHtml("```\n- not a bullet\n```"), "<pre>- not a bullet</pre>");
+    });
+
+    it("does not convert * italic syntax (mid-line asterisk with no space after)", () => {
+      assert.strictEqual(markdownToHtml("*italic*"), "<i>italic</i>");
+    });
+
+    it("handles inline markdown in list items (bold)", () => {
+      assert.strictEqual(markdownToHtml("- **bold item**"), "• <b>bold item</b>");
+    });
+
+    it("handles inline markdown in list items (link)", () => {
+      assert.strictEqual(
+        markdownToHtml("- [click](https://example.com)"),
+        '• <a href="https://example.com">click</a>',
+      );
+    });
+
+    it("converts multiple list items", () => {
+      assert.strictEqual(
+        markdownToHtml("- one\n- two\n- three"),
+        "• one\n• two\n• three",
+      );
+    });
+
+    it("* at mid-line (not line start) is not converted", () => {
+      assert.strictEqual(markdownToHtml("text * not a bullet"), "text * not a bullet");
+    });
+  });
+
   describe("plain text", () => {
     it("passes through text without markdown unchanged", () => {
       assert.strictEqual(markdownToHtml("hello world"), "hello world");
