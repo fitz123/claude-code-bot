@@ -2,13 +2,9 @@
 
 ## v0.1.1
 
-### Named Sessions
+### Improvements
 
-- `/rename <name>` command — assign a human-readable name to the current session
-- Named sessions can be resumed from console via `claude --resume <name>`
-- Session names displayed in `/status` output
-- Names persisted across bot restarts via session store
-- Session names restricted to shell-safe characters (alphanumeric, hyphens, underscores)
+- Session ID shown in `/status` output — enables resuming sessions from console via `claude --resume <id>`
 
 ### Bug Fixes
 
