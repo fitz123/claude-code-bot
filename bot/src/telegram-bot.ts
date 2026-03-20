@@ -591,8 +591,8 @@ export function createTelegramBot(
       await ctx.reply("Name too long. Maximum 64 characters.");
       return;
     }
-    if (/[\x00-\x1f]/.test(rawArg)) {
-      await ctx.reply("Name must not contain control characters.");
+    if (/[^a-zA-Z0-9 ._-]/.test(rawArg)) {
+      await ctx.reply("Name may only contain letters, numbers, spaces, dots, dashes, and underscores.");
       return;
     }
 
