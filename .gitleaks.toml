@@ -29,6 +29,8 @@ id = "russian-phone-numbers"
 description = "Russian phone numbers"
 regex = '''(\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}'''
 tags = ["pii", "phone"]
+[rules.allowlist]
+paths = ['''(__tests__|\.test\.|\.spec\.)''']
 
 # --- Telegram ---
 
@@ -48,8 +50,9 @@ description = "Telegram handles (@username format)"
 regex = '''@[a-zA-Z][a-zA-Z0-9_]{4,31}'''
 tags = ["pii", "telegram"]
 [rules.allowlist]
+paths = ['''(__tests__|\.test\.|\.spec\.)''']
 regexTarget = "line"
-regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER|@redacted|@jest|@ts-|@eslint|@babel|@rollup|@vite|@swc|@vercel|@remix|@next)''']
+regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER|@redacted|@jest|@ts-|@eslint|@babel|@rollup|@vite|@swc|@vercel|@remix|@next|@alice|@mybot)''']
 
 # --- Discord ---
 
