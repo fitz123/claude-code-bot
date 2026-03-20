@@ -1,0 +1,41 @@
+name: Gitleaks PII & Secrets Scan (Reusable)
+
+# Other repos can call this workflow to get the same scan with shared config.
+# Usage in another repo's workflow:
+#   jobs:
+#     gitleaks:
+#       uses: fitz123/claude-code-bot/.github/workflows/gitleaks-reusable.yml@main
+
+on:
+  workflow_call:
+    inputs:
+      config-repo:
+        description: "Repo containing .gitleaks.toml (owner/repo format)"
+        required: false
+        type: string
+        default: "fitz123/claude-code-bot"
+      config-ref:
+        description: "Branch/tag of config repo to fetch .gitleaks.toml from"
+        required: false
+        type: string
+        default: "main"
+
+jobs:
+  gitleaks:
+    name: Gitleaks PII Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch shared .gitleaks.toml (if not present locally)
+        if: ${{ hashFiles('.gitleaks.toml') == '' }}
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${{ inputs.config-repo }}/${{ inputs.config-ref }}/.gitleaks.toml" \
+            -o .gitleaks.toml
+          echo "Fetched .gitleaks.toml from ${{ inputs.config-repo }}@${{ inputs.config-ref }}"
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
