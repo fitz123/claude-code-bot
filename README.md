@@ -583,14 +583,16 @@ No cron system, no multi-agent, no workspace management, no Discord. Single-user
 
 | | **claude-code-bot** | **ductor** |
 |---|---|---|
-| Language | TypeScript (grammy) | Python (aiogram) |
+| Language | TypeScript (grammY) | Python (aiogram) |
+| Codebase | ~3k LoC | ~150 modules |
 | Forum topic sessions | Yes | Yes |
 | Multi-agent with isolated workspaces | Yes | Yes |
-| Cron system | launchd plists (per-cron process isolation) | In-process cron |
-| Workspace health | Filesystem guardian hooks + structural audits | Agent-level health (crash recovery, backoff) |
-| Memory consolidation | Nightly summarization cron | File sync (no summarization) |
+| Cron system | launchd plists (per-cron process isolation) | In-process scheduler |
+| Crash safety | Atomic JSON writes, launchd auto-restart | Atomic writes, in-flight turn tracking, process registry |
+| Workspace health | Filesystem guardian hooks + structural audits | Agent health with exponential backoff |
+| Memory consolidation | Nightly summarization cron | File sync |
 | Platforms | Telegram + Discord | Telegram + Matrix |
 | Multi-CLI support | Claude Code | Claude Code, Codex, Gemini |
 
-Ductor covers more CLIs (Claude, Codex, Gemini). We go deeper on one: filesystem-level workspace protection that prevents degradation rather than recovering from it, nightly memory consolidation that summarizes rather than copies, and per-cron process isolation via launchd.
+Neither project is strictly better than the other — feature sets are comparable. Ductor covers more CLIs and has deeper crash recovery (in-flight turn tracking, process registry, stream coalescing). We're significantly simpler: a thin TypeScript wrapper around `claude -p` that delegates complexity to the OS (launchd for process isolation, filesystem hooks for workspace protection) rather than reimplementing it in application code.
 
