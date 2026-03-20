@@ -536,14 +536,30 @@ export class SessionManager {
     return this.active.get(chatId);
   }
 
-  /** Rename a session: update display name in memory and persist to store. */
+  /** Rename a session: update display name in memory and persist to store.
+   *  Works for both active (in-memory) and inactive (stored-only) sessions. */
   renameSession(chatId: string, displayName: string): boolean {
     const session = this.active.get(chatId);
-    if (!session) return false;
+    if (session) {
+      session.displayName = displayName;
+      this.store.setSession(chatId, this.toSessionState(chatId, session));
+      return true;
+    }
 
-    session.displayName = displayName;
-    this.store.setSession(chatId, this.toSessionState(chatId, session));
-    return true;
+    // Fall back to stored session (inactive but persisted)
+    const stored = this.store.getSession(chatId);
+    if (stored) {
+      stored.displayName = displayName;
+      this.store.setSession(chatId, stored);
+      return true;
+    }
+
+    return false;
+  }
+
+  /** Get display name from stored session (for when session is inactive). */
+  getStoredDisplayName(chatId: string): string | undefined {
+    return this.store.getSession(chatId)?.displayName;
   }
 
   /** Get subprocess health info for a session (for /status command). */

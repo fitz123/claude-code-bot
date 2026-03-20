@@ -1689,11 +1689,92 @@ describe("SessionManager.renameSession", () => {
     assert.strictEqual(stored!.displayName, "new-name");
   });
 
-  it("returns false when no active session exists", async () => {
+  it("returns false when no active or stored session exists", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const manager = new SessionManager(testConfig, TEST_STORE_PATH);
 
     const result = manager.renameSession("nonexistent-chat", "some-name");
     assert.strictEqual(result, false);
+  });
+
+  it("renames an inactive stored session", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate the store BEFORE creating the manager (it loads on construction)
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("inactive-chat", {
+      sessionId: "inactive-uuid",
+      chatId: "inactive-chat",
+      agentId: "main",
+      lastActivity: Date.now(),
+      displayName: "old-name",
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    const result = manager.renameSession("inactive-chat", "updated-name");
+    assert.strictEqual(result, true);
+
+    // Verify persisted to store
+    const reloaded = new SessionStore(TEST_STORE_PATH);
+    const stored = reloaded.getSession("inactive-chat");
+    assert.ok(stored);
+    assert.strictEqual(stored!.displayName, "updated-name");
+  });
+});
+
+describe("getStoredDisplayName", () => {
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("returns displayName from stored session", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate the store BEFORE creating the manager (it loads on construction)
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("stored-chat", {
+      sessionId: "stored-uuid",
+      chatId: "stored-chat",
+      agentId: "main",
+      lastActivity: Date.now(),
+      displayName: "my-session",
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    assert.strictEqual(manager.getStoredDisplayName("stored-chat"), "my-session");
+  });
+
+  it("returns undefined when no stored session exists", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    assert.strictEqual(manager.getStoredDisplayName("nonexistent"), undefined);
+  });
+
+  it("returns undefined when stored session has no displayName", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate the store BEFORE creating the manager
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("no-name-chat", {
+      sessionId: "no-name-uuid",
+      chatId: "no-name-chat",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    assert.strictEqual(manager.getStoredDisplayName("no-name-chat"), undefined);
   });
 });

@@ -387,16 +387,24 @@ export async function createDiscordBot(
           break;
         }
         case "rename": {
-          const rawArg = interaction.options.getString("name")?.trim() ?? "";
+          const rawMatch = interaction.options.getString("name") ?? "";
+          const rawArg = rawMatch.trim();
 
           // No argument: show current session name
-          if (!rawArg) {
+          if (rawMatch === "") {
             const health = sessionManager.getSessionHealth(key);
-            if (health?.displayName) {
-              await interaction.reply(`Current session name: ${health.displayName}`);
+            const name = health?.displayName ?? sessionManager.getStoredDisplayName(key);
+            if (name) {
+              await interaction.reply(`Current session name: ${name}`);
             } else {
               await interaction.reply("No session name set. Usage: /rename <name>");
             }
+            break;
+          }
+
+          // Whitespace-only argument: reject
+          if (!rawArg) {
+            await interaction.reply({ content: "Name cannot be empty or whitespace-only.", ephemeral: true });
             break;
           }
 
@@ -414,7 +422,7 @@ export async function createDiscordBot(
           if (renamed) {
             await interaction.reply(`Session renamed to "${rawArg}". Name takes effect on next session restart.\nResume from console with: claude --resume "${rawArg}"`);
           } else {
-            await interaction.reply("No active session to rename. Send a message first to start a session.");
+            await interaction.reply("No session to rename. Send a message first to start a session.");
           }
           break;
         }

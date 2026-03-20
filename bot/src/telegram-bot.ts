@@ -573,16 +573,24 @@ export function createTelegramBot(
     }
 
     const key = sessionKey(ctx.chat.id, topicId);
-    const rawArg = ctx.match?.toString().trim() ?? "";
+    const rawMatch = ctx.match?.toString() ?? "";
+    const rawArg = rawMatch.trim();
 
     // No argument: show current session name
-    if (!rawArg) {
+    if (rawMatch === "") {
       const health = sessionManager.getSessionHealth(key);
-      if (health?.displayName) {
-        await ctx.reply(`Current session name: ${health.displayName}`);
+      const name = health?.displayName ?? sessionManager.getStoredDisplayName(key);
+      if (name) {
+        await ctx.reply(`Current session name: ${name}`);
       } else {
         await ctx.reply("No session name set. Usage: /rename <name>");
       }
+      return;
+    }
+
+    // Whitespace-only argument: reject
+    if (!rawArg) {
+      await ctx.reply("Name cannot be empty or whitespace-only.");
       return;
     }
 
@@ -600,7 +608,7 @@ export function createTelegramBot(
     if (renamed) {
       await ctx.reply(`Session renamed to "${rawArg}". Name takes effect on next session restart.\nResume from console with: claude --resume "${rawArg}"`);
     } else {
-      await ctx.reply("No active session to rename. Send a message first to start a session.");
+      await ctx.reply("No session to rename. Send a message first to start a session.");
     }
   });
 
