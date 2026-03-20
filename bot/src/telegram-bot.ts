@@ -574,10 +574,12 @@ export function createTelegramBot(
 
     const key = sessionKey(ctx.chat.id, topicId);
     const rawMatch = ctx.match?.toString() ?? "";
+    // grammY applies trimStart() to ctx.match, so whitespace-only input
+    // becomes "" — indistinguishable from no argument. Handle both together.
     const rawArg = rawMatch.trim();
 
-    // No argument: show current session name
-    if (rawMatch === "") {
+    // No argument (or whitespace-only): show current session name
+    if (!rawArg) {
       const health = sessionManager.getSessionHealth(key);
       const name = health?.displayName ?? sessionManager.getStoredDisplayName(key);
       if (name) {
@@ -585,12 +587,6 @@ export function createTelegramBot(
       } else {
         await ctx.reply("No session name set. Usage: /rename <name>");
       }
-      return;
-    }
-
-    // Whitespace-only argument: reject
-    if (!rawArg) {
-      await ctx.reply("Name cannot be empty or whitespace-only.");
       return;
     }
 
