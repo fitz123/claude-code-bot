@@ -2,6 +2,11 @@
 
 Multi-platform bot (Telegram + Discord) that routes messages to Claude Code CLI subprocesses. Each chat/channel gets its own persistent Claude Code session. Runs on Max subscription (no API keys).
 
+<p align="center">
+  <img src="assets/screenshot-voice-youtube.jpg" width="300" alt="Voice message with YouTube recommendations and sidebar showing multiple topic sessions">
+  <img src="assets/screenshot-security-audit.jpg" width="300" alt="Security audit with 7 parallel review agents launched from voice command">
+</p>
+
 ## Architecture
 
 ```
