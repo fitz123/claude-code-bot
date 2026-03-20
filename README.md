@@ -71,6 +71,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 - macOS (launchd required for bot service management)
 - Node.js 20+ and npm
+- `jq` — required by hook scripts (`brew install jq`)
 - [Claude Code CLI](https://claude.ai/code) — must be authenticated via `claude auth login` before starting the bot
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) (or a Discord bot token if using Discord)
 
