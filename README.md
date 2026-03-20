@@ -550,9 +550,10 @@ This bot spawns the original `claude -p` binary directly. Same CLI you run in yo
 | [openclaw/openclaw](https://github.com/openclaw/openclaw) | Own agent runtime | No (API keys) |
 | [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) | Claude Code in Docker | No (API keys) |
 | [mtzanidakis/praktor](https://github.com/mtzanidakis/praktor) | Agent SDK in Docker | No (API keys) |
+| [six-ddc/ccbot](https://github.com/six-ddc/ccbot) | tmux bridge (CLI in tmux) | Yes |
 | [chenhg5/cc-connect](https://github.com/chenhg5/cc-connect) | Bridge/proxy | Depends on agent |
 
-Three projects run the actual CLI binary on a Max subscription without API keys: this bot, ductor, and the official plugin.
+Four projects run the actual CLI binary on a Max subscription without API keys: this bot, ductor, ccbot, and the official plugin.
 
 ### vs Anthropic Official Plugin
 
@@ -565,6 +566,16 @@ The [official plugin](https://github.com/anthropics/claude-plugins-official) is 
 - No workspace health management or memory consolidation
 
 It's a remote control for your terminal session, not an autonomous bot.
+
+### vs ccbot
+
+[ccbot](https://github.com/six-ddc/ccbot) runs Claude Code inside tmux and bridges it to Telegram via two channels: JSONL transcript polling for content, and terminal scraping for interactive UI.
+
+What ccbot does better: tool use visibility (which tool was called, what it returned), thinking content as expandable blockquotes, and interactive permission handling — approve or deny tool calls from Telegram via inline keyboard. These are real advantages that `claude -p` stream-json cannot provide today.
+
+The trade-off is fragility. Hardcoded regex patterns match Claude Code's terminal UI text — prompt wordings, spinner characters, chrome separators. Any Claude Code TUI update can silently break detection. Input goes through `send_keys()` with empirical timing delays. Two polling loops (JSONL at 2s + terminal scrape at 1s per window) add overhead that scales linearly with sessions.
+
+No cron system, no multi-agent, no workspace management, no Discord. Single-user remote control with excellent visibility into what Claude is doing.
 
 ### vs Ductor
 
