@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -205,6 +205,29 @@ describe("message-content-index persistence", () => {
     assert.strictEqual(rec.preview, "Hello world");
     assert.strictEqual(rec.direction, "in");
     assert.strictEqual(typeof rec.timestamp, "number");
+  });
+
+  it("atomic write: .tmp file does not persist after successful save", () => {
+    recordMessage(-100, 1, "alice", "Hello", "in");
+    saveMessageIndex(indexPath);
+    assert.ok(existsSync(indexPath), "final file should exist");
+    assert.ok(!existsSync(indexPath + ".tmp"), ".tmp file should not persist after save");
+  });
+
+  it("atomic write: final file contains correct data", () => {
+    recordMessage(-100, 1, "alice", "Hello", "in");
+    recordMessage(-200, 2, "bob", "World", "out");
+    saveMessageIndex(indexPath);
+    const data = JSON.parse(readFileSync(indexPath, "utf8"));
+    assert.ok(Array.isArray(data));
+    assert.strictEqual(data.length, 2);
+  });
+
+  it("file permissions are 0o600 after save", () => {
+    recordMessage(-100, 1, "alice", "Hello", "in");
+    saveMessageIndex(indexPath);
+    const mode = statSync(indexPath).mode & 0o777;
+    assert.strictEqual(mode, 0o600);
   });
 });
 
