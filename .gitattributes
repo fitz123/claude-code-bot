@@ -1,0 +1,9 @@
+# Divergent files — keep workspace version on merge
+# These files are customized per-workspace and should not be overwritten by upstream
+CLAUDE.md merge=ours
+USER.md merge=ours
+IDENTITY.md merge=ours
+MEMORY.md merge=ours
+.claude/settings.json merge=ours
+.gitignore merge=ours
+.gitattributes merge=ours
