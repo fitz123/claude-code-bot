@@ -106,6 +106,22 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
    Script-mode crons execute the command via `/bin/bash`, capture stdout, and deliver it the same way as LLM crons. They skip all Claude-specific setup (model, workspace, env vars). Empty output skips delivery.
 
+   **Cron field reference:**
+
+   | Field | Type | Default | Description |
+   |-------|------|---------|-------------|
+   | `name` | string | (required) | Unique identifier for the cron job |
+   | `schedule` | string | (required) | Cron expression (5-field), local timezone |
+   | `type` | `"llm"` or `"script"` | `"llm"` | LLM crons run `claude -p` with `prompt`; script crons run a shell `command` |
+   | `prompt` | string | — | Prompt text sent to Claude (required for `type: llm`) |
+   | `command` | string | — | Shell command to execute (required for `type: script`) |
+   | `agentId` | string | (required) | Must match an agent in `config.yaml` (determines workspace) |
+   | `deliveryChatId` | number | from config default | Telegram chat ID for result delivery |
+   | `deliveryThreadId` | number | from config default | Telegram forum topic ID for delivery |
+   | `timeout` | number | `300000` | Per-cron timeout in milliseconds (5 min default) |
+   | `maxBudget` | number | — | Cost cap per run in USD (LLM crons only) |
+   | `enabled` | boolean | `true` | Set `false` to skip plist generation for this cron |
+
 2. Generate launchd plists:
    ```bash
    cd ~/.minime/bot && npx tsx scripts/generate-plists.ts

@@ -69,6 +69,7 @@ export interface CronJob {
   deliveryThreadId?: number;
   timeout?: number;
   maxBudget?: number;
+  enabled?: boolean;
 }
 
 export interface SessionState {

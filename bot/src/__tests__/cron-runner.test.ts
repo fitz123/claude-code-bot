@@ -485,6 +485,46 @@ describe("cron-runner", () => {
     });
   });
 
+  describe("CronJob type — enabled field", () => {
+    it("accepts enabled: true", () => {
+      const cron: CronJob = {
+        name: "test",
+        schedule: "0 * * * *",
+        type: "llm",
+        prompt: "test",
+        agentId: "main",
+        deliveryChatId: 111111111,
+        enabled: true,
+      };
+      assert.strictEqual(cron.enabled, true);
+    });
+
+    it("accepts enabled: false", () => {
+      const cron: CronJob = {
+        name: "test",
+        schedule: "0 * * * *",
+        type: "llm",
+        prompt: "test",
+        agentId: "main",
+        deliveryChatId: 111111111,
+        enabled: false,
+      };
+      assert.strictEqual(cron.enabled, false);
+    });
+
+    it("defaults enabled to undefined when omitted", () => {
+      const cron: CronJob = {
+        name: "test",
+        schedule: "0 * * * *",
+        type: "llm",
+        prompt: "test",
+        agentId: "main",
+        deliveryChatId: 111111111,
+      };
+      assert.strictEqual(cron.enabled, undefined);
+    });
+  });
+
   describe("runScript", () => {
     it("executes command and returns stdout", () => {
       const cron: CronJob = {
