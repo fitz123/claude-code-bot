@@ -24,7 +24,7 @@ describe("tempFilePath", () => {
 });
 
 describe("downloadFile", () => {
-  const testDest = "/tmp/openclaw-test-download-voice.oga";
+  const testDest = "/tmp/minime-test-download-voice.oga";
 
   afterEach(() => {
     try { rmSync(testDest); } catch { /* ignore */ }
@@ -128,7 +128,7 @@ describe("convertToWav", () => {
 
   it("rejects when given a nonexistent input file", async () => {
     await assert.rejects(
-      () => convertToWav("/tmp/openclaw-nonexistent-audio-99999.oga"),
+      () => convertToWav("/tmp/minime-nonexistent-audio-99999.oga"),
       (err: Error) => {
         assert.ok(err instanceof Error);
         return true;
@@ -145,7 +145,7 @@ describe("transcribeAudio", () => {
 
   it("rejects when given a nonexistent audio file", async () => {
     await assert.rejects(
-      () => transcribeAudio("/tmp/openclaw-nonexistent-audio-99999.oga"),
+      () => transcribeAudio("/tmp/minime-nonexistent-audio-99999.oga"),
       (err: Error) => {
         assert.ok(err instanceof Error);
         return true;
@@ -156,7 +156,7 @@ describe("transcribeAudio", () => {
 
 describe("cleanupTempFile", () => {
   it("removes an existing file", async () => {
-    const path = "/tmp/openclaw-test-cleanup-voice.tmp";
+    const path = "/tmp/minime-test-cleanup-voice.tmp";
     writeFileSync(path, "test data");
     assert.ok(existsSync(path));
 
@@ -166,6 +166,6 @@ describe("cleanupTempFile", () => {
 
   it("does not throw for non-existent file", async () => {
     // Should complete without error
-    await cleanupTempFile("/tmp/openclaw-nonexistent-file-12345.tmp");
+    await cleanupTempFile("/tmp/minime-nonexistent-file-12345.tmp");
   });
 });

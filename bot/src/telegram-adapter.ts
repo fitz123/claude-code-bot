@@ -35,7 +35,7 @@ export function createTelegramAdapter(
     maxMessageLength: TELEGRAM_MAX_MSG_LENGTH,
     editDebounceMs: TELEGRAM_EDIT_DEBOUNCE_MS,
     typingIntervalMs: TELEGRAM_TYPING_INTERVAL_MS,
-    streamingUpdates: binding?.streamingUpdates === true,
+    streamingUpdates: binding?.streamingUpdates !== false,
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {

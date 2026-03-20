@@ -1,4 +1,4 @@
-# OpenClaw Bot
+# Minime
 
 Multi-platform bot (Telegram + Discord) that routes messages to Claude Code CLI subprocesses. Each chat/channel gets its own persistent Claude Code session. Runs on Max subscription (no API keys).
 
@@ -68,8 +68,8 @@ The bot runs as a launchd service: `ai.minime.telegram-bot`.
 # Check status
 launchctl print gui/$(id -u)/ai.minime.telegram-bot 2>&1 | head -5
 
-# Restart (kills all active Claude sessions!)
-launchctl kickstart -k gui/$(id -u)/ai.minime.telegram-bot
+# Restart (graceful — waits for active sessions to finish)
+launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot
 
 # Stop
 launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
@@ -106,9 +106,25 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
    Script-mode crons execute the command via `/bin/bash`, capture stdout, and deliver it the same way as LLM crons. They skip all Claude-specific setup (model, workspace, env vars). Empty output skips delivery.
 
+   **Cron field reference:**
+
+   | Field | Type | Default | Description |
+   |-------|------|---------|-------------|
+   | `name` | string | (required) | Unique identifier for the cron job |
+   | `schedule` | string | (required) | Cron expression (5-field), local timezone |
+   | `type` | `"llm"` or `"script"` | `"llm"` | LLM crons run `claude -p` with `prompt`; script crons run a shell `command` |
+   | `prompt` | string | — | Prompt text sent to Claude (required for `type: llm`) |
+   | `command` | string | — | Shell command to execute (required for `type: script`) |
+   | `agentId` | string | (required) | Must match an agent in `config.yaml` (determines workspace) |
+   | `deliveryChatId` | number | from config default | Telegram chat ID for result delivery |
+   | `deliveryThreadId` | number | from config default | Telegram forum topic ID for delivery |
+   | `timeout` | number | `300000` | Per-cron timeout in milliseconds (5 min default) |
+   | `maxBudget` | number | — | Cost cap per run in USD (LLM crons only) |
+   | `enabled` | boolean | `true` | Set `false` to skip plist generation for this cron |
+
 2. Generate launchd plists:
    ```bash
-   cd ~/.openclaw/bot/bot && npx tsx scripts/generate-plists.ts
+   cd ~/.minime/bot && npx tsx scripts/generate-plists.ts
    ```
 
 3. Load the new plist:
@@ -119,7 +135,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 4. Test it:
    ```bash
    launchctl start ai.minime.cron.my-task
-   tail -f ~/.openclaw/logs/cron-my-task.log
+   tail -f ~/.minime/logs/cron-my-task.log
    ```
 
 To remove a cron: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete the entry from `crons.yaml`, regenerate.
@@ -144,7 +160,7 @@ adminChatId: 123456789  # optional; receive cron delivery failure alerts here
    agents:
      new-agent:
        id: new-agent
-       workspaceCwd: /Users/YOU/.openclaw/workspace-new
+       workspaceCwd: /Users/YOU/.minime/workspace-new
        model: claude-opus-4-6
        fallbackModel: claude-sonnet-4-6
        maxTurns: 250  # max agentic loops per message (omit for unlimited)
@@ -197,16 +213,16 @@ adminChatId: 123456789  # optional; receive cron delivery failure alerts here
 
 3. Validate and restart:
    ```bash
-   cd ~/.openclaw/bot/bot && npx tsx src/config.ts --validate
-   # Then confirm and restart
-   launchctl kickstart -k gui/$(id -u)/ai.minime.telegram-bot
+   cd ~/.minime/bot && npx tsx src/config.ts --validate
+   # Then confirm and restart (graceful — launchd auto-restarts via KeepAlive)
+   launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot
    ```
 
 ## Add a Discord Binding
 
 1. Store the Discord bot token in macOS Keychain:
    ```bash
-   security add-generic-password -s 'discord-bot-token' -a 'openclaw' -w 'YOUR_TOKEN_HERE'
+   security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
    ```
 
 2. Add the `discord` section to `config.yaml`:
@@ -256,7 +272,7 @@ adminChatId: 123456789  # optional; receive cron delivery failure alerts here
 | Photo | Downloaded to temp file, file path appended to caption and sent to Claude for vision analysis |
 | Image document | Same as photo (supports image/jpeg, image/png, image/gif, image/webp, image/bmp) |
 | Non-image document | Downloaded to temp file (max 20 MB). Metadata header (filename, MIME type, size) and file path sent to Claude. Supports PDF, TXT, CSV, JSON, XML, HTML, ZIP, GZ, and others. |
-| Reaction | Emoji reactions on bot messages are forwarded to Claude as context (e.g. `[Reaction: 👍 on message 123]`). Reaction removals are also forwarded. In forum supergroups, reactions are routed to the correct topic session via an in-memory message-thread cache (cache miss degrades gracefully to chat-level routing). All reaction events are logged to `~/.openclaw/logs/reactions.jsonl`. Bot must be admin in groups to receive reaction events. |
+| Reaction | Emoji reactions on bot messages are forwarded to Claude as context (e.g. `[Reaction: 👍 on message 123]`). Reaction removals are also forwarded. In forum supergroups, reactions are routed to the correct topic session via an in-memory message-thread cache (cache miss degrades gracefully to chat-level routing). All reaction events are logged to `~/.minime/logs/reactions.jsonl`. Bot must be admin in groups to receive reaction events. |
 | File output | Claude is told about a per-session outbox directory via system prompt. Files written or copied there are sent to the user after the response completes: images as photos, others as documents. The outbox is cleaned up after delivery. |
 
 The bot subscribes to `message` and `message_reaction` update types only.
@@ -314,12 +330,12 @@ Available metrics:
 
 | Log | Path |
 |-----|------|
-| Bot stdout | `~/.openclaw/logs/telegram-bot-stdout.log` |
-| Bot stderr | `~/.openclaw/logs/telegram-bot-stderr.log` |
-| Session stderr (per-chat/topic) | `~/.openclaw/logs/session-<chatId>[_<topicId>].log` |
-| Cron (per-task) | `~/.openclaw/logs/cron-<name>.log` |
-| Message delivery | `~/.openclaw/logs/cron-delivery.log` |
-| Reaction events (JSONL) | `~/.openclaw/logs/reactions.jsonl` |
+| Bot stdout | `~/.minime/logs/telegram-bot-stdout.log` |
+| Bot stderr | `~/.minime/logs/telegram-bot-stderr.log` |
+| Session stderr (per-chat/topic) | `~/.minime/logs/session-<chatId>[_<topicId>].log` |
+| Cron (per-task) | `~/.minime/logs/cron-<name>.log` |
+| Message delivery | `~/.minime/logs/cron-delivery.log` |
+| Reaction events (JSONL) | `~/.minime/logs/reactions.jsonl` |
 
 ### Voice transcription requirements
 
@@ -339,27 +355,27 @@ Claude Code sets `CLAUDECODE` in its environment. If a subprocess inherits it, s
 The bot reads platform tokens from macOS Keychain via `security find-generic-password -s '<service>' -w` (e.g., `telegram-bot-token` or `discord-bot-token`). If this fails, macOS may be prompting for Keychain access in a non-interactive context. Fix: unlock Keychain before starting, or grant "Always Allow" to `security` for this item.
 
 **Messages sent during downtime are discarded**
-After a restart, messages older than 5 minutes (configurable via `sessionDefaults.maxMessageAgeMs` in `config.yaml`) are silently dropped. This prevents stale message floods from triggering unnecessary session spawns. If you sent a message during downtime, resend it after the bot comes back.
+After a restart, messages older than 10 minutes (configurable via `sessionDefaults.maxMessageAgeMs` in `config.yaml`) are silently dropped. This prevents stale message floods from triggering unnecessary session spawns. If you sent a message during downtime, resend it after the bot comes back.
 
 **Session blocked after repeated crashes**
 If a session crashes 5 times in a row, it is circuit-broken — the bot refuses to spawn new sessions for that chat. Send `/reset` to clear the crash counter and unblock. Crash backoff starts at 5s and doubles on each crash (capped at 60s) before the circuit fully opens.
 
 **Session stuck / not responding**
-Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a session is stuck:
-- Check per-session stderr logs for subprocess crash details: `~/.openclaw/logs/session-<chatId>.log`
+Sessions have a 1-hour idle timeout and max 12 concurrent (LRU eviction). If a session is stuck:
+- Check per-session stderr logs for subprocess crash details: `~/.minime/logs/session-<chatId>.log`
 - Check bot stderr log for bot-level errors
-- The session store persists across restarts: `~/.openclaw/bot/data/sessions.json` (at repo root, not inside `bot/`)
+- The session store persists across restarts: `~/.minime/data/sessions.json`
 - Restarting the bot cleanly closes all sessions (graceful SIGTERM)
 
 **Cron not firing**
 - Verify plist is loaded: `launchctl list | grep ai.minime.cron.my-task`
 - Check schedule: plists use `StartCalendarInterval`, not cron syntax directly. Regenerate if in doubt.
-- Check cron log for errors: `tail ~/.openclaw/logs/cron-my-task.log`
+- Check cron log for errors: `tail ~/.minime/logs/cron-my-task.log`
 
 **maxTurns limit**
 Limits how many agentic loops (tool call chains) Claude can do per single user message. Safety net against runaway agents burning rate limit quota. Set to 250 by default. Remove from config for unlimited. If hit mid-work, Claude stops and the subprocess exits — next message spawns a fresh session via --resume.
 **Max concurrent sessions reached**
-Only 6 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
+Only 12 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
 
 ## Scripts
 

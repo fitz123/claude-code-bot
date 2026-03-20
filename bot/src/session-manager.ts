@@ -53,6 +53,7 @@ export interface SessionHealth {
   pid: number | null;
   alive: boolean;
   agentId: string;
+  sessionId: string;
   idleMs: number;
   /** Milliseconds since current turn started, or null if not processing. */
   processingMs: number | null;
@@ -545,6 +546,7 @@ export class SessionManager {
       pid: session.child.pid ?? null,
       alive,
       agentId: session.agentId,
+      sessionId: session.sessionId,
       idleMs: now - session.lastActivity,
       processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
       lastSuccessAt: session.lastSuccessAt,

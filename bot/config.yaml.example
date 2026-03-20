@@ -1,17 +1,17 @@
-# OpenClaw Telegram Bot Configuration
+# Minime Bot Configuration
 #
 # Copy this file to config.yaml and fill in your values:
 #   cp config.yaml.example config.yaml
 
 # Keychain service name for the Telegram bot token
-# Store it: security add-generic-password -s 'telegram-bot-token' -a 'openclaw' -w 'YOUR_BOT_TOKEN'
+# Store it: security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_BOT_TOKEN'
 telegramTokenService: telegram-bot-token
 logLevel: info
 
 agents:
   main:
     id: main
-    workspaceCwd: /Users/YOU/.openclaw/workspace   # absolute path required (~ not expanded)
+    workspaceCwd: /Users/YOU/.minime/workspace   # absolute path required (~ not expanded)
     model: claude-opus-4-6
     fallbackModel: claude-sonnet-4-6
     maxTurns: 250     # safety limit for agentic loops per message
@@ -20,7 +20,7 @@ agents:
   # Add more agents as needed:
   # coder:
   #   id: coder
-  #   workspaceCwd: /Users/YOU/.openclaw/workspace-coder
+  #   workspaceCwd: /Users/YOU/.minime/workspace-coder
   #   model: claude-opus-4-6
   #   maxTurns: 250
 
@@ -42,9 +42,9 @@ bindings:
   #       label: Dev Topic
 
 sessionDefaults:
-  idleTimeoutMs: 3600000              # 1 hour
-  maxConcurrentSessions: 6
-  maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart
+  idleTimeoutMs: 3600000              # 1 hour (default)
+  maxConcurrentSessions: 12           # default
+  maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart (default)
 
 metricsPort: 9091
 
