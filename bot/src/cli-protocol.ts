@@ -17,8 +17,6 @@ export interface SpawnOptions {
   outboxPath?: string;
   /** Per-session inject directory for mid-turn message delivery via PreToolUse hook. */
   injectDir?: string;
-  /** Display name for this session (passed as --name to CLI). */
-  displayName?: string;
 }
 
 /**
@@ -70,10 +68,6 @@ export function buildSpawnArgs(opts: SpawnOptions): string[] {
     args.push("--resume", opts.sessionId);
   } else if (opts.sessionId) {
     args.push("--session-id", opts.sessionId);
-  }
-
-  if (opts.displayName) {
-    args.push("--name", opts.displayName);
   }
 
   args.push("--add-dir", opts.agent.workspaceCwd);
