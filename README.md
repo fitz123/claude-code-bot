@@ -218,7 +218,7 @@ launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
 ```
 
-**Warning:** Restarting kills all active Claude Code sessions (both Telegram and Discord), drops in-flight messages, and interrupts running sub-agents. Always confirm before restarting.
+**Graceful shutdown:** On SIGTERM, the bot injects a shutdown notification into all active sessions asking agents to wrap up, then waits up to 60s for active turns to complete. Sessions that finish within the timeout exit cleanly; sessions that exceed it are force-killed. Idle sessions close immediately. Use `launchctl kill SIGTERM` (not `kickstart -k` which sends SIGKILL and bypasses graceful shutdown).
 
 ## Add a Cron
 
