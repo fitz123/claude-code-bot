@@ -47,6 +47,8 @@ export interface ActiveSession {
   outboxPath: string;
   /** Per-session inject directory for mid-turn message delivery. */
   injectDir: string;
+  /** User-assigned display name for this session (set via /rename). */
+  displayName?: string;
 }
 
 export interface SessionHealth {
@@ -60,6 +62,8 @@ export interface SessionHealth {
   /** Timestamp of last successful response, or null if none yet. */
   lastSuccessAt: number | null;
   restartCount: number;
+  /** User-assigned display name, or undefined if not set. */
+  displayName?: string;
 }
 
 /**
@@ -162,7 +166,7 @@ export class SessionManager {
     await this.evictIfNeeded();
 
     // Check if we have a stored session to resume (discards stale sessions)
-    const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
+    const { resume, sessionId, displayName } = this.resolveStoredSession(chatId, agentId);
 
     // Crash backoff: prevent rapid crash→spawn→crash loops
     const prevCrashCount = this.restartCounts.get(chatId) ?? 0;
@@ -195,6 +199,7 @@ export class SessionManager {
       includePartialMessages: true,
       outboxPath,
       injectDir: injectPath,
+      displayName,
     });
 
     // Verify the subprocess actually started
@@ -239,6 +244,7 @@ export class SessionManager {
       restartCount,
       outboxPath,
       injectDir: injectPath,
+      displayName,
     };
 
     this.active.set(chatId, session);
@@ -250,6 +256,7 @@ export class SessionManager {
       chatId,
       agentId,
       lastActivity: session.lastActivity,
+      displayName,
     });
 
     // Set up crash recovery
@@ -321,6 +328,7 @@ export class SessionManager {
           chatId,
           agentId,
           lastActivity: session.lastActivity,
+          displayName: session.displayName,
         });
 
         // Read response lines until we get a result.
@@ -427,6 +435,7 @@ export class SessionManager {
       chatId,
       agentId: session.agentId,
       lastActivity: session.lastActivity,
+      displayName: session.displayName,
     });
 
     // Remove from active map first to prevent re-entry
@@ -534,6 +543,22 @@ export class SessionManager {
     return this.active.get(chatId);
   }
 
+  /** Rename a session: update display name in memory and persist to store. */
+  renameSession(chatId: string, displayName: string): boolean {
+    const session = this.active.get(chatId);
+    if (!session) return false;
+
+    session.displayName = displayName;
+    this.store.setSession(chatId, {
+      sessionId: session.sessionId,
+      chatId,
+      agentId: session.agentId,
+      lastActivity: session.lastActivity,
+      displayName,
+    });
+    return true;
+  }
+
   /** Get subprocess health info for a session (for /status command). */
   getSessionHealth(chatId: string): SessionHealth | undefined {
     const session = this.active.get(chatId);
@@ -551,6 +576,7 @@ export class SessionManager {
       processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
       lastSuccessAt: session.lastSuccessAt,
       restartCount: this.restartCounts.get(chatId) ?? 0,
+      displayName: session.displayName,
     };
   }
 
@@ -558,7 +584,7 @@ export class SessionManager {
    * Determine if a stored session should be resumed or discarded.
    * Discards and logs if the agentId changed or the stored agent was deleted.
    */
-  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string } {
+  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string; displayName?: string } {
     const stored = this.store.getSession(chatId);
     if (!stored || stored.sessionId === "") {
       return { resume: false, sessionId: randomUUID() };
@@ -576,7 +602,7 @@ export class SessionManager {
       return { resume: false, sessionId: randomUUID() };
     }
 
-    return { resume: true, sessionId: stored.sessionId };
+    return { resume: true, sessionId: stored.sessionId, displayName: stored.displayName };
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */

@@ -38,12 +38,12 @@ No way to name sessions. Users must use UUIDs to resume from console. `/rename <
 
 What we want: `/rename <name>` command that names the current session. The name is passed to the Claude CLI as `--name` so `claude --resume <name>` works from interactive console. Session ID stays UUID, internal routing unchanged.
 
-- [ ] `/rename <name>` command exists and responds with confirmation
-- [ ] `claude --resume <name>` works from interactive console after rename
-- [ ] Name persists across bot restarts
-- [ ] `/rename` without argument shows current session name
-- [ ] Invalid names rejected (empty, whitespace-only)
-- [ ] `/rename` registered in Telegram command menu
-- [ ] `/status` shows session name when set
-- [ ] Add tests
-- [ ] Verify existing tests pass
+- [x] `/rename <name>` command exists and responds with confirmation
+- [x] `claude --resume <name>` works from interactive console after rename
+- [x] Name persists across bot restarts
+- [x] `/rename` without argument shows current session name
+- [x] Invalid names rejected (empty, whitespace-only)
+- [x] `/rename` registered in Telegram command menu
+- [x] `/status` shows session name when set
+- [x] Add tests
+- [x] Verify existing tests pass

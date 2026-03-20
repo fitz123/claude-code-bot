@@ -28,6 +28,7 @@ export const BOT_COMMANDS = [
   { command: "start", description: "Start the bot" },
   { command: "reset", description: "Reset current session" },
   { command: "status", description: "Show bot status" },
+  { command: "rename", description: "Name current session" },
 ] as const;
 
 /**
@@ -534,6 +535,9 @@ export function createTelegramBot(
       const idleMins = Math.floor(health.idleMs / 60000);
 
       lines.push(`This session: agent "${health.agentId}", PID ${pidStr} (${status})`);
+      if (health.displayName) {
+        lines.push(`  Name: ${health.displayName}`);
+      }
       lines.push(`  Session ID: ${health.sessionId}`);
 
       if (health.processingMs !== null) {
@@ -555,6 +559,45 @@ export function createTelegramBot(
     }
 
     await ctx.reply(lines.join("\n"));
+  });
+
+  // /rename command — set a display name for the current session
+  bot.command("rename", async (ctx) => {
+    const topicId = ctx.message?.message_thread_id;
+    if (ctx.message) setThread(ctx.chat.id, ctx.message.message_id, topicId);
+    const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
+    if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /rename for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+
+    const key = sessionKey(ctx.chat.id, topicId);
+    const rawArg = ctx.match?.toString().trim() ?? "";
+
+    // No argument: show current session name
+    if (!rawArg) {
+      const health = sessionManager.getSessionHealth(key);
+      if (health?.displayName) {
+        await ctx.reply(`Current session name: ${health.displayName}`);
+      } else {
+        await ctx.reply("No session name set. Usage: /rename <name>");
+      }
+      return;
+    }
+
+    // Validate: reject whitespace-only names
+    if (!rawArg.replace(/\s/g, "")) {
+      await ctx.reply("Invalid name. Name must contain non-whitespace characters.");
+      return;
+    }
+
+    const renamed = sessionManager.renameSession(key, rawArg);
+    if (renamed) {
+      await ctx.reply(`Session renamed to "${rawArg}". Resume from console with: claude --resume "${rawArg}"`);
+    } else {
+      await ctx.reply("No active session to rename. Send a message first to start a session.");
+    }
   });
 
   // Handle text messages
