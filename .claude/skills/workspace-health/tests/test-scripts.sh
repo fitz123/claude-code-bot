@@ -344,7 +344,7 @@ fi
 
 # Part E references only public-repo files (no private workspace paths)
 TESTS=$((TESTS + 1))
-if grep -q '\.minime\|workspace-coder\|/ninja/' "$SKILL_MD" 2>/dev/null; then
+if grep -q '\.minime\|workspace-coder\|/username/' "$SKILL_MD" 2>/dev/null; then
   echo "  FAIL: SKILL.md Part E references private workspace paths"
   FAIL=$((FAIL + 1))
 else
