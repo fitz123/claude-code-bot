@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0
+## 2026.03.0
 
 Initial public release of Minime — a multi-platform bot that routes messages to Claude Code CLI subprocesses, designed for Claude Max subscription users.
 
