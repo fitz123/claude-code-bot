@@ -391,3 +391,60 @@ All in `bot/scripts/`.
 | `deliver.sh` | Send a Telegram message. Reads token from Keychain, handles >4096 char splitting at paragraph boundaries, retries without Markdown on parse failure. Usage: `deliver.sh <chat_id> "text"` or pipe. |
 | `generate-plists.ts` | Reads `crons.yaml`, generates launchd plist XML files in `~/Library/LaunchAgents/`. Supports `--dry-run`. Converts cron schedule syntax to `StartCalendarInterval`. |
 
+## Similar Projects
+
+### Why this exists
+
+Most Telegram bots for Claude use the [Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview), which requires API keys and falls under Anthropic's Commercial Terms. Anthropic [explicitly prohibits](https://code.claude.com/docs/en/legal-and-compliance) using Max/Pro subscription OAuth tokens through the Agent SDK:
+
+> OAuth authentication (used with Free, Pro, and Max plans) is intended exclusively for Claude Code and Claude.ai. Using OAuth tokens in any other product, tool, or service -- including the Agent SDK -- is not permitted.
+
+This bot spawns the original `claude -p` binary directly. Same CLI you run in your terminal. Max subscription, no API keys, no per-token billing.
+
+### ToS compliance on Max subscription
+
+| Project | Engine | Max-compliant |
+|---------|--------|---------------|
+| **claude-code-bot** (this) | CLI binary (`claude -p`) | Yes |
+| [PleasePrompto/ductor](https://github.com/PleasePrompto/ductor) | CLI binary (subprocess) | Yes |
+| [Anthropic Official Plugin](https://github.com/anthropics/claude-plugins-official) | MCP extension of active CC session | Yes |
+| [RichardAtCT/claude-code-telegram](https://github.com/RichardAtCT/claude-code-telegram) | Agent SDK (`claude_agent_sdk`) | No |
+| [earlyaidopters/claudeclaw](https://github.com/earlyaidopters/claudeclaw) | Agent SDK (`@anthropic-ai/claude-agent-sdk`) | No |
+| [linuz90/claude-telegram-bot](https://github.com/linuz90/claude-telegram-bot) | Agent SDK (`@anthropic-ai/claude-agent-sdk`) | No |
+| [NachoSEO/claudegram](https://github.com/NachoSEO/claudegram) | Agent SDK (`@anthropic-ai/claude-agent-sdk`) | No |
+| [openclaw/openclaw](https://github.com/openclaw/openclaw) | Own agent runtime | No (API keys) |
+| [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) | Claude Code in Docker | No (API keys) |
+| [mtzanidakis/praktor](https://github.com/mtzanidakis/praktor) | Agent SDK in Docker | No (API keys) |
+| [chenhg5/cc-connect](https://github.com/chenhg5/cc-connect) | Bridge/proxy | Depends on agent |
+
+Three projects run the actual CLI binary on a Max subscription without API keys: this bot, ductor, and the official plugin.
+
+### vs Anthropic Official Plugin
+
+The [official plugin](https://github.com/anthropics/claude-plugins-official) is an MCP server that adds Telegram tools to an already-running Claude Code session.
+
+- Not a standalone bot. Requires an active Claude Code session on your computer. Close the lid and it stops
+- No cron or scheduled tasks. No autonomous work while you're away
+- Single session. No parallel workspaces, no multi-agent
+- Supports group chats but not forum topic routing
+- No workspace health management or memory consolidation
+
+It's a remote control for your terminal session, not an autonomous bot.
+
+### vs Ductor
+
+[Ductor](https://github.com/PleasePrompto/ductor) is the closest alternative. Also spawns the CLI binary, also ToS-compliant, also supports forum topics.
+
+| | **claude-code-bot** | **ductor** |
+|---|---|---|
+| Language | TypeScript (grammy) | Python (aiogram) |
+| Forum topic sessions | Yes | Yes |
+| Multi-agent with isolated workspaces | Yes | Yes |
+| Cron system | launchd plists (per-cron process isolation) | In-process cron |
+| Workspace health | Filesystem guardian hooks + structural audits | Agent-level health (crash recovery, backoff) |
+| Memory consolidation | Nightly summarization cron | File sync (no summarization) |
+| Platforms | Telegram + Discord | Telegram + Matrix |
+| Multi-CLI support | Claude Code | Claude Code, Codex, Gemini |
+
+Ductor covers more CLIs (Claude, Codex, Gemini). We go deeper on one: filesystem-level workspace protection that prevents degradation rather than recovering from it, nightly memory consolidation that summarizes rather than copies, and per-cron process isolation via launchd.
+
