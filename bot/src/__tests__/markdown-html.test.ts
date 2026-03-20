@@ -290,6 +290,162 @@ describe("markdownToHtml", () => {
     });
   });
 
+  describe("blockquotes", () => {
+    it("converts single > line to <blockquote>", () => {
+      assert.strictEqual(
+        markdownToHtml("> hello"),
+        "<blockquote>hello</blockquote>",
+      );
+    });
+
+    it("merges consecutive > lines into one <blockquote>", () => {
+      assert.strictEqual(
+        markdownToHtml("> line one\n> line two\n> line three"),
+        "<blockquote>line one\nline two\nline three</blockquote>",
+      );
+    });
+
+    it("uses <blockquote expandable> for 5+ lines", () => {
+      const input = "> a\n> b\n> c\n> d\n> e";
+      assert.strictEqual(
+        markdownToHtml(input),
+        "<blockquote expandable>a\nb\nc\nd\ne</blockquote>",
+      );
+    });
+
+    it("does not use expandable for exactly 4 lines", () => {
+      const input = "> a\n> b\n> c\n> d";
+      const result = markdownToHtml(input);
+      assert.ok(result.startsWith("<blockquote>"), "should use plain blockquote for 4 lines");
+      assert.ok(!result.includes("expandable"), "should not be expandable");
+    });
+
+    it("converts inline markdown inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> **bold** and *italic*"),
+        "<blockquote><b>bold</b> and <i>italic</i></blockquote>",
+      );
+    });
+
+    it("handles empty > line inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> first\n>\n> third"),
+        "<blockquote>first\n\nthird</blockquote>",
+      );
+    });
+
+    it("handles text before and after blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("before\n> quoted\nafter"),
+        "before\n<blockquote>quoted</blockquote>\nafter",
+      );
+    });
+
+    it("does not convert > inside fenced code block", () => {
+      assert.strictEqual(
+        markdownToHtml("```\n> not a blockquote\n```"),
+        "<pre>&gt; not a blockquote</pre>",
+      );
+    });
+
+    it("handles inline code inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> use `foo` here"),
+        "<blockquote>use <code>foo</code> here</blockquote>",
+      );
+    });
+
+    it("strips > with no trailing space (>hello)", () => {
+      assert.strictEqual(
+        markdownToHtml(">hello"),
+        "<blockquote>hello</blockquote>",
+      );
+    });
+
+    it("escapes HTML special characters inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> a < b & c"),
+        "<blockquote>a &lt; b &amp; c</blockquote>",
+      );
+    });
+
+    it("nested >> produces escaped > in content (single nesting level only)", () => {
+      assert.strictEqual(
+        markdownToHtml(">> nested"),
+        "<blockquote>&gt; nested</blockquote>",
+      );
+    });
+
+    it("converts standalone empty > to empty blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml(">"),
+        "<blockquote></blockquote>",
+      );
+    });
+
+    it("normalizes list bullets inside blockquote content", () => {
+      assert.strictEqual(
+        markdownToHtml("> - item"),
+        "<blockquote>• item</blockquote>",
+      );
+    });
+
+    it("converts indented blockquote lines (up to 3 spaces)", () => {
+      assert.strictEqual(
+        markdownToHtml("  > indented quote"),
+        "<blockquote>indented quote</blockquote>",
+      );
+    });
+  });
+
+  describe("list bullet normalization", () => {
+    it("converts - item at line start to • item", () => {
+      assert.strictEqual(markdownToHtml("- foo"), "• foo");
+    });
+
+    it("converts * item at line start to • item", () => {
+      assert.strictEqual(markdownToHtml("* foo"), "• foo");
+    });
+
+    it("preserves indentation on nested list items", () => {
+      assert.strictEqual(markdownToHtml("  - nested"), "  • nested");
+    });
+
+    it("does not convert numbered lists", () => {
+      assert.strictEqual(markdownToHtml("1. item"), "1. item");
+    });
+
+    it("does not convert - inside a fenced code block", () => {
+      assert.strictEqual(markdownToHtml("```\n- not a bullet\n```"), "<pre>- not a bullet</pre>");
+    });
+
+    it("does not convert * italic syntax (mid-line asterisk with no space after)", () => {
+      assert.strictEqual(markdownToHtml("*italic*"), "<i>italic</i>");
+    });
+
+    it("handles inline markdown in list items (bold)", () => {
+      assert.strictEqual(markdownToHtml("- **bold item**"), "• <b>bold item</b>");
+    });
+
+    it("handles inline markdown in list items (link)", () => {
+      assert.strictEqual(
+        markdownToHtml("- [click](https://example.com)"),
+        '• <a href="https://example.com">click</a>',
+      );
+    });
+
+    it("converts multiple list items", () => {
+      assert.strictEqual(
+        markdownToHtml("- one\n- two\n- three"),
+        "• one\n• two\n• three",
+      );
+    });
+
+    it("* at mid-line (not line start) is not converted", () => {
+      assert.strictEqual(markdownToHtml("text * not a bullet"), "text * not a bullet");
+    });
+  });
+
   describe("plain text", () => {
     it("passes through text without markdown unchanged", () => {
       assert.strictEqual(markdownToHtml("hello world"), "hello world");
