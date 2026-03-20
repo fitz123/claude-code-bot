@@ -354,6 +354,41 @@ describe("markdownToHtml", () => {
         "<blockquote>use <code>foo</code> here</blockquote>",
       );
     });
+
+    it("strips > with no trailing space (>hello)", () => {
+      assert.strictEqual(
+        markdownToHtml(">hello"),
+        "<blockquote>hello</blockquote>",
+      );
+    });
+
+    it("escapes HTML special characters inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> a < b & c"),
+        "<blockquote>a &lt; b &amp; c</blockquote>",
+      );
+    });
+
+    it("nested >> produces escaped > in content (single nesting level only)", () => {
+      assert.strictEqual(
+        markdownToHtml(">> nested"),
+        "<blockquote>&gt; nested</blockquote>",
+      );
+    });
+
+    it("converts standalone empty > to empty blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml(">"),
+        "<blockquote></blockquote>",
+      );
+    });
+
+    it("normalizes list bullets inside blockquote content", () => {
+      assert.strictEqual(
+        markdownToHtml("> - item"),
+        "<blockquote>• item</blockquote>",
+      );
+    });
   });
 
   describe("list bullet normalization", () => {

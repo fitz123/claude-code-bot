@@ -1,6 +1,6 @@
 /**
  * Converts markdown text to Telegram-compatible HTML.
- * Handles: bold, italic, strikethrough, inline code, fenced code blocks, links.
+ * Handles: bold, italic, strikethrough, inline code, fenced code blocks, links, blockquotes, list bullets.
  * Falls back gracefully — only converts patterns it recognizes.
  */
 
@@ -171,11 +171,13 @@ function convertSegment(text: string): string {
   const inTable: boolean[] = new Array(lines.length).fill(false);
 
   // Find separator lines and mark table boundaries
+  let hasTable = false;
   for (let i = 0; i < lines.length; i++) {
     if (!isTableSeparator(lines[i])) continue;
     // Need a header row immediately above
     if (i === 0 || !lines[i - 1].includes("|")) continue;
 
+    hasTable = true;
     // Mark header row (directly above separator)
     inTable[i - 1] = true;
     // Mark separator
@@ -189,10 +191,9 @@ function convertSegment(text: string): string {
   }
 
   const isBlockquoteLine = (idx: number) => !inTable[idx] && /^>/.test(lines[idx]);
-  const hasBlockquote = lines.some((_, idx) => isBlockquoteLine(idx));
 
   // Fast path: no tables or blockquotes found
-  if (!inTable.includes(true) && !hasBlockquote) {
+  if (!hasTable && !lines.some((_, idx) => isBlockquoteLine(idx))) {
     return convertInline(text);
   }
 
@@ -217,8 +218,10 @@ function convertSegment(text: string): string {
         bqLines.push(lines[i].replace(/^>\s?/, ""));
         i++;
       }
-      const tag = bqLines.length >= 5 ? "blockquote expandable" : "blockquote";
-      result += `<${tag}>${convertInline(bqLines.join("\n"))}</blockquote>`;
+      // "expandable" is a Telegram-specific bare attribute, not a separate tag name.
+      // Keep the close tag hardcoded to </blockquote> — never use </${tag}>.
+      const expandable = bqLines.length >= 5;
+      result += `<blockquote${expandable ? " expandable" : ""}>${convertInline(bqLines.join("\n"))}</blockquote>`;
     } else {
       const textLines: string[] = [];
       while (i < lines.length && !inTable[i] && !isBlockquoteLine(i)) {
