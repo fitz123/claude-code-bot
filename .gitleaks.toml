@@ -5,10 +5,6 @@
 [extend]
 useDefault = true
 
-# Global path exclusions — build artifacts and tool output
-[allowlist]
-paths = ['''\.ralphex/''']
-
 # --- Email patterns ---
 
 [[rules]]
@@ -16,6 +12,9 @@ id = "personal-email-patterns"
 description = "Personal email addresses (common providers)"
 regex = '''[a-zA-Z0-9._%+-]+@(gmail|outlook|hotmail|yahoo|protonmail|icloud|mail\.ru|yandex\.ru)\.(com|ru|net|org)'''
 tags = ["pii", "email"]
+[rules.allowlist]
+regexTarget = "line"
+regexes = ['''(noreply@anthropic\.com|you@example\.com|user@example\.com)''']
 
 [[rules]]
 id = "corporate-email-patterns"
@@ -30,20 +29,18 @@ id = "russian-phone-numbers"
 description = "Russian phone numbers"
 regex = '''(\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}'''
 tags = ["pii", "phone"]
-[rules.allowlist]
-paths = ['''(__tests__|test|spec|mock|fixture|example)''']
 
 # --- Telegram ---
 
 [[rules]]
 id = "telegram-user-ids"
-description = "Hardcoded Telegram numeric user/chat IDs (8+ digits, not in test fixtures)"
+description = "Hardcoded Telegram numeric user/chat IDs (8+ digits)"
 regex = '''\b[1-9]\d{8,12}\b'''
 tags = ["pii", "telegram"]
 [rules.allowlist]
-paths = ['''(__tests__|test|spec|mock|fixture|example)''']
+paths = ['''(__tests__|\.test\.|\.spec\.)''']
 regexTarget = "line"
-regexes = ['''(placeholder|example|test|mock|dummy|fake|sample|0{3,}|123456789|987654321|111111111|555555555)''']
+regexes = ['''(placeholder|example|test|mock|dummy|fake|sample|0{3,}|123456789|987654321|111111111|555555555|Date\.now|setTimeout|setInterval|timestamp|expires|Math\.)''']
 
 [[rules]]
 id = "telegram-handles"
@@ -51,9 +48,32 @@ description = "Telegram handles (@username format)"
 regex = '''@[a-zA-Z][a-zA-Z0-9_]{4,31}'''
 tags = ["pii", "telegram"]
 [rules.allowlist]
-paths = ['''(__tests__|test|spec|mock|fixture)''']
 regexTarget = "line"
-regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER)''']
+regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER|@redacted|@jest|@ts-|@eslint|@babel|@rollup|@vite|@swc|@vercel|@remix|@next)''']
+
+# --- Discord ---
+
+[[rules]]
+id = "discord-ids"
+description = "Discord guild/channel/user IDs (17-20 digit snowflakes)"
+regex = '''\b[1-9]\d{16,19}\b'''
+tags = ["pii", "discord"]
+[rules.allowlist]
+paths = ['''(__tests__|\.test\.|\.spec\.)''']
+regexTarget = "line"
+regexes = ['''(placeholder|example|test|mock|dummy|fake|sample)''']
+
+# --- Hardcoded usernames in config ---
+
+[[rules]]
+id = "hardcoded-usernames"
+description = "Hardcoded usernames in config/env assignments"
+regex = '''(ADMIN_USERNAME|REMOTE_USER|SSH_USER|DEPLOY_USER)\s*[=:]\s*['"]?[a-zA-Z][a-zA-Z0-9_-]+['"]?'''
+tags = ["pii", "username"]
+[rules.allowlist]
+paths = ['''\.env\.example''', '''\.env\.template''']
+regexTarget = "line"
+regexes = ['''(your_username|example|placeholder|admin|root|deploy|ci|github)''']
 
 # --- Physical addresses ---
 
