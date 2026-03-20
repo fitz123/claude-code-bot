@@ -1,0 +1,5 @@
+# Known findings that have been reviewed and accepted.
+# Format: fingerprint (from gitleaks --verbose output)
+
+# Plan file contains local path used in validation commands (not user-facing)
+plans/045-blockquote-and-list-support.md:home-directory-paths:10
