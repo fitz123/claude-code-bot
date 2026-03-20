@@ -12,7 +12,7 @@
  * to the correct topic.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { log } from "./logger.js";
@@ -62,12 +62,16 @@ export function threadCacheSize(): number {
  * Format: array of [key, value] pairs (Map serialization).
  */
 export function saveThreadCache(path: string = DEFAULT_CACHE_PATH): void {
+  const tmpPath = path + ".tmp";
   try {
-    mkdirSync(dirname(path), { recursive: true });
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
     const entries = Array.from(cache.entries());
-    writeFileSync(path, JSON.stringify(entries), "utf8");
+    writeFileSync(tmpPath, JSON.stringify(entries), { encoding: "utf8", mode: 0o600 });
+    renameSync(tmpPath, path);
     log.info("thread-cache", `Saved ${entries.length} entries to ${path}`);
   } catch (err) {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
     log.error("thread-cache", `Failed to save cache to ${path}:`, err);
   }
 }
@@ -88,7 +92,7 @@ export function restoreThreadCache(path: string = DEFAULT_CACHE_PATH): void {
     }
     let loaded = 0;
     for (const entry of parsed) {
-      if (loaded >= MAX_CACHE_SIZE - 1) break;
+      if (loaded >= MAX_CACHE_SIZE) break;
       if (!Array.isArray(entry) || entry.length !== 2) continue;
       const [key, value] = entry;
       if (typeof key !== "string" || typeof value !== "number") continue;
