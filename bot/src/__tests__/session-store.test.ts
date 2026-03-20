@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SessionStore } from "../session-store.js";
 
-const TEST_DIR = "/tmp/openclaw-test-store";
+const TEST_DIR = "/tmp/minime-test-store";
 const TEST_PATH = `${TEST_DIR}/sessions.json`;
 
 function cleanup() {

@@ -1,4 +1,4 @@
-// Core types for the OpenClaw Telegram bot
+// Core types for the Minime bot
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 

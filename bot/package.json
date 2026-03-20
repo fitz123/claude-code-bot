@@ -1,6 +1,6 @@
 {
   "name": "minime",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Multi-agent Telegram and Discord bot powered by Claude Code, designed for Claude Max subscription users",
   "main": "index.js",
   "repository": {

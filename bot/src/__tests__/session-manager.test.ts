@@ -8,7 +8,7 @@ import type { BotConfig } from "../types.js";
 import { waitForSpawn, outboxDir, type ActiveSession } from "../session-manager.js";
 import PQueue from "p-queue";
 
-const TEST_DIR = "/tmp/openclaw-test-session-manager";
+const TEST_DIR = "/tmp/minime-test-session-manager";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
 
 function cleanup() {
