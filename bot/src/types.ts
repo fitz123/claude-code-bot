@@ -231,7 +231,6 @@ export interface CliCapabilities {
   hasAddDir: boolean;
   hasAppendSystemPrompt: boolean;
   hasDangerouslySkipPermissions: boolean;
-  hasMaxBudgetUsd: boolean;
   hasMaxTurns: boolean;
   hasTools: boolean;
 }
