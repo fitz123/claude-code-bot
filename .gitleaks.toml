@@ -1,0 +1,97 @@
+# Gitleaks configuration — PII & secrets scanning
+# Extends default rules (API keys, tokens, etc.) with custom PII patterns.
+# Portable: copy this file + workflow to any repo.
+
+[extend]
+useDefault = true
+
+# Global path exclusions — build artifacts and tool output
+[allowlist]
+paths = ['''\.ralphex/''']
+
+# --- Email patterns ---
+
+[[rules]]
+id = "personal-email-patterns"
+description = "Personal email addresses (common providers)"
+regex = '''[a-zA-Z0-9._%+-]+@(gmail|outlook|hotmail|yahoo|protonmail|icloud|mail\.ru|yandex\.ru)\.(com|ru|net|org)'''
+tags = ["pii", "email"]
+
+[[rules]]
+id = "corporate-email-patterns"
+description = "Corporate email addresses"
+regex = '''[a-zA-Z0-9._%+-]+@(ordercapital\.com|gcore\.(lu|com))'''
+tags = ["pii", "email", "corporate"]
+
+# --- Phone numbers ---
+
+[[rules]]
+id = "russian-phone-numbers"
+description = "Russian phone numbers"
+regex = '''(\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}'''
+tags = ["pii", "phone"]
+[rules.allowlist]
+paths = ['''(__tests__|test|spec|mock|fixture|example)''']
+
+# --- Telegram ---
+
+[[rules]]
+id = "telegram-user-ids"
+description = "Hardcoded Telegram numeric user/chat IDs (8+ digits, not in test fixtures)"
+regex = '''\b[1-9]\d{8,12}\b'''
+tags = ["pii", "telegram"]
+[rules.allowlist]
+paths = ['''(__tests__|test|spec|mock|fixture|example)''']
+regexTarget = "line"
+regexes = ['''(placeholder|example|test|mock|dummy|fake|sample|0{3,}|123456789|987654321|111111111|555555555)''']
+
+[[rules]]
+id = "telegram-handles"
+description = "Telegram handles (@username format)"
+regex = '''@[a-zA-Z][a-zA-Z0-9_]{4,31}'''
+tags = ["pii", "telegram"]
+[rules.allowlist]
+paths = ['''(__tests__|test|spec|mock|fixture)''']
+regexTarget = "line"
+regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER)''']
+
+# --- Physical addresses ---
+
+[[rules]]
+id = "physical-addresses-ru"
+description = "Russian physical addresses (street patterns)"
+regex = '''(ул\.|улица|пр\.|проспект|пер\.|переулок|наб\.|набережная|ш\.|шоссе|б-р\.|бульвар)\s*[А-Яа-яЁё\s\.\-]+,?\s*д\.?\s*\d+'''
+tags = ["pii", "address"]
+
+# --- Infrastructure ---
+
+[[rules]]
+id = "private-hostnames"
+description = "Internal infrastructure hostnames"
+regex = '''[a-zA-Z0-9-]+\.(ssslab\.co|120912\.xyz)'''
+tags = ["pii", "infrastructure"]
+
+[[rules]]
+id = "home-directory-paths"
+description = "Hardcoded home directory paths revealing username"
+regex = '''/Users/[a-zA-Z][a-zA-Z0-9_-]+/'''
+tags = ["pii", "path"]
+[rules.allowlist]
+regexTarget = "line"
+regexes = ['''(/Users/runner/|/Users/user/|/Users/username/|/Users/example/|/Users/yourname/|/Users/YOU/)''']
+
+# --- Secrets ---
+
+[[rules]]
+id = "ssh-private-keys"
+description = "SSH private key content"
+regex = '''-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----'''
+tags = ["secret", "ssh"]
+
+[[rules]]
+id = "env-secrets-inline"
+description = "Environment variable assignments with potential secrets"
+regex = '''(TELEGRAM_BOT_TOKEN|BOT_TOKEN|API_KEY|API_SECRET|SECRET_KEY|DATABASE_URL|REDIS_URL)\s*=\s*['"]?[a-zA-Z0-9_\-\.\/\+]{10,}['"]?'''
+tags = ["secret", "env"]
+[rules.allowlist]
+paths = ['''\.env\.example''', '''\.env\.template''']
