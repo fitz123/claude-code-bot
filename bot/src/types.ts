@@ -68,7 +68,6 @@ export interface CronJob {
   deliveryChatId: number;
   deliveryThreadId?: number;
   timeout?: number;
-  maxBudget?: number;
   enabled?: boolean;
 }
 
@@ -232,7 +231,6 @@ export interface CliCapabilities {
   hasAddDir: boolean;
   hasAppendSystemPrompt: boolean;
   hasDangerouslySkipPermissions: boolean;
-  hasMaxBudgetUsd: boolean;
   hasMaxTurns: boolean;
   hasTools: boolean;
 }

@@ -29,7 +29,6 @@ interface CronDef {
   agentId: string;
   deliveryChatId?: number;
   timeout?: number;
-  maxBudget?: number;
   enabled?: boolean;
 }
 

@@ -56,7 +56,6 @@ export function detectCapabilities(): CliCapabilities {
     hasAddDir: flags.has("--add-dir"),
     hasAppendSystemPrompt: flags.has("--append-system-prompt"),
     hasDangerouslySkipPermissions: flags.has("--dangerously-skip-permissions"),
-    hasMaxBudgetUsd: flags.has("--max-budget-usd"),
     hasMaxTurns: flags.has("--max-turns"),
     hasTools: flags.has("--tools"),
   };
