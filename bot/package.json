@@ -1,5 +1,5 @@
 {
-  "name": "claude-code-bot",
+  "name": "minime",
   "version": "1.0.0",
   "description": "Multi-agent Telegram and Discord bot powered by Claude Code, designed for Claude Max subscription users",
   "main": "index.js",

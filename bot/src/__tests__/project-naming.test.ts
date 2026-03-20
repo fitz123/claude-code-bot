@@ -1,0 +1,64 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "../../..");
+
+function readRepoFile(relativePath: string): string {
+  return readFileSync(resolve(repoRoot, relativePath), "utf-8");
+}
+
+describe("project naming", () => {
+  const readme = readRepoFile("README.md");
+  const configExample = readRepoFile("bot/config.yaml.example");
+  const packageJson = JSON.parse(readRepoFile("bot/package.json"));
+
+  it("README has no ~/.openclaw/ path references", () => {
+    assert.ok(
+      !readme.includes("~/.openclaw/"),
+      "README.md still contains ~/.openclaw/ paths"
+    );
+  });
+
+  it("README has no bot/bot double-path commands", () => {
+    assert.ok(
+      !readme.includes("bot/bot"),
+      "README.md still contains bot/bot double-path"
+    );
+  });
+
+  it("README has no OpenClaw references", () => {
+    assert.ok(
+      !readme.toLowerCase().includes("openclaw"),
+      "README.md still contains OpenClaw references"
+    );
+  });
+
+  it("README title is Minime", () => {
+    assert.ok(
+      readme.startsWith("# Minime"),
+      "README.md title should be '# Minime'"
+    );
+  });
+
+  it("config.yaml.example has no openclaw references", () => {
+    assert.ok(
+      !configExample.toLowerCase().includes("openclaw"),
+      "config.yaml.example still contains openclaw references"
+    );
+  });
+
+  it("package.json name is minime", () => {
+    assert.strictEqual(packageJson.name, "minime");
+  });
+
+  it("package.json has no OpenClaw references in description", () => {
+    assert.ok(
+      !packageJson.description.toLowerCase().includes("openclaw"),
+      "package.json description still contains OpenClaw"
+    );
+  });
+});
