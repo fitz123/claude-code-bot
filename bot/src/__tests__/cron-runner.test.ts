@@ -522,6 +522,54 @@ describe("cron-runner", () => {
       assert.strictEqual(cron.enabled, undefined);
     });
 
+    it("throws when timeout is zero", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-timeout
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    timeout: 0
+`);
+      assert.throws(() => loadCronTask("bad-timeout", CRONS_FILE), /invalid 'timeout'/);
+    });
+
+    it("throws when timeout is negative", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-timeout
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    timeout: -1000
+`);
+      assert.throws(() => loadCronTask("bad-timeout", CRONS_FILE), /invalid 'timeout'/);
+    });
+
+    it("throws when maxBudget is zero", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-budget
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    maxBudget: 0
+`);
+      assert.throws(() => loadCronTask("bad-budget", CRONS_FILE), /invalid 'maxBudget'/);
+    });
+
+    it("throws when maxBudget is negative", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-budget
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    maxBudget: -5
+`);
+      assert.throws(() => loadCronTask("bad-budget", CRONS_FILE), /invalid 'maxBudget'/);
+    });
+
     it("returns undefined for enabled: true (only false is preserved)", () => {
       writeFileSync(CRONS_FILE, `crons:
   - name: enabled-task

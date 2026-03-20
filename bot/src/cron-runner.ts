@@ -96,6 +96,13 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
     }
   }
 
+  if (typeof c.timeout === "number" && (!Number.isFinite(c.timeout) || c.timeout <= 0)) {
+    throw new Error(`Task "${taskName}" has invalid 'timeout' (${c.timeout}): must be a positive number`);
+  }
+  if (typeof c.maxBudget === "number" && (!Number.isFinite(c.maxBudget) || c.maxBudget <= 0)) {
+    throw new Error(`Task "${taskName}" has invalid 'maxBudget' (${c.maxBudget}): must be a positive number`);
+  }
+
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
