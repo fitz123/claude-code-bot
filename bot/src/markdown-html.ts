@@ -190,7 +190,7 @@ function convertSegment(text: string): string {
     }
   }
 
-  const isBlockquoteLine = (idx: number) => !inTable[idx] && /^>/.test(lines[idx]);
+  const isBlockquoteLine = (idx: number) => !inTable[idx] && /^\s*>/.test(lines[idx]);
 
   // Fast path: no tables or blockquotes found
   if (!hasTable && !lines.some((_, idx) => isBlockquoteLine(idx))) {
@@ -215,7 +215,7 @@ function convertSegment(text: string): string {
     } else if (isBlockquoteLine(i)) {
       const bqLines: string[] = [];
       while (i < lines.length && isBlockquoteLine(i)) {
-        bqLines.push(lines[i].replace(/^>\s?/, ""));
+        bqLines.push(lines[i].replace(/^\s*>\s?/, ""));
         i++;
       }
       // "expandable" is a Telegram-specific bare attribute, not a separate tag name.

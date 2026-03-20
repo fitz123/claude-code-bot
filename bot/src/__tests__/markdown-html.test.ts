@@ -389,6 +389,13 @@ describe("markdownToHtml", () => {
         "<blockquote>• item</blockquote>",
       );
     });
+
+    it("converts indented blockquote lines (up to 3 spaces)", () => {
+      assert.strictEqual(
+        markdownToHtml("  > indented quote"),
+        "<blockquote>indented quote</blockquote>",
+      );
+    });
   });
 
   describe("list bullet normalization", () => {
