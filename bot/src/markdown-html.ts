@@ -1,6 +1,6 @@
 /**
  * Converts markdown text to Telegram-compatible HTML.
- * Handles: bold, italic, strikethrough, inline code, fenced code blocks, links.
+ * Handles: bold, italic, strikethrough, inline code, fenced code blocks, links, blockquotes, list bullets.
  * Falls back gracefully — only converts patterns it recognizes.
  */
 
@@ -69,6 +69,11 @@ function convertInline(text: string): string {
 
   // Step 2: Escape HTML in remaining text
   processed = escapeHtml(processed);
+
+  // Step 2b: List bullet normalization — replace - and * list markers at line start with •
+  // Multiline flag makes ^ match each line start. Space after marker ensures *italic* is not touched.
+  processed = processed.replace(/^(\s*)-(\s)/gm, "$1\u2022$2");
+  processed = processed.replace(/^(\s*)\*(\s)/gm, "$1\u2022$2");
 
   // Step 3: Convert markdown patterns (order matters — bold+italic before bold before italic)
   // Bold+Italic: ***text*** (must come before bold to avoid overlapping tags)
@@ -156,7 +161,8 @@ function formatTable(tableLines: string[]): string {
 }
 
 /**
- * Convert markdown tables to <pre> blocks, then apply inline conversion to non-table text.
+ * Convert markdown tables to <pre> blocks, blockquotes to <blockquote>, then apply
+ * inline conversion to non-table text.
  * A table is: a header row (contains |), a separator row (only |, -, :, spaces with ---),
  * and zero or more body rows (contain |).
  */
@@ -165,11 +171,13 @@ function convertSegment(text: string): string {
   const inTable: boolean[] = new Array(lines.length).fill(false);
 
   // Find separator lines and mark table boundaries
+  let hasTable = false;
   for (let i = 0; i < lines.length; i++) {
     if (!isTableSeparator(lines[i])) continue;
     // Need a header row immediately above
     if (i === 0 || !lines[i - 1].includes("|")) continue;
 
+    hasTable = true;
     // Mark header row (directly above separator)
     inTable[i - 1] = true;
     // Mark separator
@@ -182,12 +190,14 @@ function convertSegment(text: string): string {
     }
   }
 
-  // Fast path: no tables found
-  if (!inTable.includes(true)) {
+  const isBlockquoteLine = (idx: number) => !inTable[idx] && /^\s*>/.test(lines[idx]);
+
+  // Fast path: no tables or blockquotes found
+  if (!hasTable && !lines.some((_, idx) => isBlockquoteLine(idx))) {
     return convertInline(text);
   }
 
-  // Build output: group consecutive table/non-table lines
+  // Build output: group consecutive table/blockquote/non-table lines
   let result = "";
   let i = 0;
   let firstGroup = true;
@@ -202,9 +212,19 @@ function convertSegment(text: string): string {
         i++;
       }
       result += `<pre>${formatTable(tableLines)}</pre>`;
+    } else if (isBlockquoteLine(i)) {
+      const bqLines: string[] = [];
+      while (i < lines.length && isBlockquoteLine(i)) {
+        bqLines.push(lines[i].replace(/^\s*>\s?/, ""));
+        i++;
+      }
+      // "expandable" is a Telegram-specific bare attribute, not a separate tag name.
+      // Keep the close tag hardcoded to </blockquote> — never use </${tag}>.
+      const expandable = bqLines.length >= 5;
+      result += `<blockquote${expandable ? " expandable" : ""}>${convertInline(bqLines.join("\n"))}</blockquote>`;
     } else {
       const textLines: string[] = [];
-      while (i < lines.length && !inTable[i]) {
+      while (i < lines.length && !inTable[i] && !isBlockquoteLine(i)) {
         textLines.push(lines[i]);
         i++;
       }
