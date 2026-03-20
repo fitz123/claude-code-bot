@@ -550,9 +550,10 @@ This bot spawns the original `claude -p` binary directly. Same CLI you run in yo
 | [openclaw/openclaw](https://github.com/openclaw/openclaw) | Own agent runtime | No (API keys) |
 | [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) | Claude Code in Docker | No (API keys) |
 | [mtzanidakis/praktor](https://github.com/mtzanidakis/praktor) | Agent SDK in Docker | No (API keys) |
+| [six-ddc/ccbot](https://github.com/six-ddc/ccbot) | tmux bridge (CLI in tmux) | Yes |
 | [chenhg5/cc-connect](https://github.com/chenhg5/cc-connect) | Bridge/proxy | Depends on agent |
 
-Three projects run the actual CLI binary on a Max subscription without API keys: this bot, ductor, and the official plugin.
+Four projects run the actual CLI binary on a Max subscription without API keys: this bot, ductor, ccbot, and the official plugin.
 
 ### vs Anthropic Official Plugin
 
@@ -566,20 +567,32 @@ The [official plugin](https://github.com/anthropics/claude-plugins-official) is 
 
 It's a remote control for your terminal session, not an autonomous bot.
 
+### vs ccbot
+
+[ccbot](https://github.com/six-ddc/ccbot) runs Claude Code inside tmux and bridges it to Telegram via two channels: JSONL transcript polling for content, and terminal scraping for interactive UI.
+
+What ccbot does better: tool use visibility (which tool was called, what it returned), thinking content as expandable blockquotes, and interactive permission handling — approve or deny tool calls from Telegram via inline keyboard. These are real advantages that `claude -p` stream-json cannot provide today.
+
+The trade-off is fragility. Hardcoded regex patterns match Claude Code's terminal UI text — prompt wordings, spinner characters, chrome separators. Any Claude Code TUI update can silently break detection. Input goes through `send_keys()` with empirical timing delays. Two polling loops (JSONL at 2s + terminal scrape at 1s per window) add overhead that scales linearly with sessions.
+
+No cron system, no multi-agent, no workspace management, no Discord. Single-user remote control with excellent visibility into what Claude is doing.
+
 ### vs Ductor
 
 [Ductor](https://github.com/PleasePrompto/ductor) is the closest alternative. Also spawns the CLI binary, also ToS-compliant, also supports forum topics.
 
 | | **claude-code-bot** | **ductor** |
 |---|---|---|
-| Language | TypeScript (grammy) | Python (aiogram) |
+| Language | TypeScript (grammY) | Python (aiogram) |
+| Codebase | ~3k LoC | ~150 modules |
 | Forum topic sessions | Yes | Yes |
 | Multi-agent with isolated workspaces | Yes | Yes |
-| Cron system | launchd plists (per-cron process isolation) | In-process cron |
-| Workspace health | Filesystem guardian hooks + structural audits | Agent-level health (crash recovery, backoff) |
-| Memory consolidation | Nightly summarization cron | File sync (no summarization) |
+| Cron system | launchd plists (per-cron process isolation) | In-process scheduler |
+| Crash safety | Atomic JSON writes, launchd auto-restart | Atomic writes, in-flight turn tracking, process registry |
+| Workspace health | Filesystem guardian hooks + structural audits | Agent health with exponential backoff |
+| Memory consolidation | Nightly summarization cron | File sync |
 | Platforms | Telegram + Discord | Telegram + Matrix |
 | Multi-CLI support | Claude Code | Claude Code, Codex, Gemini |
 
-Ductor covers more CLIs (Claude, Codex, Gemini). We go deeper on one: filesystem-level workspace protection that prevents degradation rather than recovering from it, nightly memory consolidation that summarizes rather than copies, and per-cron process isolation via launchd.
+Neither project is strictly better than the other — feature sets are comparable. Ductor covers more CLIs and has deeper crash recovery (in-flight turn tracking, process registry, stream coalescing). We're significantly simpler: a thin TypeScript wrapper around `claude -p` that delegates complexity to the OS (launchd for process isolation, filesystem hooks for workspace protection) rather than reimplementing it in application code.
 
