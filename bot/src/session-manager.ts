@@ -47,6 +47,8 @@ export interface ActiveSession {
   outboxPath: string;
   /** Per-session inject directory for mid-turn message delivery. */
   injectDir: string;
+  /** User-assigned display name for this session (set via /rename). */
+  displayName?: string;
 }
 
 export interface SessionHealth {
@@ -60,6 +62,8 @@ export interface SessionHealth {
   /** Timestamp of last successful response, or null if none yet. */
   lastSuccessAt: number | null;
   restartCount: number;
+  /** User-assigned display name, or undefined if not set. */
+  displayName?: string;
 }
 
 /**
@@ -120,6 +124,17 @@ export class SessionManager {
     this.logDir = logDir ?? LOG_DIR;
   }
 
+  /** Build a SessionState snapshot for persisting to the store. */
+  private toSessionState(chatId: string, session: ActiveSession): SessionState {
+    return {
+      sessionId: session.sessionId,
+      chatId,
+      agentId: session.agentId,
+      lastActivity: session.lastActivity,
+      displayName: session.displayName,
+    };
+  }
+
   /**
    * Get or create a session for a given chatId.
    * If a session exists in memory with a live process, reuse it.
@@ -162,7 +177,7 @@ export class SessionManager {
     await this.evictIfNeeded();
 
     // Check if we have a stored session to resume (discards stale sessions)
-    const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
+    const { resume, sessionId, displayName } = this.resolveStoredSession(chatId, agentId);
 
     // Crash backoff: prevent rapid crash→spawn→crash loops
     const prevCrashCount = this.restartCounts.get(chatId) ?? 0;
@@ -195,6 +210,7 @@ export class SessionManager {
       includePartialMessages: true,
       outboxPath,
       injectDir: injectPath,
+      displayName,
     });
 
     // Verify the subprocess actually started
@@ -239,18 +255,14 @@ export class SessionManager {
       restartCount,
       outboxPath,
       injectDir: injectPath,
+      displayName,
     };
 
     this.active.set(chatId, session);
     sessionsActive.inc();
 
     // Persist to store
-    this.store.setSession(chatId, {
-      sessionId,
-      chatId,
-      agentId,
-      lastActivity: session.lastActivity,
-    });
+    this.store.setSession(chatId, this.toSessionState(chatId, session));
 
     // Set up crash recovery
     this.setupCrashRecovery(chatId, child);
@@ -316,12 +328,7 @@ export class SessionManager {
         this.resetIdleTimer(chatId);
 
         // Update store with new activity time
-        this.store.setSession(chatId, {
-          sessionId: session.sessionId,
-          chatId,
-          agentId,
-          lastActivity: session.lastActivity,
-        });
+        this.store.setSession(chatId, this.toSessionState(chatId, session));
 
         // Read response lines until we get a result.
         // Activity timeout: if no events arrive for RESPONSE_ACTIVITY_TIMEOUT_MS,
@@ -422,12 +429,7 @@ export class SessionManager {
     }
 
     // Persist final state
-    this.store.setSession(chatId, {
-      sessionId: session.sessionId,
-      chatId,
-      agentId: session.agentId,
-      lastActivity: session.lastActivity,
-    });
+    this.store.setSession(chatId, this.toSessionState(chatId, session));
 
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
@@ -534,6 +536,32 @@ export class SessionManager {
     return this.active.get(chatId);
   }
 
+  /** Rename a session: update display name in memory and persist to store.
+   *  Works for both active (in-memory) and inactive (stored-only) sessions. */
+  renameSession(chatId: string, displayName: string): boolean {
+    const session = this.active.get(chatId);
+    if (session) {
+      session.displayName = displayName;
+      this.store.setSession(chatId, this.toSessionState(chatId, session));
+      return true;
+    }
+
+    // Fall back to stored session (inactive but persisted)
+    const stored = this.store.getSession(chatId);
+    if (stored) {
+      stored.displayName = displayName;
+      this.store.setSession(chatId, stored);
+      return true;
+    }
+
+    return false;
+  }
+
+  /** Get display name from stored session (for when session is inactive). */
+  getStoredDisplayName(chatId: string): string | undefined {
+    return this.store.getSession(chatId)?.displayName;
+  }
+
   /** Get subprocess health info for a session (for /status command). */
   getSessionHealth(chatId: string): SessionHealth | undefined {
     const session = this.active.get(chatId);
@@ -551,6 +579,7 @@ export class SessionManager {
       processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
       lastSuccessAt: session.lastSuccessAt,
       restartCount: this.restartCounts.get(chatId) ?? 0,
+      displayName: session.displayName,
     };
   }
 
@@ -558,7 +587,7 @@ export class SessionManager {
    * Determine if a stored session should be resumed or discarded.
    * Discards and logs if the agentId changed or the stored agent was deleted.
    */
-  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string } {
+  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string; displayName?: string } {
     const stored = this.store.getSession(chatId);
     if (!stored || stored.sessionId === "") {
       return { resume: false, sessionId: randomUUID() };
@@ -576,7 +605,7 @@ export class SessionManager {
       return { resume: false, sessionId: randomUUID() };
     }
 
-    return { resume: true, sessionId: stored.sessionId };
+    return { resume: true, sessionId: stored.sessionId, displayName: stored.displayName };
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */

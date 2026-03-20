@@ -77,6 +77,7 @@ export interface SessionState {
   chatId: string;
   agentId: string;
   lastActivity: number;
+  displayName?: string;
 }
 
 export interface SessionDefaults {

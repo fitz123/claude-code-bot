@@ -362,6 +362,10 @@ export async function createDiscordBot(
             const idleMins = Math.floor(health.idleMs / 60000);
 
             lines.push(`This session: agent "${health.agentId}", PID ${pidStr} (${status})`);
+            if (health.displayName) {
+              lines.push(`  Name: ${health.displayName}`);
+            }
+            lines.push(`  Session ID: ${health.sessionId}`);
 
             if (health.processingMs !== null) {
               lines.push(`  Processing: ${Math.floor(health.processingMs / 1000)}s`);
@@ -380,6 +384,46 @@ export async function createDiscordBot(
           }
 
           await interaction.reply(lines.join("\n"));
+          break;
+        }
+        case "rename": {
+          const rawMatch = interaction.options.getString("name") ?? "";
+          const rawArg = rawMatch.trim();
+
+          // No argument: show current session name
+          if (rawMatch === "") {
+            const health = sessionManager.getSessionHealth(key);
+            const name = health?.displayName ?? sessionManager.getStoredDisplayName(key);
+            if (name) {
+              await interaction.reply(`Current session name: ${name}`);
+            } else {
+              await interaction.reply("No session name set. Usage: /rename <name>");
+            }
+            break;
+          }
+
+          // Whitespace-only argument: reject
+          if (!rawArg) {
+            await interaction.reply({ content: "Name cannot be empty or whitespace-only.", ephemeral: true });
+            break;
+          }
+
+          // Validate name constraints
+          if (rawArg.length > 64) {
+            await interaction.reply({ content: "Name too long. Maximum 64 characters.", ephemeral: true });
+            break;
+          }
+          if (/[^a-zA-Z0-9 ._-]/.test(rawArg)) {
+            await interaction.reply({ content: "Name may only contain letters, numbers, spaces, dots, dashes, and underscores.", ephemeral: true });
+            break;
+          }
+
+          const renamed = sessionManager.renameSession(key, rawArg);
+          if (renamed) {
+            await interaction.reply(`Session renamed to "${rawArg}". Name takes effect on next session restart.\nResume from console with: claude --resume "${rawArg}"`);
+          } else {
+            await interaction.reply("No session to rename. Send a message first to start a session.");
+          }
           break;
         }
         default:
@@ -403,6 +447,10 @@ export async function createDiscordBot(
     new SlashCommandBuilder().setName("start").setDescription("Start the bot"),
     new SlashCommandBuilder().setName("reset").setDescription("Reset current session"),
     new SlashCommandBuilder().setName("status").setDescription("Show bot status"),
+    new SlashCommandBuilder()
+      .setName("rename")
+      .setDescription("Name current session")
+      .addStringOption((opt) => opt.setName("name").setDescription("Session name")),
   ];
   const rest = new REST().setToken(discordConfig.token);
   const guildIds = [...new Set(discordConfig.bindings.map((b) => b.guildId))];
