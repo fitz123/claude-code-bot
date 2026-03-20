@@ -1,0 +1,23 @@
+Review code for security vulnerabilities, credential exposure, and injection risks.
+
+## Input Validation & Injection
+- Command injection via unescaped variables in shell scripts
+- Path traversal (../../../etc/passwd)
+- Template injection in prompts passed to LLMs
+
+## Credential & Secret Exposure
+- Hardcoded tokens, passwords, API keys
+- Secrets written to logs or temp files
+- Credentials in git history
+
+## Access Control
+- Privilege escalation paths
+- Missing authentication/authorization checks
+- Overly permissive file permissions
+
+## Safe Defaults
+- Fail-closed over fail-open
+- Principle of least privilege
+- Input sanitization before use
+
+Focus on CRITICAL and MAJOR issues only. Do not flag theoretical risks without evidence in the actual code.

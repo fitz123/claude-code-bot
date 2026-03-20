@@ -98,7 +98,6 @@ Initial public release of Minime — a multi-platform bot that routes messages t
 - Skills: workspace-health, memory-consolidation
 - CLAUDE.md entry point with @imports
 - USER.md and IDENTITY.md placeholders
-- setup.sh interactive onboarding script
 - ADR governance with decision tracking
 - MIT license
 

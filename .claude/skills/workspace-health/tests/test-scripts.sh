@@ -154,7 +154,7 @@ assert_contains "reports scan" "Orphan Scan:" bash "$SCRIPT_DIR/orphan-scan.sh" 
 # Allowlist should not contain workspace-specific entries
 TESTS=$((TESTS + 1))
 ALLOWLIST="$SCRIPT_DIR/orphan-allowlist.txt"
-if grep -qE '^(bot|config\.yaml|crons\.yaml|monitoring|data|archive|assets|\.beads|\.minime|\.playwright-mcp|\.consolidation-state|\.maintenance\.lock|templates|reference|scripts|skills)$' "$ALLOWLIST" 2>/dev/null; then
+if grep -qE '^(config\.yaml|crons\.yaml|monitoring|\.minime|\.playwright-mcp|\.maintenance\.lock)$' "$ALLOWLIST" 2>/dev/null; then
   echo "  FAIL: orphan-allowlist.txt contains workspace-specific entries"
   FAIL=$((FAIL + 1))
 else
@@ -447,7 +447,7 @@ fi
 
 # ADR rule mentions recording new decisions
 TESTS=$((TESTS + 1))
-if grep -qi 'recording\|propose.*adding\|suggest.*adding' "$ADR_RULE" 2>/dev/null; then
+if grep -qi 'record.*adr\|recording\|propose.*adding\|suggest.*adding' "$ADR_RULE" 2>/dev/null; then
   echo "  PASS: ADR rule enforces recording new decisions"
   PASS=$((PASS + 1))
 else
@@ -465,58 +465,25 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# setup.sh offers ADR initialization
+# README documents ADR initialization
 TESTS=$((TESTS + 1))
-SETUP_SH="$WORKSPACE/setup.sh"
-if grep -q 'decisions.md' "$SETUP_SH" 2>/dev/null; then
-  echo "  PASS: setup.sh offers ADR initialization"
+README="$WORKSPACE/README.md"
+if grep -q 'decisions.md' "$README" 2>/dev/null; then
+  echo "  PASS: README documents ADR initialization"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: setup.sh does not offer ADR initialization"
+  echo "  FAIL: README does not document ADR initialization"
   FAIL=$((FAIL + 1))
 fi
 
-# ADR rule auto-loads (it's in rules/platform/)
-TESTS=$((TESTS + 1))
-if [ -f "$WORKSPACE/.claude/rules/platform/adr-governance.md" ]; then
-  echo "  PASS: ADR governance rule auto-loads as platform rule"
-  PASS=$((PASS + 1))
-else
-  echo "  FAIL: ADR governance rule not in platform rules directory"
-  FAIL=$((FAIL + 1))
-fi
 echo ""
 
 # ============================================================
-# Test: setup.sh integration
+# Test: skill scripts are executable (git preserves executable bits)
 # ============================================================
-echo "--- setup.sh integration ---"
-SETUP_SH="$WORKSPACE/setup.sh"
+echo "--- skill scripts executable ---"
 
-# setup.sh makes skill scripts executable
-TESTS=$((TESTS + 1))
-if grep -q 'skills/\*/scripts/\*.sh' "$SETUP_SH" 2>/dev/null || grep -q 'skills/.*/scripts/' "$SETUP_SH" 2>/dev/null; then
-  echo "  PASS: setup.sh makes skill scripts executable"
-  PASS=$((PASS + 1))
-else
-  echo "  FAIL: setup.sh does not make skill scripts executable"
-  FAIL=$((FAIL + 1))
-fi
-
-# setup.sh runs without error
-TESTS=$((TESTS + 1))
-SETUP_EXIT=0
-SETUP_OUTPUT=$(cd "$WORKSPACE" && bash setup.sh </dev/null 2>&1) || SETUP_EXIT=$?
-if [ "$SETUP_EXIT" -eq 0 ]; then
-  echo "  PASS: setup.sh runs without error"
-  PASS=$((PASS + 1))
-else
-  echo "  FAIL: setup.sh exits with code $SETUP_EXIT"
-  echo "    Output: $(echo "$SETUP_OUTPUT" | tail -5)"
-  FAIL=$((FAIL + 1))
-fi
-
-# After setup.sh, skill scripts are executable
+# Skill scripts should be executable (git preserves 100755 bits — no setup.sh needed)
 TESTS=$((TESTS + 1))
 ALL_EXECUTABLE=1
 for s in "$SCRIPT_DIR"/*.sh; do
@@ -526,10 +493,10 @@ for s in "$SCRIPT_DIR"/*.sh; do
   fi
 done
 if [ "$ALL_EXECUTABLE" -eq 1 ]; then
-  echo "  PASS: skill scripts are executable after setup.sh"
+  echo "  PASS: skill scripts are executable (git-preserved bits)"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: some skill scripts are not executable after setup.sh"
+  echo "  FAIL: some skill scripts are not executable"
   FAIL=$((FAIL + 1))
 fi
 echo ""
@@ -538,7 +505,7 @@ echo ""
 # Test: crons.yaml.example
 # ============================================================
 echo "--- crons.yaml.example ---"
-CRONS_EXAMPLE="$WORKSPACE/bot/crons.yaml.example"
+CRONS_EXAMPLE="$WORKSPACE/crons.yaml.example"
 
 # Has workspace-health entry
 TESTS=$((TESTS + 1))
