@@ -2,6 +2,21 @@
 # All times use the machine's local timezone
 # Copy this file to crons.yaml and customize:
 #   cp crons.yaml.example crons.yaml
+#
+# Field reference:
+#   name              (string, required)  Unique identifier for the cron job
+#   schedule          (string, required)  Cron expression (5-field), local timezone
+#   type              ("llm"|"script")    "llm" (default) runs claude -p with prompt; "script" runs a shell command
+#   prompt            (string)            Prompt text sent to Claude (required for type: llm)
+#   command           (string)            Shell command to execute (required for type: script)
+#   agentId           (string, required)  Must match an agent in config.yaml (determines workspace)
+#   deliveryChatId    (number)            Telegram chat ID for result delivery (falls back to config default)
+#   deliveryThreadId  (number)            Telegram forum topic ID for delivery (falls back to config default)
+#   timeout           (number)            Per-cron timeout in milliseconds (default: 300000 = 5 min)
+#   enabled           (boolean)           Set false to skip plist generation for this cron (default: true)
+#
+# Script-mode crons execute via /bin/bash, capture stdout, and deliver like LLM crons.
+# They skip all Claude-specific setup (model, workspace, env vars). Empty output skips delivery.
 
 crons:
   # Example: daily workspace backup
@@ -34,3 +49,12 @@ crons:
     agentId: main
     deliveryChatId: YOUR_CHAT_ID
     timeout: 600000                    # 10 minutes — AI processing may be slow
+
+  # Script-mode cron example — runs a shell command directly (no LLM)
+  # - name: backup-db
+  #   schedule: "0 2 * * *"
+  #   type: script
+  #   command: "/usr/bin/backup.sh --full"
+  #   agentId: main
+  #   deliveryChatId: YOUR_CHAT_ID
+  #   timeout: 300000

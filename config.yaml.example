@@ -14,8 +14,8 @@ agents:
     workspaceCwd: /Users/YOU/.minime/workspace   # absolute path required (~ not expanded)
     model: claude-opus-4-6
     fallbackModel: claude-sonnet-4-6
-    maxTurns: 250     # safety limit for agentic loops per message
-    effort: high
+    maxTurns: 250     # safety limit for agentic loops per message (omit for unlimited)
+    effort: high      # Claude reasoning effort: low, medium, high (omit for default)
 
   # Add more agents as needed:
   # coder:
@@ -27,19 +27,31 @@ agents:
 bindings:
   - chatId: YOUR_CHAT_ID             # your Telegram user ID (numeric)
     agentId: main
-    kind: dm
+    kind: dm                          # "dm" or "group"
     label: My DM
 
-  # Group binding example:
+  # Group binding example (forum supergroup with per-topic routing):
   # - chatId: -100YOUR_GROUP_ID
   #   agentId: main
   #   kind: group
   #   label: My Group
-  #   requireMention: true
-  #   topics:
-  #     - topicId: 42
-  #       agentId: coder
-  #       label: Dev Topic
+  #
+  #   ## Binding options (all optional):
+  #   # requireMention: true          # require @mention or reply-to-bot (default: true for groups, false for DMs)
+  #   # voiceTranscriptEcho: true     # echo voice transcript back to chat (default: true)
+  #   # streamingUpdates: true        # progressive streaming edits during response (default: true)
+  #   #                               # set false to send only the final message (reduces API rate limit usage)
+  #   # typingIndicator: true         # send typing indicators while processing (default: true)
+  #
+  #   ## Per-topic overrides (forum supergroups only):
+  #   # Each topic gets its own isolated Claude session.
+  #   # Messages in unbound topics fall back to the chat-level binding.
+  #   # topics:
+  #   #   - topicId: 42               # message_thread_id from Telegram
+  #   #     agentId: coder            # override agent for this topic (optional, inherits from parent)
+  #   #     requireMention: false     # override per topic (optional, inherits from parent)
+  #   #   - topicId: 99
+  #   #     requireMention: false     # inherits agentId from parent binding
 
 sessionDefaults:
   idleTimeoutMs: 3600000              # 1 hour (default)
@@ -48,12 +60,41 @@ sessionDefaults:
 
 metricsPort: 9091
 
+# Default delivery target for cron results (optional).
+# Individual crons can override with their own deliveryChatId/deliveryThreadId.
+# defaultDeliveryChatId: -1001234567890
+# defaultDeliveryThreadId: 42
+
+# Admin chat for fallback notifications when cron delivery fails (optional).
+# Must be a non-zero integer. Use negative ID for groups/supergroups.
+# adminChatId: 123456789
+
 # Discord support (optional — bot works Telegram-only without this section)
+# Store token: security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN'
+# Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages
+# Slash commands (/start, /reset, /status) are registered per-guild on startup.
 # discord:
 #   tokenService: discord-bot-token
 #   bindings:
+#     # Guild-wide default: covers all channels in the server
 #     - guildId: 'YOUR_GUILD_ID'
 #       agentId: main
 #       kind: channel
 #       label: My Server
 #       requireMention: true
+#       streamingUpdates: true
+#       typingIndicator: true
+#       # Per-channel overrides (optional):
+#       # channels:
+#       #   - channelId: '1234567890'
+#       #     label: Dev Channel
+#       #     requireMention: false
+#       #   - channelId: '1111111111'
+#       #     agentId: coder            # different agent for this channel
+#
+#     # Per-channel binding (exact channelId match wins over guild-wide fallback):
+#     # - channelId: '5555555555'
+#     #   guildId: 'YOUR_GUILD_ID'
+#     #   agentId: main
+#     #   kind: channel
+#     #   label: Legacy Channel
