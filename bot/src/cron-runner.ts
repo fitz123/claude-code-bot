@@ -252,7 +252,7 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
     `Today is ${today}. Respond concisely.`,
   ];
 
-  if (cron.maxBudget) {
+  if (cron.maxBudget != null) {
     args.push("--max-budget-usd", String(cron.maxBudget));
   }
 
