@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for platform integration: setup.sh, crons.yaml.example, .gitignore, memory-protocol.
+# Tests for platform integration: memory directories, crons.yaml.example, .gitignore, memory-protocol.
 # Usage: bash test-platform-integration.sh
 # Runs assertions against repo files — no side effects.
 set -euo pipefail
@@ -31,36 +31,16 @@ assert_contains() {
   fi
 }
 
-echo "=== setup.sh creates memory subdirectories ==="
+echo "=== memory directory structure ==="
 
-# Test: setup.sh in a temp directory creates memory/auto and memory/diary
-TEST_DIR=$(mktemp -d)
-trap 'rm -rf "$TEST_DIR"' EXIT
-
-# Set up minimal structure that setup.sh expects
-mkdir -p "$TEST_DIR/.claude/hooks"
-touch "$TEST_DIR/.claude/hooks/dummy.sh"
-mkdir -p "$TEST_DIR/.claude/optional-rules"
-touch "$TEST_DIR/.claude/optional-rules/test.md"
-mkdir -p "$TEST_DIR/.claude/skills/memory-consolidation/scripts"
-touch "$TEST_DIR/.claude/skills/memory-consolidation/scripts/test-skill.sh"
-
-# Copy setup.sh to temp dir and run it
-cp "$REPO_DIR/setup.sh" "$TEST_DIR/setup.sh"
-
-# Run setup.sh non-interactively
-(cd "$TEST_DIR" && bash setup.sh < /dev/null 2>&1) > /dev/null
-
-assert_eq "setup.sh creates memory/auto/" "true" "$([ -d "$TEST_DIR/memory/auto" ] && echo true || echo false)"
-assert_eq "setup.sh creates memory/diary/" "true" "$([ -d "$TEST_DIR/memory/diary" ] && echo true || echo false)"
-assert_eq "setup.sh creates memory/.gitkeep" "true" "$([ -f "$TEST_DIR/memory/.gitkeep" ] && echo true || echo false)"
-
-# Test: skill scripts are made executable
-assert_eq "skill script is executable" "true" "$([ -x "$TEST_DIR/.claude/skills/memory-consolidation/scripts/test-skill.sh" ] && echo true || echo false)"
+# Test: memory subdirectory .gitkeep files exist in the repo (no setup.sh needed)
+assert_eq "memory/auto/.gitkeep exists in repo" "true" "$([ -f "$REPO_DIR/memory/auto/.gitkeep" ] && echo true || echo false)"
+assert_eq "memory/diary/.gitkeep exists in repo" "true" "$([ -f "$REPO_DIR/memory/diary/.gitkeep" ] && echo true || echo false)"
+assert_eq "memory/.gitkeep exists in repo" "true" "$([ -f "$REPO_DIR/memory/.gitkeep" ] && echo true || echo false)"
 
 echo "=== crons.yaml.example ==="
 
-CRONS_FILE="$REPO_DIR/bot/crons.yaml.example"
+CRONS_FILE="$REPO_DIR/crons.yaml.example"
 
 # Test: crons.yaml.example exists
 assert_eq "crons.yaml.example exists" "true" "$([ -f "$CRONS_FILE" ] && echo true || echo false)"
@@ -73,7 +53,7 @@ assert_contains "crons.yaml has adequate timeout" "$crons_content" "600000"
 
 # Test: crons.yaml.example is valid YAML (requires yq or python, fallback to basic check)
 if command -v python3 >/dev/null 2>&1; then
-  python3 -c "
+  yaml_result=$(python3 -c "
 import sys, json
 try:
     import yaml
@@ -86,8 +66,7 @@ except ImportError:
     print('SKIP_YAML')
 except Exception as e:
     print(f'INVALID: {e}')
-  " "$CRONS_FILE" > "$TEST_DIR/yaml-check.txt" 2>&1
-  yaml_result=$(cat "$TEST_DIR/yaml-check.txt")
+  " "$CRONS_FILE" 2>&1)
   if [ "$yaml_result" = "VALID" ]; then
     assert_eq "crons.yaml.example is valid YAML with memory-consolidation" "VALID" "$yaml_result"
   elif [ "$yaml_result" = "SKIP_YAML" ]; then
@@ -118,16 +97,16 @@ else
   TESTS+=("PASS: memory-protocol no longer references memory/daily/")
 fi
 
-echo "=== setup.sh has no hardcoded user paths ==="
+echo "=== plist template ==="
 
-setup_content=$(cat "$REPO_DIR/setup.sh")
-if echo "$setup_content" | grep -q '/Users/'; then
-  FAIL=$((FAIL + 1))
-  TESTS+=("FAIL: setup.sh contains hardcoded /Users/ paths")
-else
-  PASS=$((PASS + 1))
-  TESTS+=("PASS: setup.sh has no hardcoded /Users/ paths")
-fi
+# Test: bot launchd plist template exists
+assert_eq "bot/telegram-bot.plist.example exists" "true" "$([ -f "$REPO_DIR/bot/telegram-bot.plist.example" ] && echo true || echo false)"
+
+# Test: README has Installation section
+readme_content=$(cat "$REPO_DIR/README.md")
+assert_contains "README has Installation section" "$readme_content" "## Installation"
+assert_contains "README documents Keychain setup" "$readme_content" "security add-generic-password"
+assert_contains "README documents claude auth login" "$readme_content" "claude auth login"
 
 # --- Summary ---
 echo ""

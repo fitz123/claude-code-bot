@@ -465,14 +465,14 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# setup.sh offers ADR initialization
+# README documents ADR initialization
 TESTS=$((TESTS + 1))
-SETUP_SH="$WORKSPACE/setup.sh"
-if grep -q 'decisions.md' "$SETUP_SH" 2>/dev/null; then
-  echo "  PASS: setup.sh offers ADR initialization"
+README="$WORKSPACE/README.md"
+if grep -q 'decisions.md' "$README" 2>/dev/null; then
+  echo "  PASS: README documents ADR initialization"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: setup.sh does not offer ADR initialization"
+  echo "  FAIL: README does not document ADR initialization"
   FAIL=$((FAIL + 1))
 fi
 
@@ -488,35 +488,11 @@ fi
 echo ""
 
 # ============================================================
-# Test: setup.sh integration
+# Test: skill scripts are executable (git preserves executable bits)
 # ============================================================
-echo "--- setup.sh integration ---"
-SETUP_SH="$WORKSPACE/setup.sh"
+echo "--- skill scripts executable ---"
 
-# setup.sh makes skill scripts executable
-TESTS=$((TESTS + 1))
-if grep -q 'skills/\*/scripts/\*.sh' "$SETUP_SH" 2>/dev/null || grep -q 'skills/.*/scripts/' "$SETUP_SH" 2>/dev/null; then
-  echo "  PASS: setup.sh makes skill scripts executable"
-  PASS=$((PASS + 1))
-else
-  echo "  FAIL: setup.sh does not make skill scripts executable"
-  FAIL=$((FAIL + 1))
-fi
-
-# setup.sh runs without error
-TESTS=$((TESTS + 1))
-SETUP_EXIT=0
-SETUP_OUTPUT=$(cd "$WORKSPACE" && bash setup.sh </dev/null 2>&1) || SETUP_EXIT=$?
-if [ "$SETUP_EXIT" -eq 0 ]; then
-  echo "  PASS: setup.sh runs without error"
-  PASS=$((PASS + 1))
-else
-  echo "  FAIL: setup.sh exits with code $SETUP_EXIT"
-  echo "    Output: $(echo "$SETUP_OUTPUT" | tail -5)"
-  FAIL=$((FAIL + 1))
-fi
-
-# After setup.sh, skill scripts are executable
+# Skill scripts should be executable (git preserves 100755 bits — no setup.sh needed)
 TESTS=$((TESTS + 1))
 ALL_EXECUTABLE=1
 for s in "$SCRIPT_DIR"/*.sh; do
@@ -526,10 +502,10 @@ for s in "$SCRIPT_DIR"/*.sh; do
   fi
 done
 if [ "$ALL_EXECUTABLE" -eq 1 ]; then
-  echo "  PASS: skill scripts are executable after setup.sh"
+  echo "  PASS: skill scripts are executable (git-preserved bits)"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: some skill scripts are not executable after setup.sh"
+  echo "  FAIL: some skill scripts are not executable"
   FAIL=$((FAIL + 1))
 fi
 echo ""

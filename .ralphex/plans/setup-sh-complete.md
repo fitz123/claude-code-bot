@@ -249,17 +249,17 @@ setup.sh is unnecessary. Git preserves executable bits (all hooks are `100755`),
 - Optional: activate rules (`cp .claude/optional-rules/<rule>.md .claude/rules/custom/`)
 - Optional: init ADR governance (`mkdir -p reference/governance && cp reference/governance/decisions.md.example reference/governance/decisions.md`)
 
-- [ ] setup.sh removed from the repo
-- [ ] .gitignore updated to un-ignore memory/auto/ and memory/diary/ subdirectories
-- [ ] .gitkeep added to memory/auto/ and memory/diary/ (both exist after clone)
-- [ ] Bot launchd plist template exists in the repo (e.g. `telegram-bot.plist.example`) with placeholder paths and comments
-- [ ] README has "Installation" section with numbered steps from clone to running bot
-- [ ] README documents all required Keychain entries with exact `security` commands
-- [ ] README documents Claude Code authentication (`claude auth login`)
-- [ ] README documents how to fill in config.yaml (which fields, what values)
-- [ ] README documents settings.local.json setup with autoMemoryDirectory
-- [ ] README documents how to create and load the launchd plist from template
-- [ ] README documents verification steps (launchctl list, log tail, send test message)
-- [ ] README documents optional steps (Discord, crons, optional rules activation, ADR governance)
-- [ ] Add tests
-- [ ] Verify existing tests pass
+- [x] setup.sh removed from the repo
+- [x] .gitignore updated to un-ignore memory/auto/ and memory/diary/ subdirectories
+- [x] .gitkeep added to memory/auto/ and memory/diary/ (both exist after clone)
+- [x] Bot launchd plist template exists in the repo (e.g. `telegram-bot.plist.example`) with placeholder paths and comments
+- [x] README has "Installation" section with numbered steps from clone to running bot
+- [x] README documents all required Keychain entries with exact `security` commands
+- [x] README documents Claude Code authentication (`claude auth login`)
+- [x] README documents how to fill in config.yaml (which fields, what values)
+- [x] README documents settings.local.json setup with autoMemoryDirectory
+- [x] README documents how to create and load the launchd plist from template
+- [x] README documents verification steps (launchctl list, log tail, send test message)
+- [x] README documents optional steps (Discord, crons, optional rules activation, ADR governance)
+- [x] Add tests
+- [x] Verify existing tests pass
