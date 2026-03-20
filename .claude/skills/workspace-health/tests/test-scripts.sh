@@ -514,7 +514,7 @@ echo ""
 # Test: crons.yaml.example
 # ============================================================
 echo "--- crons.yaml.example ---"
-CRONS_EXAMPLE="$WORKSPACE/bot/crons.yaml.example"
+CRONS_EXAMPLE="$WORKSPACE/crons.yaml.example"
 
 # Has workspace-health entry
 TESTS=$((TESTS + 1))
