@@ -7,7 +7,7 @@ import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDef
 import { log, parseLogLevel } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "config.yaml");
+const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
 
 interface RawConfig {
   telegramTokenService?: string;

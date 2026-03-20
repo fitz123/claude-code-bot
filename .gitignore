@@ -1,8 +1,6 @@
 # Bot runtime
 bot/node_modules/
 bot/dist/
-bot/config.yaml
-bot/crons.yaml
 
 # Bot data (runtime state)
 data/
@@ -15,6 +13,12 @@ dolt-server.*
 # Workspace user data
 memory/*
 !memory/.gitkeep
+!memory/auto/
+!memory/diary/
+memory/auto/*
+!memory/auto/.gitkeep
+memory/diary/*
+!memory/diary/.gitkeep
 .claude/settings.local.json
 .claude/rules/custom/*
 !.claude/rules/custom/.gitkeep

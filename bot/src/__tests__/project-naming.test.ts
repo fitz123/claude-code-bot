@@ -13,7 +13,7 @@ function readRepoFile(relativePath: string): string {
 
 describe("project naming", () => {
   const readme = readRepoFile("README.md");
-  const configExample = readRepoFile("bot/config.yaml.example");
+  const configExample = readRepoFile("config.yaml.example");
   const packageJson = JSON.parse(readRepoFile("bot/package.json"));
   const changelog = readRepoFile("CHANGELOG.md");
 
@@ -103,6 +103,37 @@ describe("project naming", () => {
     assert.ok(
       !types.toLowerCase().includes("openclaw"),
       "types.ts still contains OpenClaw references"
+    );
+  });
+
+  it("config.yaml.example lives at workspace root, not bot/", () => {
+    assert.ok(
+      existsSync(resolve(repoRoot, "config.yaml.example")),
+      "config.yaml.example missing from workspace root"
+    );
+    assert.ok(
+      !existsSync(resolve(repoRoot, "bot/config.yaml.example")),
+      "config.yaml.example should not exist in bot/ (moved to workspace root)"
+    );
+  });
+
+  it("crons.yaml.example lives at workspace root, not bot/", () => {
+    assert.ok(
+      existsSync(resolve(repoRoot, "crons.yaml.example")),
+      "crons.yaml.example missing from workspace root"
+    );
+    assert.ok(
+      !existsSync(resolve(repoRoot, "bot/crons.yaml.example")),
+      "crons.yaml.example should not exist in bot/ (moved to workspace root)"
+    );
+  });
+
+  it("config.ts resolves config.yaml from workspace root", () => {
+    const configTs = readRepoFile("bot/src/config.ts");
+    // Should resolve 2 levels up from __dirname (bot/src/ -> bot/ -> workspace root)
+    assert.ok(
+      configTs.includes('resolve(__dirname, "..", "..", "config.yaml")'),
+      "config.ts should resolve config.yaml from workspace root (2 levels up)"
     );
   });
 
