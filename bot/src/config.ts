@@ -204,13 +204,29 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
   return { token, bindings };
 }
 
-function validateSessionDefaults(raw: unknown): SessionDefaults {
+export function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 900000, maxConcurrentSessions: 3, maxMessageAgeMs: 300000 };
+    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000 };
   }
   const obj = raw as Record<string, unknown>;
 
-  let maxMessageAgeMs = 300000;
+  let idleTimeoutMs = 3600000;
+  if (typeof obj.idleTimeoutMs === "number") {
+    if (!Number.isFinite(obj.idleTimeoutMs) || obj.idleTimeoutMs <= 0) {
+      throw new Error(`Invalid idleTimeoutMs: ${obj.idleTimeoutMs} (must be a finite positive number)`);
+    }
+    idleTimeoutMs = obj.idleTimeoutMs;
+  }
+
+  let maxConcurrentSessions = 12;
+  if (typeof obj.maxConcurrentSessions === "number") {
+    if (!Number.isInteger(obj.maxConcurrentSessions) || obj.maxConcurrentSessions <= 0) {
+      throw new Error(`Invalid maxConcurrentSessions: ${obj.maxConcurrentSessions} (must be a positive integer)`);
+    }
+    maxConcurrentSessions = obj.maxConcurrentSessions;
+  }
+
+  let maxMessageAgeMs = 600000;
   if (typeof obj.maxMessageAgeMs === "number") {
     if (!Number.isFinite(obj.maxMessageAgeMs) || obj.maxMessageAgeMs <= 0) {
       throw new Error(`Invalid maxMessageAgeMs: ${obj.maxMessageAgeMs} (must be a finite positive number)`);
@@ -218,11 +234,7 @@ function validateSessionDefaults(raw: unknown): SessionDefaults {
     maxMessageAgeMs = obj.maxMessageAgeMs;
   }
 
-  return {
-    idleTimeoutMs: typeof obj.idleTimeoutMs === "number" ? obj.idleTimeoutMs : 900000,
-    maxConcurrentSessions: typeof obj.maxConcurrentSessions === "number" ? obj.maxConcurrentSessions : 3,
-    maxMessageAgeMs,
-  };
+  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs };
 }
 
 export function loadConfig(configPath?: string): BotConfig {
@@ -330,11 +342,11 @@ if (process.argv.includes("--validate")) {
     log.info("config", `  Agents: ${Object.keys(config.agents).join(", ")}`);
     log.info("config", `  Telegram bindings: ${config.bindings.length}`);
     if (config.telegramToken) {
-      log.info("config", `  Telegram token: ${config.telegramToken.slice(0, 10)}...`);
+      log.info("config", `  Telegram token: ${config.telegramToken.slice(0, 4)}...`);
     }
     if (config.discord) {
       log.info("config", `  Discord bindings: ${config.discord.bindings.length}`);
-      log.info("config", `  Discord token: ${config.discord.token.slice(0, 10)}...`);
+      log.info("config", `  Discord token: ${config.discord.token.slice(0, 4)}...`);
     }
     log.info("config", `  Idle timeout: ${config.sessionDefaults.idleTimeoutMs}ms`);
     log.info("config", `  Max sessions: ${config.sessionDefaults.maxConcurrentSessions}`);

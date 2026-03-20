@@ -534,6 +534,7 @@ export function createTelegramBot(
       const idleMins = Math.floor(health.idleMs / 60000);
 
       lines.push(`This session: agent "${health.agentId}", PID ${pidStr} (${status})`);
+      lines.push(`  Session ID: ${health.sessionId}`);
 
       if (health.processingMs !== null) {
         const procSecs = Math.floor(health.processingMs / 1000);

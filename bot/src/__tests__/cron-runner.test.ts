@@ -485,6 +485,105 @@ describe("cron-runner", () => {
     });
   });
 
+  describe("loadCronTask — enabled field", () => {
+    const CRONS_DIR = join(TEST_DIR, "cron-enabled");
+    const CRONS_FILE = join(CRONS_DIR, "crons.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CRONS_DIR, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(CRONS_DIR, { recursive: true, force: true });
+    });
+
+    it("parses enabled: false from YAML", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: disabled-task
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    enabled: false
+`);
+      const cron = loadCronTask("disabled-task", CRONS_FILE);
+      assert.strictEqual(cron.enabled, false);
+    });
+
+    it("returns undefined for enabled when omitted", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: default-task
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      const cron = loadCronTask("default-task", CRONS_FILE);
+      assert.strictEqual(cron.enabled, undefined);
+    });
+
+    it("throws when timeout is zero", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-timeout
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    timeout: 0
+`);
+      assert.throws(() => loadCronTask("bad-timeout", CRONS_FILE), /invalid 'timeout'/);
+    });
+
+    it("throws when timeout is negative", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-timeout
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    timeout: -1000
+`);
+      assert.throws(() => loadCronTask("bad-timeout", CRONS_FILE), /invalid 'timeout'/);
+    });
+
+    it("throws when maxBudget is zero", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-budget
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    maxBudget: 0
+`);
+      assert.throws(() => loadCronTask("bad-budget", CRONS_FILE), /invalid 'maxBudget'/);
+    });
+
+    it("throws when maxBudget is negative", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: bad-budget
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    maxBudget: -5
+`);
+      assert.throws(() => loadCronTask("bad-budget", CRONS_FILE), /invalid 'maxBudget'/);
+    });
+
+    it("returns undefined for enabled: true (only false is preserved)", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: enabled-task
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    enabled: true
+`);
+      const cron = loadCronTask("enabled-task", CRONS_FILE);
+      assert.strictEqual(cron.enabled, undefined);
+    });
+  });
+
   describe("runScript", () => {
     it("executes command and returns stdout", () => {
       const cron: CronJob = {
