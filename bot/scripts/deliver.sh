@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# Ensure Homebrew binaries are in PATH (needed when called from launchd)
+export PATH="/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
 # Resolve project root for HTML converter
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
