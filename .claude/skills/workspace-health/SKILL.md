@@ -53,7 +53,6 @@ Verify that claims in configuration files match reality. Read the following file
 - `IDENTITY.md`
 - `MEMORY.md`
 - `.claude/settings.json`
-- `setup.sh`
 
 Check for:
 - References to files or directories that do not exist (e.g., `@USER.md` in CLAUDE.md — does USER.md exist?)

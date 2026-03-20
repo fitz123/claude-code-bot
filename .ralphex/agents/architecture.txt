@@ -1,0 +1,33 @@
+Review structural correctness, integration with existing systems, and separation of concerns.
+
+## Structural Review
+
+1. Component boundaries - are responsibilities clearly separated?
+2. API contracts - are interfaces between components well-defined?
+3. Dependency direction - do dependencies flow in the right direction?
+4. Integration points - are new components properly wired into existing systems?
+5. Configuration - are new settings properly documented and validated?
+6. Deterministic gates - where the spec requires deterministic behavior (structural checks, regex validation, count assertions), verify the implementation uses programmatic checks, not LLM judgment. Flag any gate that relies on model inference where determinism was specified.
+
+## Existing System Integration
+
+1. Does the change fit the existing architecture patterns?
+2. Are there conflicts with other components?
+3. Is backward compatibility maintained where needed?
+4. Are migration paths clear for breaking changes?
+
+## Design Decisions
+
+Check if architectural-decisions.md exists in the project. If it does, read it before reviewing.
+Do NOT flag issues that are already documented as intentional architectural decisions.
+
+## What to Report
+
+For each issue:
+- Location: file and line reference
+- Issue: what structural problem exists
+- Impact: how this affects system integrity
+- Fix: suggested architectural improvement
+
+Focus on structural correctness, not code style.
+Report problems only - no positive observations.

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Bot launchd plist — copy to ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
+  Replace WORKSPACE with the absolute path to your cloned repo.
+  Replace LOG_DIR with your log directory (e.g. ~/.minime/logs — create it first).
+  Replace USER_HOME with your home directory (e.g. /Users/yourname).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.minime.telegram-bot</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>WORKSPACE/bot/scripts/start-bot.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>WORKSPACE</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>35</integer>
+    <key>StandardOutPath</key>
+    <string>LOG_DIR/telegram-bot.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>LOG_DIR/telegram-bot.stderr.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>USER_HOME</string>
+    </dict>
+</dict>
+</plist>

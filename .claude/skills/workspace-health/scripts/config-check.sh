@@ -21,7 +21,7 @@ WARNINGS=0
 # --- Required workspace files ---
 echo "Required files:"
 
-REQUIRED_FILES=("CLAUDE.md" "USER.md" "IDENTITY.md" ".gitignore" "setup.sh")
+REQUIRED_FILES=("CLAUDE.md" "USER.md" "IDENTITY.md" ".gitignore")
 for f in "${REQUIRED_FILES[@]}"; do
   if [ -f "$WORKSPACE/$f" ]; then
     echo "  OK: $f"

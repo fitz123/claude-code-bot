@@ -63,7 +63,142 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
 
-**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
+**Config:** `config.yaml` (at workspace root, alongside `bot/`) defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
+
+## Installation
+
+### Prerequisites
+
+- macOS (launchd required for bot service management)
+- Node.js 20+ and npm
+- `jq` — required by hook scripts (`brew install jq`)
+- [Claude Code CLI](https://claude.ai/code) — must be authenticated via `claude auth login` before starting the bot
+- A Telegram bot token from [@BotFather](https://t.me/BotFather) (or a Discord bot token if using Discord)
+
+### Steps
+
+**1. Clone and install dependencies**
+
+```bash
+git clone https://github.com/your-org/minime.git ~/.minime
+cd ~/.minime/bot && npm install
+```
+
+**2. Copy and fill in config.yaml**
+
+```bash
+cp config.yaml.example config.yaml
+```
+
+Edit `config.yaml`:
+- Set `workspaceCwd` to the absolute path of your cloned repo (e.g. `/Users/yourname/.minime`)
+- Set `chatId` in the `bindings` section to your Telegram user ID (send `/start` to @userinfobot to find it)
+
+**3. Copy crons.yaml**
+
+```bash
+cp crons.yaml.example crons.yaml
+```
+
+Edit or leave as-is. To start with no crons: replace the contents with `crons: []`.
+
+**4. Copy settings.local.json and set autoMemoryDirectory**
+
+```bash
+cp .claude/settings.local.json.example .claude/settings.local.json
+```
+
+Edit `.claude/settings.local.json` and set `autoMemoryDirectory` to `<absolute-path-to-repo>/memory/auto` (e.g. `/Users/yourname/.minime/memory/auto`). Without this, Claude Code's auto-memory writes to its default location instead of the workspace.
+
+**5. Store Telegram bot token in macOS Keychain**
+
+```bash
+security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
+```
+
+The service name `telegram-bot-token` must match `telegramTokenService` in `config.yaml`.
+
+**6. Authenticate Claude Code**
+
+```bash
+claude auth login
+```
+
+This stores your Claude Code OAuth token in Keychain automatically. The bot's startup script reads it from there.
+
+**7. Create the log directory**
+
+```bash
+mkdir -p ~/.minime/logs
+```
+
+**8. Create the launchd plist**
+
+```bash
+cp bot/telegram-bot.plist.example ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
+```
+
+Edit `~/Library/LaunchAgents/ai.minime.telegram-bot.plist` and replace:
+- `WORKSPACE` — absolute path to the repo (e.g. `/Users/yourname/.minime`)
+- `LOG_DIR` — log directory (e.g. `/Users/yourname/.minime/logs`)
+- `USER_HOME` — your home directory (e.g. `/Users/yourname`)
+
+**9. Validate config**
+
+```bash
+cd ~/.minime && npx tsx bot/src/config.ts --validate
+```
+
+**10. Start the bot**
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
+```
+
+**11. Verify**
+
+```bash
+# Check service is running
+launchctl list | grep ai.minime.telegram-bot
+
+# Tail logs
+tail -f ~/.minime/logs/telegram-bot.stdout.log
+```
+
+Send a message to your bot in Telegram to confirm it responds.
+
+### Discord (optional)
+
+Store Discord bot token in Keychain:
+```bash
+security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
+```
+
+Add a `discord` section to `config.yaml` — see [Add a Discord Binding](#add-a-discord-binding) below.
+
+### Crons (optional)
+
+Edit `crons.yaml`, then generate and load plists:
+```bash
+cd ~/.minime/bot && npx tsx scripts/generate-plists.ts
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
+```
+
+See [Add a Cron](#add-a-cron) below for details.
+
+### Optional: activate rules
+
+Copy optional rules into the custom rules directory to activate them:
+```bash
+cp .claude/optional-rules/memory-protocol.md .claude/rules/custom/
+```
+
+### Optional: initialize ADR governance
+
+```bash
+mkdir -p reference/governance
+cp reference/governance/decisions.md.example reference/governance/decisions.md
+```
 
 ## Start / Stop
 
@@ -333,8 +468,8 @@ Available metrics:
 
 | Log | Path |
 |-----|------|
-| Bot stdout | `~/.minime/logs/telegram-bot-stdout.log` |
-| Bot stderr | `~/.minime/logs/telegram-bot-stderr.log` |
+| Bot stdout | `~/.minime/logs/telegram-bot.stdout.log` |
+| Bot stderr | `~/.minime/logs/telegram-bot.stderr.log` |
 | Session stderr (per-chat/topic) | `~/.minime/logs/session-<chatId>[_<topicId>].log` |
 | Cron (per-task) | `~/.minime/logs/cron-<name>.log` |
 | Message delivery | `~/.minime/logs/cron-delivery.log` |

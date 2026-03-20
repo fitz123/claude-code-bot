@@ -38,7 +38,7 @@ describe("cron field documentation", () => {
   });
 
   it("crons.yaml.example demonstrates deliveryThreadId", () => {
-    const example = readRepoFile("bot/crons.yaml.example");
+    const example = readRepoFile("crons.yaml.example");
     assert.ok(
       example.includes("deliveryThreadId"),
       "crons.yaml.example does not demonstrate deliveryThreadId"
@@ -46,7 +46,7 @@ describe("cron field documentation", () => {
   });
 
   it("crons.yaml.example demonstrates enabled field", () => {
-    const example = readRepoFile("bot/crons.yaml.example");
+    const example = readRepoFile("crons.yaml.example");
     assert.ok(
       example.includes("enabled"),
       "crons.yaml.example does not demonstrate enabled field"
