@@ -212,17 +212,17 @@ In production, both files live at workspace root because start-bot.sh was modifi
 
 Both config files should live at workspace root. This matches how the workspace is structured and how crons.yaml already works. Only config.ts needs code changes — cron-runner.ts and generate-plists.ts already resolve from REPO_ROOT. start-bot.sh does not need changes — config.ts resolves via `__dirname` (file location), not CWD.
 
-- [ ] config.ts resolves config.yaml from REPO_ROOT (workspace root), not from `__dirname`
-- [ ] config.yaml.example moved from `bot/` to workspace root
-- [ ] crons.yaml.example moved from `bot/` to workspace root
-- [ ] .gitignore cleaned up (remove `bot/config.yaml` and `bot/crons.yaml` entries, keep root entries)
-- [ ] README.md updated to reflect new config file locations
-- [ ] config.yaml.example header updated (`cp config.yaml.example config.yaml`)
-- [ ] crons.yaml.example header updated (`cp crons.yaml.example crons.yaml`)
-- [ ] `project-naming.test.ts` updated to reference `config.yaml.example` at repo root instead of `bot/config.yaml.example`
-- [ ] Config validation still works from any CWD (`cd bot && npx tsx src/config.ts --validate` and `npx tsx bot/src/config.ts --validate`)
-- [ ] Add tests
-- [ ] Verify existing tests pass
+- [x] config.ts resolves config.yaml from REPO_ROOT (workspace root), not from `__dirname`
+- [x] config.yaml.example moved from `bot/` to workspace root
+- [x] crons.yaml.example moved from `bot/` to workspace root
+- [x] .gitignore cleaned up (remove `bot/config.yaml` and `bot/crons.yaml` entries, keep root entries)
+- [x] README.md updated to reflect new config file locations
+- [x] config.yaml.example header updated (`cp config.yaml.example config.yaml`)
+- [x] crons.yaml.example header updated (`cp crons.yaml.example crons.yaml`)
+- [x] `project-naming.test.ts` updated to reference `config.yaml.example` at repo root instead of `bot/config.yaml.example`
+- [x] Config validation still works from any CWD (`cd bot && npx tsx src/config.ts --validate` and `npx tsx bot/src/config.ts --validate`)
+- [x] Add tests
+- [x] Verify existing tests pass
 
 ### Task 2: Remove setup.sh, add .gitkeep files, write installation guide (#27, P0)
 

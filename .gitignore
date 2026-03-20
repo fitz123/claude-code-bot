@@ -1,8 +1,6 @@
 # Bot runtime
 bot/node_modules/
 bot/dist/
-bot/config.yaml
-bot/crons.yaml
 
 # Bot data (runtime state)
 data/

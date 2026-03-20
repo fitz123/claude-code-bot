@@ -63,7 +63,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
 
-**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
+**Config:** `config.yaml` (at workspace root, alongside `bot/`) defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
 
 ## Start / Stop
 
