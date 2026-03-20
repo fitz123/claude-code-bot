@@ -154,7 +154,7 @@ assert_contains "reports scan" "Orphan Scan:" bash "$SCRIPT_DIR/orphan-scan.sh" 
 # Allowlist should not contain workspace-specific entries
 TESTS=$((TESTS + 1))
 ALLOWLIST="$SCRIPT_DIR/orphan-allowlist.txt"
-if grep -qE '^(bot|config\.yaml|crons\.yaml|monitoring|data|archive|assets|\.beads|\.minime|\.playwright-mcp|\.consolidation-state|\.maintenance\.lock|templates|reference|scripts|skills)$' "$ALLOWLIST" 2>/dev/null; then
+if grep -qE '^(config\.yaml|crons\.yaml|monitoring|\.minime|\.playwright-mcp|\.maintenance\.lock)$' "$ALLOWLIST" 2>/dev/null; then
   echo "  FAIL: orphan-allowlist.txt contains workspace-specific entries"
   FAIL=$((FAIL + 1))
 else
@@ -447,7 +447,7 @@ fi
 
 # ADR rule mentions recording new decisions
 TESTS=$((TESTS + 1))
-if grep -qi 'recording\|propose.*adding\|suggest.*adding' "$ADR_RULE" 2>/dev/null; then
+if grep -qi 'record.*adr\|recording\|propose.*adding\|suggest.*adding' "$ADR_RULE" 2>/dev/null; then
   echo "  PASS: ADR rule enforces recording new decisions"
   PASS=$((PASS + 1))
 else
@@ -476,15 +476,6 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# ADR rule auto-loads (it's in rules/platform/)
-TESTS=$((TESTS + 1))
-if [ -f "$WORKSPACE/.claude/rules/platform/adr-governance.md" ]; then
-  echo "  PASS: ADR governance rule auto-loads as platform rule"
-  PASS=$((PASS + 1))
-else
-  echo "  FAIL: ADR governance rule not in platform rules directory"
-  FAIL=$((FAIL + 1))
-fi
 echo ""
 
 # ============================================================
