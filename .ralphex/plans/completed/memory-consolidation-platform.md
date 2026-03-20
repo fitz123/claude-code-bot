@@ -47,7 +47,7 @@ cd bot && npm test
 
 ## Reference: Claude Code session JSONL format
 
-Session transcripts are stored at `~/.claude/projects/<workspace-path-dashed>/*.jsonl`. The workspace path is converted by replacing `/` with `-` and prefixing with `-` (e.g., `/Users/user/.minime/workspace` → `-Users-ninja--minime-workspace`).
+Session transcripts are stored at `~/.claude/projects/<workspace-path-dashed>/*.jsonl`. The workspace path is converted by replacing `/` with `-` and prefixing with `-` (e.g., `/Users/user/.minime/workspace` → `-Users-user--minime-workspace`).
 
 Each JSONL file = one session. First line is always `type: "queue-operation"` with the initial prompt in `content`:
 
@@ -124,11 +124,11 @@ Individual memory files use YAML frontmatter with `name`, `description`, `type` 
 ```markdown
 ---
 name: coffee-shop-investment
-description: Инвестиция в кофейню — 3М₽, 50% доля, 1-я Советская ул. 7, СПб
+description: Инвестиция в кофейню — <redacted-amount>, <redacted-share>, <redacted-address>, СПб
 type: project
 ---
 
-Ninja инвестировал 3 000 000 ₽ в кофейню (50% доля). Договор подписан 13.03.2026.
+User инвестировал <redacted-amount> в кофейню (<redacted-share>). Договор подписан <redacted-date>.
 ...
 ```
 
