@@ -63,18 +63,18 @@ describe("project naming", () => {
     );
   });
 
-  it("package.json version is 0.1.0", () => {
-    assert.strictEqual(packageJson.version, "0.1.0");
+  it("package.json version follows CalVer (YYYY.MM.patch)", () => {
+    assert.match(packageJson.version, /^\d{4}\.\d{2}\.\d+$/);
   });
 
-  it("CHANGELOG.md exists and references v0.1.0", () => {
+  it("CHANGELOG.md exists and references current version", () => {
     assert.ok(
       existsSync(resolve(repoRoot, "CHANGELOG.md")),
       "CHANGELOG.md does not exist"
     );
     assert.ok(
-      changelog.includes("0.1.0"),
-      "CHANGELOG.md does not reference v0.1.0"
+      changelog.includes(packageJson.version),
+      `CHANGELOG.md does not reference ${packageJson.version}`
     );
   });
 
