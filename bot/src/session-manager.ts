@@ -124,6 +124,17 @@ export class SessionManager {
     this.logDir = logDir ?? LOG_DIR;
   }
 
+  /** Build a SessionState snapshot for persisting to the store. */
+  private toSessionState(chatId: string, session: ActiveSession): SessionState {
+    return {
+      sessionId: session.sessionId,
+      chatId,
+      agentId: session.agentId,
+      lastActivity: session.lastActivity,
+      displayName: session.displayName,
+    };
+  }
+
   /**
    * Get or create a session for a given chatId.
    * If a session exists in memory with a live process, reuse it.
@@ -251,13 +262,7 @@ export class SessionManager {
     sessionsActive.inc();
 
     // Persist to store
-    this.store.setSession(chatId, {
-      sessionId,
-      chatId,
-      agentId,
-      lastActivity: session.lastActivity,
-      displayName,
-    });
+    this.store.setSession(chatId, this.toSessionState(chatId, session));
 
     // Set up crash recovery
     this.setupCrashRecovery(chatId, child);
@@ -323,13 +328,7 @@ export class SessionManager {
         this.resetIdleTimer(chatId);
 
         // Update store with new activity time
-        this.store.setSession(chatId, {
-          sessionId: session.sessionId,
-          chatId,
-          agentId,
-          lastActivity: session.lastActivity,
-          displayName: session.displayName,
-        });
+        this.store.setSession(chatId, this.toSessionState(chatId, session));
 
         // Read response lines until we get a result.
         // Activity timeout: if no events arrive for RESPONSE_ACTIVITY_TIMEOUT_MS,
@@ -430,13 +429,7 @@ export class SessionManager {
     }
 
     // Persist final state
-    this.store.setSession(chatId, {
-      sessionId: session.sessionId,
-      chatId,
-      agentId: session.agentId,
-      lastActivity: session.lastActivity,
-      displayName: session.displayName,
-    });
+    this.store.setSession(chatId, this.toSessionState(chatId, session));
 
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
@@ -549,13 +542,7 @@ export class SessionManager {
     if (!session) return false;
 
     session.displayName = displayName;
-    this.store.setSession(chatId, {
-      sessionId: session.sessionId,
-      chatId,
-      agentId: session.agentId,
-      lastActivity: session.lastActivity,
-      displayName,
-    });
+    this.store.setSession(chatId, this.toSessionState(chatId, session));
     return true;
   }
 

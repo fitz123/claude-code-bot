@@ -586,15 +586,19 @@ export function createTelegramBot(
       return;
     }
 
-    // Validate: reject whitespace-only names
-    if (!rawArg.replace(/\s/g, "")) {
-      await ctx.reply("Invalid name. Name must contain non-whitespace characters.");
+    // Validate name constraints
+    if (rawArg.length > 64) {
+      await ctx.reply("Name too long. Maximum 64 characters.");
+      return;
+    }
+    if (/[\x00-\x1f]/.test(rawArg)) {
+      await ctx.reply("Name must not contain control characters.");
       return;
     }
 
     const renamed = sessionManager.renameSession(key, rawArg);
     if (renamed) {
-      await ctx.reply(`Session renamed to "${rawArg}". Resume from console with: claude --resume "${rawArg}"`);
+      await ctx.reply(`Session renamed to "${rawArg}". Name takes effect on next session restart.\nResume from console with: claude --resume "${rawArg}"`);
     } else {
       await ctx.reply("No active session to rename. Send a message first to start a session.");
     }
