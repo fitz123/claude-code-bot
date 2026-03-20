@@ -1,15 +1,5 @@
 # Changelog
 
-## v0.1.1
-
-### Improvements
-
-- Session ID shown in `/status` output — enables resuming sessions from console via `claude --resume <id>`
-
-### Bug Fixes
-
-- Removed `maxBudget` feature entirely (never used)
-
 ## v0.1.0
 
 Initial public release of Minime — a multi-platform bot that routes messages to Claude Code CLI subprocesses, designed for Claude Max subscription users.
@@ -31,6 +21,7 @@ Initial public release of Minime — a multi-platform bot that routes messages t
 - Session resume via `--resume` on subprocess respawn
 - Persistent session store (`sessions.json`) survives bot restarts
 - Per-agent workspace, model, fallback model, max turns, and effort level configuration
+- Session ID shown in `/status` output — enables resuming sessions from console via `claude --resume <id>`
 
 ### Message Processing
 
