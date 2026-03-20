@@ -54,14 +54,14 @@ What we want:
 - Empty `>` lines (no text after `>`) are preserved as empty lines inside the blockquote
 - Blockquotes with 5+ lines use `<blockquote expandable>` instead of `<blockquote>` for collapsible display
 
-- [ ] `> single line` converts to `<blockquote>single line</blockquote>`
-- [ ] Consecutive `> ` lines merge into one `<blockquote>` with newlines between them
-- [ ] Blockquotes with 5+ lines use `<blockquote expandable>` tag
-- [ ] `> ` inside fenced code blocks is not converted
-- [ ] Inline markdown inside blockquotes still works (bold, italic, code, links)
-- [ ] Mixed content: text before/after blockquote renders correctly
-- [ ] Existing 45 tests still pass
-- [ ] Add tests covering the above cases
+- [x] `> single line` converts to `<blockquote>single line</blockquote>`
+- [x] Consecutive `> ` lines merge into one `<blockquote>` with newlines between them
+- [x] Blockquotes with 5+ lines use `<blockquote expandable>` tag
+- [x] `> ` inside fenced code blocks is not converted
+- [x] Inline markdown inside blockquotes still works (bold, italic, code, links)
+- [x] Mixed content: text before/after blockquote renders correctly
+- [x] Existing 45 tests still pass
+- [x] Add tests covering the above cases
 
 ### Task 2: Add list bullet normalization (fitz123/claude-code-bot#45, P2)
 

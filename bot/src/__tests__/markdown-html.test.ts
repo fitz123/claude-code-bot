@@ -290,6 +290,72 @@ describe("markdownToHtml", () => {
     });
   });
 
+  describe("blockquotes", () => {
+    it("converts single > line to <blockquote>", () => {
+      assert.strictEqual(
+        markdownToHtml("> hello"),
+        "<blockquote>hello</blockquote>",
+      );
+    });
+
+    it("merges consecutive > lines into one <blockquote>", () => {
+      assert.strictEqual(
+        markdownToHtml("> line one\n> line two\n> line three"),
+        "<blockquote>line one\nline two\nline three</blockquote>",
+      );
+    });
+
+    it("uses <blockquote expandable> for 5+ lines", () => {
+      const input = "> a\n> b\n> c\n> d\n> e";
+      assert.strictEqual(
+        markdownToHtml(input),
+        "<blockquote expandable>a\nb\nc\nd\ne</blockquote>",
+      );
+    });
+
+    it("does not use expandable for exactly 4 lines", () => {
+      const input = "> a\n> b\n> c\n> d";
+      const result = markdownToHtml(input);
+      assert.ok(result.startsWith("<blockquote>"), "should use plain blockquote for 4 lines");
+      assert.ok(!result.includes("expandable"), "should not be expandable");
+    });
+
+    it("converts inline markdown inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> **bold** and *italic*"),
+        "<blockquote><b>bold</b> and <i>italic</i></blockquote>",
+      );
+    });
+
+    it("handles empty > line inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> first\n>\n> third"),
+        "<blockquote>first\n\nthird</blockquote>",
+      );
+    });
+
+    it("handles text before and after blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("before\n> quoted\nafter"),
+        "before\n<blockquote>quoted</blockquote>\nafter",
+      );
+    });
+
+    it("does not convert > inside fenced code block", () => {
+      assert.strictEqual(
+        markdownToHtml("```\n> not a blockquote\n```"),
+        "<pre>&gt; not a blockquote</pre>",
+      );
+    });
+
+    it("handles inline code inside blockquote", () => {
+      assert.strictEqual(
+        markdownToHtml("> use `foo` here"),
+        "<blockquote>use <code>foo</code> here</blockquote>",
+      );
+    });
+  });
+
   describe("plain text", () => {
     it("passes through text without markdown unchanged", () => {
       assert.strictEqual(markdownToHtml("hello world"), "hello world");

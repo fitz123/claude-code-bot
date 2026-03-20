@@ -156,7 +156,8 @@ function formatTable(tableLines: string[]): string {
 }
 
 /**
- * Convert markdown tables to <pre> blocks, then apply inline conversion to non-table text.
+ * Convert markdown tables to <pre> blocks, blockquotes to <blockquote>, then apply
+ * inline conversion to non-table text.
  * A table is: a header row (contains |), a separator row (only |, -, :, spaces with ---),
  * and zero or more body rows (contain |).
  */
@@ -182,12 +183,15 @@ function convertSegment(text: string): string {
     }
   }
 
-  // Fast path: no tables found
-  if (!inTable.includes(true)) {
+  const isBlockquoteLine = (idx: number) => !inTable[idx] && /^>/.test(lines[idx]);
+  const hasBlockquote = lines.some((_, idx) => isBlockquoteLine(idx));
+
+  // Fast path: no tables or blockquotes found
+  if (!inTable.includes(true) && !hasBlockquote) {
     return convertInline(text);
   }
 
-  // Build output: group consecutive table/non-table lines
+  // Build output: group consecutive table/blockquote/non-table lines
   let result = "";
   let i = 0;
   let firstGroup = true;
@@ -202,9 +206,17 @@ function convertSegment(text: string): string {
         i++;
       }
       result += `<pre>${formatTable(tableLines)}</pre>`;
+    } else if (isBlockquoteLine(i)) {
+      const bqLines: string[] = [];
+      while (i < lines.length && isBlockquoteLine(i)) {
+        bqLines.push(lines[i].replace(/^>\s?/, ""));
+        i++;
+      }
+      const tag = bqLines.length >= 5 ? "blockquote expandable" : "blockquote";
+      result += `<${tag}>${convertInline(bqLines.join("\n"))}</blockquote>`;
     } else {
       const textLines: string[] = [];
-      while (i < lines.length && !inTable[i]) {
+      while (i < lines.length && !inTable[i] && !isBlockquoteLine(i)) {
         textLines.push(lines[i]);
         i++;
       }
