@@ -107,6 +107,7 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
     deliveryThreadId,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
     maxBudget: typeof c.maxBudget === "number" ? c.maxBudget : undefined,
+    enabled: c.enabled === false ? false : undefined,
   };
 }
 

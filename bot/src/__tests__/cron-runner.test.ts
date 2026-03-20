@@ -485,42 +485,53 @@ describe("cron-runner", () => {
     });
   });
 
-  describe("CronJob type — enabled field", () => {
-    it("accepts enabled: true", () => {
-      const cron: CronJob = {
-        name: "test",
-        schedule: "0 * * * *",
-        type: "llm",
-        prompt: "test",
-        agentId: "main",
-        deliveryChatId: 111111111,
-        enabled: true,
-      };
-      assert.strictEqual(cron.enabled, true);
+  describe("loadCronTask — enabled field", () => {
+    const CRONS_DIR = join(TEST_DIR, "cron-enabled");
+    const CRONS_FILE = join(CRONS_DIR, "crons.yaml");
+
+    beforeEach(() => {
+      mkdirSync(CRONS_DIR, { recursive: true });
     });
 
-    it("accepts enabled: false", () => {
-      const cron: CronJob = {
-        name: "test",
-        schedule: "0 * * * *",
-        type: "llm",
-        prompt: "test",
-        agentId: "main",
-        deliveryChatId: 111111111,
-        enabled: false,
-      };
+    afterEach(() => {
+      rmSync(CRONS_DIR, { recursive: true, force: true });
+    });
+
+    it("parses enabled: false from YAML", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: disabled-task
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    enabled: false
+`);
+      const cron = loadCronTask("disabled-task", CRONS_FILE);
       assert.strictEqual(cron.enabled, false);
     });
 
-    it("defaults enabled to undefined when omitted", () => {
-      const cron: CronJob = {
-        name: "test",
-        schedule: "0 * * * *",
-        type: "llm",
-        prompt: "test",
-        agentId: "main",
-        deliveryChatId: 111111111,
-      };
+    it("returns undefined for enabled when omitted", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: default-task
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+      const cron = loadCronTask("default-task", CRONS_FILE);
+      assert.strictEqual(cron.enabled, undefined);
+    });
+
+    it("returns undefined for enabled: true (only false is preserved)", () => {
+      writeFileSync(CRONS_FILE, `crons:
+  - name: enabled-task
+    schedule: "0 * * * *"
+    prompt: "test"
+    agentId: main
+    deliveryChatId: 111111111
+    enabled: true
+`);
+      const cron = loadCronTask("enabled-task", CRONS_FILE);
       assert.strictEqual(cron.enabled, undefined);
     });
   });

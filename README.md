@@ -68,8 +68,8 @@ The bot runs as a launchd service: `ai.minime.telegram-bot`.
 # Check status
 launchctl print gui/$(id -u)/ai.minime.telegram-bot 2>&1 | head -5
 
-# Restart (kills all active Claude sessions!)
-launchctl kickstart -k gui/$(id -u)/ai.minime.telegram-bot
+# Restart (graceful — waits for active sessions to finish)
+launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot
 
 # Stop
 launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
@@ -214,8 +214,8 @@ adminChatId: 123456789  # optional; receive cron delivery failure alerts here
 3. Validate and restart:
    ```bash
    cd ~/.minime/bot && npx tsx src/config.ts --validate
-   # Then confirm and restart
-   launchctl kickstart -k gui/$(id -u)/ai.minime.telegram-bot
+   # Then confirm and restart (graceful — launchd auto-restarts via KeepAlive)
+   launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot
    ```
 
 ## Add a Discord Binding
@@ -355,13 +355,13 @@ Claude Code sets `CLAUDECODE` in its environment. If a subprocess inherits it, s
 The bot reads platform tokens from macOS Keychain via `security find-generic-password -s '<service>' -w` (e.g., `telegram-bot-token` or `discord-bot-token`). If this fails, macOS may be prompting for Keychain access in a non-interactive context. Fix: unlock Keychain before starting, or grant "Always Allow" to `security` for this item.
 
 **Messages sent during downtime are discarded**
-After a restart, messages older than 5 minutes (configurable via `sessionDefaults.maxMessageAgeMs` in `config.yaml`) are silently dropped. This prevents stale message floods from triggering unnecessary session spawns. If you sent a message during downtime, resend it after the bot comes back.
+After a restart, messages older than 10 minutes (configurable via `sessionDefaults.maxMessageAgeMs` in `config.yaml`) are silently dropped. This prevents stale message floods from triggering unnecessary session spawns. If you sent a message during downtime, resend it after the bot comes back.
 
 **Session blocked after repeated crashes**
 If a session crashes 5 times in a row, it is circuit-broken — the bot refuses to spawn new sessions for that chat. Send `/reset` to clear the crash counter and unblock. Crash backoff starts at 5s and doubles on each crash (capped at 60s) before the circuit fully opens.
 
 **Session stuck / not responding**
-Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a session is stuck:
+Sessions have a 1-hour idle timeout and max 12 concurrent (LRU eviction). If a session is stuck:
 - Check per-session stderr logs for subprocess crash details: `~/.minime/logs/session-<chatId>.log`
 - Check bot stderr log for bot-level errors
 - The session store persists across restarts: `~/.minime/bot/data/sessions.json` (at repo root, not inside `bot/`)
@@ -375,7 +375,7 @@ Sessions have a 4-hour idle timeout and max 6 concurrent (LRU eviction). If a se
 **maxTurns limit**
 Limits how many agentic loops (tool call chains) Claude can do per single user message. Safety net against runaway agents burning rate limit quota. Set to 250 by default. Remove from config for unlimited. If hit mid-work, Claude stops and the subprocess exits — next message spawns a fresh session via --resume.
 **Max concurrent sessions reached**
-Only 6 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
+Only 12 warm sessions at a time (`sessionDefaults.maxConcurrentSessions`). LRU session gets evicted. If an important session keeps getting killed, consider increasing the limit in `config.yaml` or reducing idle timeout.
 
 ## Scripts
 

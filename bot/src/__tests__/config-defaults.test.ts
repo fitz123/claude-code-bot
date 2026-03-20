@@ -48,8 +48,47 @@ describe("validateSessionDefaults", () => {
       /Invalid maxMessageAgeMs/,
     );
     assert.throws(
+      () => validateSessionDefaults({ maxMessageAgeMs: 0 }),
+      /Invalid maxMessageAgeMs/,
+    );
+    assert.throws(
       () => validateSessionDefaults({ maxMessageAgeMs: Infinity }),
       /Invalid maxMessageAgeMs/,
     );
+  });
+
+  it("throws on invalid idleTimeoutMs", () => {
+    assert.throws(
+      () => validateSessionDefaults({ idleTimeoutMs: -1 }),
+      /Invalid idleTimeoutMs/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ idleTimeoutMs: 0 }),
+      /Invalid idleTimeoutMs/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ idleTimeoutMs: Infinity }),
+      /Invalid idleTimeoutMs/,
+    );
+  });
+
+  it("throws on invalid maxConcurrentSessions", () => {
+    assert.throws(
+      () => validateSessionDefaults({ maxConcurrentSessions: 0 }),
+      /Invalid maxConcurrentSessions/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ maxConcurrentSessions: -1 }),
+      /Invalid maxConcurrentSessions/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ maxConcurrentSessions: 0.5 }),
+      /Invalid maxConcurrentSessions/,
+    );
+  });
+
+  it("ignores non-numeric types and uses defaults", () => {
+    const defaults = validateSessionDefaults({ idleTimeoutMs: "not a number" });
+    assert.strictEqual(defaults.idleTimeoutMs, 3600000);
   });
 });

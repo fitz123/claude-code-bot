@@ -62,7 +62,7 @@ Initial public release of Minime — a multi-platform bot that routes messages t
 
 - Scheduled jobs via launchd plists generated from `crons.yaml`
 - Two task types: `llm` (Claude prompt) and `script` (shell command)
-- Per-cron configuration: timeout, maxBudget, deliveryThreadId, enabled, model
+- Per-cron configuration: timeout, maxBudget, deliveryThreadId, enabled
 - Result delivery to Telegram with configurable default delivery target
 - Admin notifications on delivery failure
 - NO_REPLY suppression for cron output
