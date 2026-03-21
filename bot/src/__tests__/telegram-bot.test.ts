@@ -266,6 +266,34 @@ describe("buildSourcePrefix", () => {
     assert.ok(binding);
     assert.strictEqual(buildSourcePrefix(binding, { first_name: "User1" }), "[Chat: User1 DM | From: User1]\n");
   });
+
+  it("appends HH:MM timestamp as last field when timestampUnixSec is provided", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "HQ" };
+    const from = { first_name: "Alice", username: "alice" };
+    const ts = 1700000000;
+    const d = new Date(ts * 1000);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    assert.strictEqual(
+      buildSourcePrefix(binding, from, ts),
+      `[Chat: HQ | From: Alice (@alice) | ${hh}:${mm}]\n`,
+    );
+  });
+
+  it("works without crash when timestamp is undefined (backward compat)", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "HQ" };
+    const from = { first_name: "Alice" };
+    assert.strictEqual(buildSourcePrefix(binding, from, undefined), "[Chat: HQ | From: Alice]\n");
+  });
+
+  it("includes timestamp even when no label and no from", () => {
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
+    const ts = 1700000000;
+    const d = new Date(ts * 1000);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    assert.strictEqual(buildSourcePrefix(binding, undefined, ts), `[${hh}:${mm}]\n`);
+  });
 });
 
 describe("imageExtensionForMime", () => {

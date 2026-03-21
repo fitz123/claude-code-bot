@@ -281,6 +281,37 @@ describe("buildDiscordSourcePrefix", () => {
       "[Chat: Chat | From: Evil Name (@eviluser)]\n",
     );
   });
+
+  it("appends HH:MM timestamp as last field when timestampMs is provided", () => {
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "General" };
+    const author = { username: "johndoe", globalName: "John Doe" };
+    const tsMs = 1700000000000;
+    const d = new Date(tsMs);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    assert.strictEqual(
+      buildDiscordSourcePrefix(binding, author, tsMs),
+      `[Chat: General | From: John Doe (@johndoe) | ${hh}:${mm}]\n`,
+    );
+  });
+
+  it("works without crash when timestamp is undefined (backward compat)", () => {
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "Dev" };
+    const author = { username: "alice", globalName: "Alice" };
+    assert.strictEqual(
+      buildDiscordSourcePrefix(binding, author, undefined),
+      "[Chat: Dev | From: Alice (@alice)]\n",
+    );
+  });
+
+  it("includes timestamp even when no label and no author", () => {
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "dm" };
+    const tsMs = 1700000000000;
+    const d = new Date(tsMs);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    assert.strictEqual(buildDiscordSourcePrefix(binding, undefined, tsMs), `[${hh}:${mm}]\n`);
+  });
 });
 
 // --- Thread session isolation ---

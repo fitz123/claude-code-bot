@@ -92,6 +92,7 @@ export function shouldRespondInDiscord(
 export function buildDiscordSourcePrefix(
   binding: DiscordBinding,
   author?: { username: string; displayName?: string; globalName?: string | null },
+  timestampMs?: number,
 ): string {
   const parts: string[] = [];
 
@@ -104,6 +105,13 @@ export function buildDiscordSourcePrefix(
     const name = displayName.replace(/[\n\r]/g, " ");
     const sender = `${name} (@${author.username.replace(/[\n\r]/g, "")})`;
     parts.push(`From: ${sender}`);
+  }
+
+  if (timestampMs !== undefined) {
+    const d = new Date(timestampMs);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    parts.push(`${hh}:${mm}`);
   }
 
   return parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
@@ -216,7 +224,7 @@ export async function createDiscordBot(
       }
 
       const key = discordSessionKey(channelId, threadId);
-      const prefix = buildDiscordSourcePrefix(binding, message.author);
+      const prefix = buildDiscordSourcePrefix(binding, message.author, message.createdTimestamp);
       // Strip bot mention syntax (<@botId>) from message content so Claude
       // doesn't receive raw snowflake IDs in every requireMention message
       const botMentionRe = new RegExp(`<@!?${client.user!.id}>\\s*`, "g");

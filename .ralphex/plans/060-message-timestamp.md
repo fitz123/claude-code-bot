@@ -109,9 +109,9 @@ Evidence: current `buildSourcePrefix` output is `[Chat: Minime HQ | Topic: 1890 
 
 Desired: both Telegram and Discord source prefixes include the message time (HH:MM format in system timezone) as the last element before the closing bracket. Example: `[Chat: Minime HQ | Topic: 1890 | From: User (@user) | 19:53]`
 
-- [ ] Telegram text, voice, photo, document, and reaction messages all include HH:MM timestamp in the source prefix
-- [ ] Discord messages include HH:MM timestamp in the source prefix
-- [ ] Timestamp uses system timezone
-- [ ] When timestamp is not available (undefined/null), the prefix works without it (no crash, no empty field)
-- [ ] Add tests for timestamp in prefix output (both Telegram and Discord)
-- [ ] Verify existing tests pass
+- [x] Telegram text, voice, photo, document, and reaction messages all include HH:MM timestamp in the source prefix
+- [x] Discord messages include HH:MM timestamp in the source prefix
+- [x] Timestamp uses system timezone
+- [x] When timestamp is not available (undefined/null), the prefix works without it (no crash, no empty field)
+- [x] Add tests for timestamp in prefix output (both Telegram and Discord)
+- [x] Verify existing tests pass

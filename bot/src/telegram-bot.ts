@@ -89,6 +89,7 @@ export function resolveBinding(
 export function buildSourcePrefix(
   binding: TelegramBinding,
   from?: { first_name: string; username?: string },
+  timestampUnixSec?: number,
 ): string {
   const parts: string[] = [];
 
@@ -106,6 +107,13 @@ export function buildSourcePrefix(
       ? `${name} (@${from.username.replace(/[\n\r]/g, "")})`
       : name;
     parts.push(`From: ${sender}`);
+  }
+
+  if (timestampUnixSec !== undefined) {
+    const d = new Date(timestampUnixSec * 1000);
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    parts.push(`${hh}:${mm}`);
   }
 
   return parts.length > 0 ? `[${parts.join(" | ")}]\n` : "";
@@ -577,7 +585,7 @@ export function createTelegramBot(
     messagesReceived.inc({ type: "text" });
 
     const key = sessionKey(chatId, topicId);
-    const prefix = buildSourcePrefix(binding, ctx.from);
+    const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
     const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
     const fwdCtx = buildForwardContext(ctx.message.forward_origin);
     const messageText = prefix + replyCtx + fwdCtx + ctx.message.text;
@@ -628,7 +636,7 @@ export function createTelegramBot(
       recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), transcript, "in");
 
       // Send transcript text to Claude session
-      const prefix = buildSourcePrefix(binding, ctx.from);
+      const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       messageQueue.enqueue(key, binding.agentId, `${prefix}${replyCtx}${fwdCtx}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
@@ -681,7 +689,7 @@ export function createTelegramBot(
       await downloadFile(url, tempPath);
 
       // Build message: caption (if any) + image file path
-      const prefix = buildSourcePrefix(binding, ctx.from);
+      const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       const context = prefix + replyCtx + fwdCtx;
@@ -745,7 +753,7 @@ export function createTelegramBot(
       tempPath = tempFilePath("doc", ext);
       await downloadFile(url, tempPath);
 
-      const prefix = buildSourcePrefix(binding, ctx.from);
+      const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
       const context = prefix + replyCtx + fwdCtx;
@@ -802,7 +810,7 @@ export function createTelegramBot(
 
       const user = ctx.messageReaction.user;
       const from = user ? { first_name: user.first_name, username: user.username } : undefined;
-      const prefix = buildSourcePrefix(binding, from);
+      const prefix = buildSourcePrefix(binding, from, ctx.messageReaction.date);
       const content = lookupMessage(chatId, messageId);
       const reactionText = buildReactionContext(messageId, emojiAdded, emojiRemoved, content);
       const messageText = prefix + reactionText;
