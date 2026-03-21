@@ -1,3 +1,4 @@
+process.env.TZ = "UTC";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
@@ -283,15 +284,12 @@ describe("buildDiscordSourcePrefix", () => {
   });
 
   it("appends HH:MM timestamp as last field when timestampMs is provided", () => {
+    // 1700000000000 ms = 2023-11-14T22:13:20Z (UTC)
     const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "General" };
     const author = { username: "johndoe", globalName: "John Doe" };
-    const tsMs = 1700000000000;
-    const d = new Date(tsMs);
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
     assert.strictEqual(
-      buildDiscordSourcePrefix(binding, author, tsMs),
-      `[Chat: General | From: John Doe (@johndoe) | ${hh}:${mm}]\n`,
+      buildDiscordSourcePrefix(binding, author, 1700000000000),
+      "[Chat: General | From: John Doe (@johndoe) | 22:13]\n",
     );
   });
 
@@ -305,12 +303,19 @@ describe("buildDiscordSourcePrefix", () => {
   });
 
   it("includes timestamp even when no label and no author", () => {
+    // 1700000000000 ms = 2023-11-14T22:13:20Z (UTC)
     const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "dm" };
-    const tsMs = 1700000000000;
-    const d = new Date(tsMs);
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
-    assert.strictEqual(buildDiscordSourcePrefix(binding, undefined, tsMs), `[${hh}:${mm}]\n`);
+    assert.strictEqual(buildDiscordSourcePrefix(binding, undefined, 1700000000000), "[22:13]\n");
+  });
+
+  it("zero-pads single-digit hours and minutes in timestamp", () => {
+    // 1700006700000 ms = 2023-11-15T00:05:00Z (UTC) → "00:05"
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "General" };
+    const author = { username: "johndoe", globalName: "John Doe" };
+    assert.strictEqual(
+      buildDiscordSourcePrefix(binding, author, 1700006700000),
+      "[Chat: General | From: John Doe (@johndoe) | 00:05]\n",
+    );
   });
 });
 

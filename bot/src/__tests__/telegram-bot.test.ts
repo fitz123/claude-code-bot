@@ -1,3 +1,4 @@
+process.env.TZ = "UTC";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS } from "../telegram-bot.js";
@@ -268,15 +269,12 @@ describe("buildSourcePrefix", () => {
   });
 
   it("appends HH:MM timestamp as last field when timestampUnixSec is provided", () => {
+    // 1700000000 Unix sec = 2023-11-14T22:13:20Z (UTC)
     const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "HQ" };
     const from = { first_name: "Alice", username: "alice" };
-    const ts = 1700000000;
-    const d = new Date(ts * 1000);
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
     assert.strictEqual(
-      buildSourcePrefix(binding, from, ts),
-      `[Chat: HQ | From: Alice (@alice) | ${hh}:${mm}]\n`,
+      buildSourcePrefix(binding, from, 1700000000),
+      "[Chat: HQ | From: Alice (@alice) | 22:13]\n",
     );
   });
 
@@ -287,12 +285,26 @@ describe("buildSourcePrefix", () => {
   });
 
   it("includes timestamp even when no label and no from", () => {
+    // 1700000000 Unix sec = 2023-11-14T22:13:20Z (UTC)
     const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "dm" };
-    const ts = 1700000000;
-    const d = new Date(ts * 1000);
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
-    assert.strictEqual(buildSourcePrefix(binding, undefined, ts), `[${hh}:${mm}]\n`);
+    assert.strictEqual(buildSourcePrefix(binding, undefined, 1700000000), "[22:13]\n");
+  });
+
+  it("includes timestamp after topic field when topicId and timestamp are both set", () => {
+    // 1700000000 Unix sec = 2023-11-14T22:13:20Z (UTC)
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "HQ", topicId: 42 };
+    const from = { first_name: "Alice", username: "alice" };
+    assert.strictEqual(
+      buildSourcePrefix(binding, from, 1700000000),
+      "[Chat: HQ | Topic: 42 | From: Alice (@alice) | 22:13]\n",
+    );
+  });
+
+  it("zero-pads single-digit hours and minutes in timestamp", () => {
+    // 1700006700 Unix sec = 2023-11-15T00:05:00Z (UTC) → "00:05"
+    const binding: TelegramBinding = { chatId: 1, agentId: "main", kind: "group", label: "HQ" };
+    const from = { first_name: "Alice" };
+    assert.strictEqual(buildSourcePrefix(binding, from, 1700006700), "[Chat: HQ | From: Alice | 00:05]\n");
   });
 });
 
