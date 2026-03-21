@@ -152,10 +152,10 @@ describe("project naming", () => {
       configTs.includes('resolve(__dirname, "..", "..", "config.yaml")'),
       "config.ts should resolve config.yaml from workspace root (2 levels up)"
     );
-    // Should auto-discover config.local.yaml sibling
+    // Should check for and load config.local.yaml when present
     assert.ok(
-      configTs.includes("config.local.yaml") || configTs.includes(".local.yaml"),
-      "config.ts should support config.local.yaml override"
+      configTs.includes("existsSync(localPath)"),
+      "config.ts should check for and load config.local.yaml when it exists"
     );
   });
 

@@ -111,6 +111,22 @@ describe("loadMergedCrons", () => {
     assert.strictEqual(crons[2].name, "third");
   });
 
+  it("local file with non-array crons falls back to base", () => {
+    const cronsPath = join(TEST_DIR, "crons.yaml");
+    const localPath = join(TEST_DIR, "crons.local.yaml");
+    writeFileSync(cronsPath, `crons:
+  - name: base-task
+    schedule: "0 9 * * *"
+    prompt: "base"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+    writeFileSync(localPath, "crons: not-an-array\n");
+    const crons = loadMergedCrons(cronsPath);
+    assert.strictEqual(crons.length, 1);
+    assert.strictEqual(crons[0].name, "base-task");
+  });
+
   it("handles empty local file gracefully", () => {
     const cronsPath = join(TEST_DIR, "crons.yaml");
     const localPath = join(TEST_DIR, "crons.local.yaml");
@@ -155,6 +171,20 @@ describe("loadMergedCrons", () => {
     assert.strictEqual(crons[0].name, "base-task");
     assert.strictEqual(crons[1].name, "user-task-1");
     assert.strictEqual(crons[2].name, "user-task-2");
+  });
+
+  it("loadCronTask: enabled:true normalizes to undefined (truthy is the default)", () => {
+    const cronsPath = join(TEST_DIR, "crons.yaml");
+    writeFileSync(cronsPath, `crons:
+  - name: explicit-enabled
+    schedule: "0 9 * * *"
+    prompt: "do something"
+    agentId: main
+    deliveryChatId: 111111111
+    enabled: true
+`);
+    const cron = loadCronTask("explicit-enabled", cronsPath);
+    assert.strictEqual(cron.enabled, undefined);
   });
 
   it("loadCronTask finds a task defined only in local file", () => {

@@ -3,17 +3,15 @@
 // Usage: npx tsx scripts/generate-plists.ts [--dry-run]
 // Output: ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { parse as parseYaml } from "yaml";
+import { loadMergedCrons } from "../src/cron-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(BOT_DIR, "..");
-const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
-const CRONS_LOCAL_PATH = resolve(REPO_ROOT, "crons.local.yaml");
 const HOME = homedir();
 const LAUNCH_AGENTS_DIR = join(HOME, "Library", "LaunchAgents");
 const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".minime", "logs");
@@ -31,10 +29,6 @@ interface CronDef {
   deliveryChatId?: number;
   timeout?: number;
   enabled?: boolean;
-}
-
-interface CronsYaml {
-  crons: CronDef[];
 }
 
 // Parse cron expression to launchd StartCalendarInterval entries
@@ -227,34 +221,10 @@ ${scheduleSection}
 `;
 }
 
-function loadMergedCrons(): CronDef[] {
-  const raw: CronsYaml = parseYaml(readFileSync(CRONS_PATH, "utf8"));
-  if (!raw?.crons || !Array.isArray(raw.crons)) {
-    throw new Error("crons.yaml missing 'crons' array");
-  }
-  let crons = [...raw.crons];
-
-  if (existsSync(CRONS_LOCAL_PATH)) {
-    const localRaw: CronsYaml = parseYaml(readFileSync(CRONS_LOCAL_PATH, "utf8"));
-    if (localRaw?.crons && Array.isArray(localRaw.crons)) {
-      for (const local of localRaw.crons) {
-        const idx = crons.findIndex((c) => c.name === local.name);
-        if (idx >= 0) {
-          crons[idx] = local;
-        } else {
-          crons.push(local);
-        }
-      }
-    }
-  }
-
-  return crons;
-}
-
 function main(): void {
   let crons: CronDef[];
   try {
-    crons = loadMergedCrons();
+    crons = loadMergedCrons() as unknown as CronDef[];
   } catch (err) {
     console.error(`ERROR: ${(err as Error).message}`);
     process.exit(1);

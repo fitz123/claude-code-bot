@@ -15,7 +15,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(BOT_DIR, "..");
 const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
-const CONFIG_PATH = resolve(REPO_ROOT, "config.yaml");
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
 
@@ -83,7 +82,7 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   );
   if (!found) {
     throw new Error(
-      `Task "${taskName}" not found in crons.yaml. Available: ${crons.map((c) => c.name).join(", ")}`,
+      `Task "${taskName}" not found in crons.yaml / crons.local.yaml. Available: ${crons.map((c) => c.name).join(", ")}`,
     );
   }
 
