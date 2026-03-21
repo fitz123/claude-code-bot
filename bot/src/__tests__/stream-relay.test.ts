@@ -720,11 +720,11 @@ describe("relayStream newline collapsing", () => {
 
     assert.strictEqual(sends.length, 1);
     // \n\n\n should be collapsed to \n\n
-    assert.strictEqual(sends[0].text, "Line 1\n\n\nLine 2".replace(/\n{3,}/g, "\n\n"));
+    assert.strictEqual(sends[0].text, "Line 1\n\nLine 2");
     assert.ok(!sends[0].text.includes("\n\n\n"), "Should not contain 3+ consecutive newlines");
   });
 
-  it("collapses newlines in streaming edits (doEdit path)", async () => {
+  it("collapses newlines in final streaming edit", async () => {
     const { platform, edits } = mockPlatform({ streamingUpdates: true });
     const stream = fakeStreamWithTools(["Before\n", "tool_use", "\nAfter"]);
 

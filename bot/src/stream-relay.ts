@@ -232,9 +232,10 @@ export async function relayStream(
 
       // Send initial message once we have text (only if streaming is enabled)
       if (accumulated && sentMessageId === null && platform.streamingUpdates && !initialSendFailed) {
-        const displayText = accumulated.length > platform.maxMessageLength
-          ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
-          : accumulated;
+        const normalizedInitial = collapseNewlines(accumulated);
+        const displayText = normalizedInitial.length > platform.maxMessageLength
+          ? normalizedInitial.slice(0, platform.maxMessageLength - 3) + "..."
+          : normalizedInitial;
         try {
           sentMessageId = await platform.sendMessage(displayText);
           lastEditTime = Date.now();
