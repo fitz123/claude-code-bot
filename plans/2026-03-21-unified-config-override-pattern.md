@@ -250,13 +250,13 @@ Files referencing `.example` that will break:
 - Update CLAUDE.md setup instructions to reference new pattern
 - Update README if it references `.example` copy workflow
 
-- [ ] `config.yaml.example` no longer exists in repo
-- [ ] `crons.yaml.example` no longer exists in repo
-- [ ] `.claude/settings.local.json.example` no longer exists in repo
-- [ ] `bot/telegram-bot.plist.example` still exists (not part of this migration)
-- [ ] `reference/governance/decisions.md.example` still exists (not part of this migration)
-- [ ] `.gitattributes` retains identity files + settings.json + .gitignore + .gitattributes
-- [ ] Setup documentation updated to describe `X` + `X.local` pattern
-- [ ] All test files updated to reference `config.yaml`/`crons.yaml` instead of `.example` variants
-- [ ] No broken references to removed `.example` files anywhere in codebase (verified by grep)
-- [ ] Verify existing tests pass
+- [x] `config.yaml.example` no longer exists in repo
+- [x] `crons.yaml.example` no longer exists in repo
+- [x] `.claude/settings.local.json.example` no longer exists in repo
+- [x] `bot/telegram-bot.plist.example` still exists (not part of this migration)
+- [x] `reference/governance/decisions.md.example` still exists (not part of this migration)
+- [x] `.gitattributes` retains identity files + settings.json + .gitignore + .gitattributes
+- [x] Setup documentation updated to describe `X` + `X.local` pattern
+- [x] All test files updated to reference `config.yaml`/`crons.yaml` instead of `.example` variants
+- [x] No broken references to removed `.example` files anywhere in codebase (verified by grep)
+- [x] Verify existing tests pass

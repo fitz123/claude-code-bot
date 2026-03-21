@@ -550,28 +550,28 @@ fi
 echo ""
 
 # ============================================================
-# Test: crons.yaml.example
+# Test: crons.yaml
 # ============================================================
-echo "--- crons.yaml.example ---"
-CRONS_EXAMPLE="$WORKSPACE/crons.yaml.example"
+echo "--- crons.yaml ---"
+CRONS_EXAMPLE="$WORKSPACE/crons.yaml"
 
 # Has workspace-health entry
 TESTS=$((TESTS + 1))
 if grep -q 'workspace-health' "$CRONS_EXAMPLE" 2>/dev/null; then
-  echo "  PASS: crons.yaml.example has workspace-health entry"
+  echo "  PASS: crons.yaml has workspace-health entry"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: crons.yaml.example missing workspace-health entry"
+  echo "  FAIL: crons.yaml missing workspace-health entry"
   FAIL=$((FAIL + 1))
 fi
 
 # References the skill
 TESTS=$((TESTS + 1))
 if grep -q '/workspace-health' "$CRONS_EXAMPLE" 2>/dev/null; then
-  echo "  PASS: crons.yaml.example references workspace-health skill"
+  echo "  PASS: crons.yaml references workspace-health skill"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL: crons.yaml.example does not reference workspace-health skill"
+  echo "  FAIL: crons.yaml does not reference workspace-health skill"
   FAIL=$((FAIL + 1))
 fi
 
