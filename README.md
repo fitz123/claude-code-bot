@@ -100,7 +100,15 @@ Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of your rep
 cp crons.local.yaml.example crons.local.yaml
 ```
 
-Optionally create `.claude/settings.local.json` to override Claude Code settings (e.g. set `autoMemoryDirectory` to `<repo-path>/memory/auto`).
+Create `.claude/settings.local.json` with required settings:
+
+```json
+{
+  "outputStyle": "Your output style name",
+  "autoMemoryEnabled": true,
+  "autoMemoryDirectory": "/absolute/path/to/your/workspace/memory/auto"
+}
+```
 
 **3. Store Telegram bot token in macOS Keychain**
 
@@ -171,7 +179,7 @@ launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
 ```
 
-**Warning:** Restarting kills all active Claude Code sessions (both Telegram and Discord), drops in-flight messages, and interrupts running sub-agents. Always confirm before restarting.
+**Warning:** Graceful restart sends SIGTERM — the bot injects a shutdown message into active sessions and waits up to 60s for turns to complete before exiting. Idle sessions close immediately. launchd auto-restarts via KeepAlive. Still, active work is interrupted — always confirm before restarting.
 
 ## Add a Cron
 
