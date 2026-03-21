@@ -67,11 +67,11 @@ Evidence: `stream-relay.ts:211-212` inserts `\n`/`\n\n` after every tool-use blo
 
 Desired: consecutive newlines (3+) are collapsed to exactly `\n\n` before the message is sent. Single `\n` (line breaks) and `\n\n` (paragraph breaks) are preserved. The fix applies to the final accumulated text before splitting and sending.
 
-- [ ] Messages with multiple consecutive tool calls between text blocks have at most one empty line between paragraphs (no `\n\n\n` or more in delivered text)
-- [ ] Single newlines within paragraphs are preserved
-- [ ] Double newlines (paragraph breaks) are preserved
-- [ ] Normalization applies to both streaming edits and final send
-- [ ] Add tests: text with `\n\n\n\n` between paragraphs is collapsed to `\n\n`
-- [ ] Add tests: `\n\n` is not collapsed further
-- [ ] Add tests: single `\n` is not affected
-- [ ] Verify existing tests pass
+- [x] Messages with multiple consecutive tool calls between text blocks have at most one empty line between paragraphs (no `\n\n\n` or more in delivered text)
+- [x] Single newlines within paragraphs are preserved
+- [x] Double newlines (paragraph breaks) are preserved
+- [x] Normalization applies to both streaming edits and final send
+- [x] Add tests: text with `\n\n\n\n` between paragraphs is collapsed to `\n\n`
+- [x] Add tests: `\n\n` is not collapsed further
+- [x] Add tests: single `\n` is not affected
+- [x] Verify existing tests pass
