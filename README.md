@@ -84,19 +84,23 @@ git clone https://github.com/fitz123/claude-code-bot.git ~/.minime
 cd ~/.minime/bot && npm install
 ```
 
-**2. Copy and edit config files**
+**2. Configure for your environment**
+
+`config.yaml` ships with working defaults. Create `config.local.yaml` for your overrides:
 
 ```bash
-cp config.yaml.example config.yaml
-cp crons.yaml.example crons.yaml
-cp .claude/settings.local.json.example .claude/settings.local.json
+cp config.local.yaml.example config.local.yaml
 ```
 
-Edit `config.yaml` — set `workspaceCwd` to the absolute path of your repo and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it). See [config.yaml.example](config.yaml.example) for all options.
+Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of your repo and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it).
 
-Edit `.claude/settings.local.json` — set `autoMemoryDirectory` to `<repo-path>/memory/auto`.
+`crons.yaml` ships with example crons (all disabled). Create `crons.local.yaml` for your own crons:
 
-To start with no crons, replace contents of `crons.yaml` with `crons: []`.
+```bash
+cp crons.local.yaml.example crons.local.yaml
+```
+
+Optionally create `.claude/settings.local.json` to override Claude Code settings (e.g. set `autoMemoryDirectory` to `<repo-path>/memory/auto`).
 
 **3. Store Telegram bot token in macOS Keychain**
 
@@ -137,9 +141,9 @@ Send a message to your bot in Telegram to confirm it responds.
 
 ### Optional setup
 
-**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.yaml`. See [config.yaml.example](config.yaml.example).
+**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.yaml`. See [config.yaml](config.yaml).
 
-**Crons:** Edit `crons.yaml`, then generate and load plists:
+**Crons:** Add your crons to `crons.local.yaml` (copy from `crons.local.yaml.example`), then generate and load plists:
 ```bash
 cd ~/.minime/bot && npx tsx scripts/generate-plists.ts
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
@@ -227,7 +231,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
        label: New Agent DM
    ```
 
-   See [config.yaml.example](config.yaml.example) for all binding options including `requireMention`, `voiceTranscriptEcho`, `streamingUpdates`, `typingIndicator`, and per-topic overrides for forum supergroups.
+   See [config.yaml](config.yaml) for all binding options including `requireMention`, `voiceTranscriptEcho`, `streamingUpdates`, `typingIndicator`, and per-topic overrides for forum supergroups.
 
 2. Validate and restart:
    ```bash
@@ -254,7 +258,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
          requireMention: true
    ```
 
-   See [config.yaml.example](config.yaml.example) for per-channel overrides and guild-wide defaults.
+   See [config.yaml](config.yaml) for per-channel overrides and guild-wide defaults.
 
 3. Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages. Slash commands (`/start`, `/reset`, `/status`) are registered per-guild on startup.
 

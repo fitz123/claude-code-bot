@@ -53,4 +53,4 @@ Subdirectories:
 - Edit `USER.md` with your details
 - Edit `IDENTITY.md` to shape the assistant's personality
 - Copy optional rules from `.claude/optional-rules/` to `.claude/rules/custom/`
-- Override settings via `.claude/settings.local.json` (see `.claude/settings.local.json.example`)
+- Override settings via `.claude/settings.local.json` (create it manually; see `.claude/settings.json` for available keys)
