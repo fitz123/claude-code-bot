@@ -211,18 +211,18 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 - `crons.local.yaml.example` added — shows format for user crons
 - `.gitignore` updated: remove `crons.yaml`, add `crons.local.yaml`
 
-- [ ] `crons.yaml` is tracked in git with documented example crons
-- [ ] `crons.local.yaml` is gitignored
-- [ ] `crons.local.yaml.example` exists with clear user cron examples
-- [ ] `crons.yaml.example` is removed
-- [ ] Cron loader concatenates cron arrays from both files
-- [ ] Duplicate cron names: local wins over upstream
-- [ ] Bot starts with only `crons.yaml` (no local) — example crons loaded (or disabled by default)
-- [ ] Bot starts with both files — all crons from both are available
-- [ ] generate-plists.ts reads and merges both crons.yaml and crons.local.yaml when generating plists
-- [ ] `.gitignore` lists `crons.local.yaml` instead of `crons.yaml`
-- [ ] Add tests for cron merging logic
-- [ ] Verify existing tests pass
+- [x] `crons.yaml` is tracked in git with documented example crons
+- [x] `crons.local.yaml` is gitignored
+- [x] `crons.local.yaml.example` exists with clear user cron examples
+- [x] `crons.yaml.example` is removed
+- [x] Cron loader concatenates cron arrays from both files
+- [x] Duplicate cron names: local wins over upstream
+- [x] Bot starts with only `crons.yaml` (no local) — example crons loaded (or disabled by default)
+- [x] Bot starts with both files — all crons from both are available
+- [x] generate-plists.ts reads and merges both crons.yaml and crons.local.yaml when generating plists
+- [x] `.gitignore` lists `crons.local.yaml` instead of `crons.yaml`
+- [x] Add tests for cron merging logic
+- [x] Verify existing tests pass
 
 ### Task 4: Clean up .gitattributes and .example files (workspace-voy5, P2)
 

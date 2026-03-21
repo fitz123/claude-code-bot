@@ -127,14 +127,21 @@ describe("project naming", () => {
     );
   });
 
-  it("crons.yaml.example lives at workspace root, not bot/", () => {
+  it("crons.yaml lives at workspace root (tracked defaults)", () => {
     assert.ok(
-      existsSync(resolve(repoRoot, "crons.yaml.example")),
-      "crons.yaml.example missing from workspace root"
+      existsSync(resolve(repoRoot, "crons.yaml")),
+      "crons.yaml missing from workspace root"
     );
     assert.ok(
-      !existsSync(resolve(repoRoot, "bot/crons.yaml.example")),
-      "crons.yaml.example should not exist in bot/ (moved to workspace root)"
+      !existsSync(resolve(repoRoot, "bot/crons.yaml")),
+      "crons.yaml should not exist in bot/ (belongs at workspace root)"
+    );
+  });
+
+  it("crons.local.yaml.example lives at workspace root", () => {
+    assert.ok(
+      existsSync(resolve(repoRoot, "crons.local.yaml.example")),
+      "crons.local.yaml.example missing from workspace root"
     );
   });
 
