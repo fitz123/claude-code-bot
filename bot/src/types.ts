@@ -132,7 +132,7 @@ export interface PlatformContext {
   /** Interval between typing indicator resends (ms). */
   readonly typingIntervalMs: number;
 
-  /** Whether to send progressive streaming edits (default true). */
+  /** Whether to send progressive streaming edits (default false). */
   readonly streamingUpdates: boolean;
 
   /** Whether to send typing indicators (default true). */
