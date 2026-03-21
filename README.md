@@ -72,7 +72,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 - macOS (launchd required for bot service management)
 - Node.js 20+ and npm
 - `jq` — required by hook scripts (`brew install jq`)
-- [Claude Code CLI](https://claude.ai/code) — must be authenticated via `claude auth login`
+- [Claude Code CLI](https://claude.ai/code) with Max subscription
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) (or Discord bot token)
 
 ### Steps
@@ -116,11 +116,15 @@ Create `.claude/settings.local.json` with required settings:
 security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
 ```
 
-**4. Authenticate Claude Code**
+**4. Store Claude Code OAuth token in Keychain**
 
 ```bash
-claude auth login
+claude setup-token
+# Copy the token, then store it:
+security add-generic-password -s 'claude-code-oauth-token' -a 'minime' -w 'YOUR_OAUTH_TOKEN'
 ```
+
+The bot reads this token at startup via `start-bot.sh` and `run-cron.sh` — it does not use `claude auth login`.
 
 **5. Create launchd service**
 
