@@ -181,7 +181,20 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
      deliveryChatId: YOUR_CHAT_ID
    ```
 
-   See [crons.yaml.example](crons.yaml.example) for all available fields.
+   Cron field reference:
+
+   | Field | Type | Required | Description |
+   |-------|------|----------|-------------|
+   | `name` | string | yes | Unique identifier for the cron job |
+   | `schedule` | string | yes | 5-field cron expression, local timezone |
+   | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs `claude -p`; `"script"` runs a shell command |
+   | `prompt` | string | for llm | Prompt sent to Claude |
+   | `command` | string | for script | Shell command to execute |
+   | `agentId` | string | yes | Must match an agent in `config.yaml` |
+   | `deliveryChatId` | number | no | Telegram chat ID for delivery (falls back to config default) |
+   | `deliveryThreadId` | number | no | Telegram forum topic ID for delivery |
+   | `timeout` | number | no | Per-cron timeout in ms (default: 300000 = 5 min) |
+   | `enabled` | boolean | no | Set `false` to disable without deleting (default: `true`) |
 
 2. Generate launchd plists:
    ```bash

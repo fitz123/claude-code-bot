@@ -1,7 +1,9 @@
 # Cron job definitions — loaded by cron-runner.ts
 # All times use the machine's local timezone
-# Copy this file to crons.yaml and customize:
-#   cp crons.yaml.example crons.yaml
+#
+# This file ships upstream example crons (all disabled by default).
+# For your own crons, create crons.local.yaml alongside this file.
+# Crons in crons.local.yaml extend this file; duplicate names are overridden by local.
 #
 # Field reference:
 #   name              (string, required)  Unique identifier for the cron job
@@ -19,42 +21,28 @@
 # They skip all Claude-specific setup (model, workspace, env vars). Empty output skips delivery.
 
 crons:
-  # Example: daily workspace backup
-  - name: backup-git
-    schedule: "0 4 * * *"              # 4:00 AM daily
-    prompt: >
-      Run the git backup script and report results.
-      If successful, respond NO_REPLY.
-      If it fails, output a brief error summary.
-    agentId: main                      # must match an agent in config.yaml
-    deliveryChatId: YOUR_CHAT_ID       # Telegram chat ID for delivery
-    deliveryThreadId: 42               # optional: Telegram forum topic ID
-    timeout: 300000                    # 5 minutes
-
   # Weekly workspace health check (uses /workspace-health skill)
   - name: workspace-health
-    enabled: true
-    schedule: "0 10 * * 1"             # Monday 10:00 AM
-    prompt: >
-      /workspace-health
+    enabled: false
+    schedule: "0 10 * * 1"            # Monday 10:00 AM
+    prompt: /workspace-health
     agentId: main
-    deliveryChatId: YOUR_CHAT_ID
-    timeout: 600000                    # 10 minutes — AI stages need extra time
+    timeout: 600000                   # 10 minutes — AI stages need extra time
 
   # Nightly memory consolidation — crystallizes session transcripts into persistent memory
   - name: memory-consolidation
-    enabled: true
-    schedule: "0 2 * * *"              # 2:00 AM daily
+    enabled: false
+    schedule: "0 2 * * *"             # 2:00 AM daily
     prompt: /memory-consolidation
     agentId: main
-    deliveryChatId: YOUR_CHAT_ID
-    timeout: 600000                    # 10 minutes — AI processing may be slow
+    timeout: 600000                   # 10 minutes — AI processing may be slow
+    deliveryThreadId: 42              # optional: Telegram forum topic ID
 
-  # Script-mode cron example — runs a shell command directly (no LLM)
+  # Script-mode example — runs a shell command directly (no LLM)
   # - name: backup-db
-  #   schedule: "0 2 * * *"
+  #   enabled: false
+  #   schedule: "0 3 * * *"
   #   type: script
   #   command: "/usr/bin/backup.sh --full"
   #   agentId: main
-  #   deliveryChatId: YOUR_CHAT_ID
   #   timeout: 300000
