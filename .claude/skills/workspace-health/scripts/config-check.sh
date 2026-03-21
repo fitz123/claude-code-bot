@@ -70,7 +70,6 @@ fi
 
 # settings.local.json — optional, warn if missing but don't fail
 SETTINGS_LOCAL="$WORKSPACE/.claude/settings.local.json"
-SETTINGS_LOCAL_EXAMPLE="$WORKSPACE/.claude/settings.local.json.example"
 if [ -f "$SETTINGS_LOCAL" ]; then
   if command -v jq >/dev/null 2>&1; then
     if jq empty "$SETTINGS_LOCAL" 2>/dev/null; then
@@ -82,10 +81,8 @@ if [ -f "$SETTINGS_LOCAL" ]; then
   else
     echo "  SKIP: jq not available — cannot validate settings.local.json"
   fi
-elif [ -f "$SETTINGS_LOCAL_EXAMPLE" ]; then
-  echo "  INFO: settings.local.json not created yet (example available)"
 else
-  echo "  INFO: no settings.local.json or example found"
+  echo "  INFO: settings.local.json not created (optional override file)"
 fi
 echo ""
 

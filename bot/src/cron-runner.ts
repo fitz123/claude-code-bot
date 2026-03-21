@@ -2,7 +2,8 @@
 // Usage: npx tsx src/cron-runner.ts --task <name>
 // Loads cron definition from crons.yaml, runs claude -p one-shot, delivers output to Telegram
 
-import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { readFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
+import { loadRawMergedConfig } from "./config.js";
 import { execSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +15,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(BOT_DIR, "..");
 const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
-const CONFIG_PATH = resolve(REPO_ROOT, "config.yaml");
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
 
@@ -37,18 +37,53 @@ export interface DeliveryDefaults {
   defaultDeliveryThreadId?: number;
 }
 
-function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryDefaults): CronJob {
-  const raw: CronsYaml = parseYaml(readFileSync(cronsPath ?? CRONS_PATH, "utf8"));
+// Derive the .local counterpart path: crons.yaml → crons.local.yaml
+function deriveCronsLocalPath(cronsPath: string): string {
+  return cronsPath.replace(/\.yaml$/, ".local.yaml");
+}
+
+// Load crons.yaml and merge crons.local.yaml on top if it exists.
+// Local crons win on duplicate name. Exported for tests.
+export function loadMergedCrons(cronsPath?: string): Array<Record<string, unknown>> {
+  const path = cronsPath ?? CRONS_PATH;
+  const raw: CronsYaml = parseYaml(readFileSync(path, "utf8"));
   if (!raw?.crons || !Array.isArray(raw.crons)) {
     throw new Error("crons.yaml missing 'crons' array");
   }
+  const baseCrons = raw.crons as Array<Record<string, unknown>>;
 
-  const found = raw.crons.find(
-    (c) => (c as Record<string, unknown>).name === taskName,
+  const localPath = deriveCronsLocalPath(path);
+  if (!existsSync(localPath)) {
+    return [...baseCrons];
+  }
+  const localRaw: CronsYaml = parseYaml(readFileSync(localPath, "utf8"));
+  if (!localRaw?.crons || !Array.isArray(localRaw.crons)) {
+    process.stderr.write(`Warning: ${localPath} found but has no valid 'crons' array — ignoring local overrides\n`);
+    return [...baseCrons];
+  }
+  const localCrons = localRaw.crons as Array<Record<string, unknown>>;
+
+  // Merge: start with base, local wins on duplicate name, new local crons appended
+  const merged = [...baseCrons];
+  for (const localCron of localCrons) {
+    const idx = merged.findIndex((c) => c.name === localCron.name);
+    if (idx >= 0) {
+      merged[idx] = localCron;
+    } else {
+      merged.push(localCron);
+    }
+  }
+  return merged;
+}
+
+function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryDefaults): CronJob {
+  const crons = loadMergedCrons(cronsPath);
+  const found = crons.find(
+    (c) => c.name === taskName,
   );
   if (!found) {
     throw new Error(
-      `Task "${taskName}" not found in crons.yaml. Available: ${raw.crons.map((c) => (c as Record<string, unknown>).name).join(", ")}`,
+      `Task "${taskName}" not found in crons.yaml / crons.local.yaml. Available: ${crons.map((c) => c.name).join(", ")}`,
     );
   }
 
@@ -114,18 +149,18 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
 }
 
 function getAgentWorkspace(agentId: string): string {
-  const raw = parseYaml(readFileSync(CONFIG_PATH, "utf8")) as {
+  const raw = loadRawMergedConfig() as {
     agents?: Record<string, unknown>;
   };
   if (!raw?.agents?.[agentId]) {
-    throw new Error(`Agent "${agentId}" not found in config.yaml`);
+    throw new Error(`Agent "${agentId}" not found in config.yaml / config.local.yaml`);
   }
   const agent = raw.agents[agentId] as AgentConfig;
   return agent.workspaceCwd;
 }
 
 export function loadAdminChatId(configPath?: string): number | undefined {
-  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+  const raw = loadRawMergedConfig(configPath) as {
     adminChatId?: unknown;
   };
   if (raw?.adminChatId === undefined) {
@@ -139,7 +174,7 @@ export function loadAdminChatId(configPath?: string): number | undefined {
 }
 
 export function loadDefaultDelivery(configPath?: string): DeliveryDefaults {
-  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+  const raw = loadRawMergedConfig(configPath) as {
     defaultDeliveryChatId?: unknown;
     defaultDeliveryThreadId?: unknown;
   };

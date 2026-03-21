@@ -3,16 +3,15 @@
 // Usage: npx tsx scripts/generate-plists.ts [--dry-run]
 // Output: ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
-import { parse as parseYaml } from "yaml";
+import { loadMergedCrons } from "../src/cron-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(BOT_DIR, "..");
-const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
 const HOME = homedir();
 const LAUNCH_AGENTS_DIR = join(HOME, "Library", "LaunchAgents");
 const LOG_DIR = process.env.LOG_DIR ?? join(HOME, ".minime", "logs");
@@ -30,10 +29,6 @@ interface CronDef {
   deliveryChatId?: number;
   timeout?: number;
   enabled?: boolean;
-}
-
-interface CronsYaml {
-  crons: CronDef[];
 }
 
 // Parse cron expression to launchd StartCalendarInterval entries
@@ -227,9 +222,11 @@ ${scheduleSection}
 }
 
 function main(): void {
-  const raw: CronsYaml = parseYaml(readFileSync(CRONS_PATH, "utf8"));
-  if (!raw?.crons || !Array.isArray(raw.crons)) {
-    console.error("ERROR: crons.yaml missing 'crons' array");
+  let crons: CronDef[];
+  try {
+    crons = loadMergedCrons() as unknown as CronDef[];
+  } catch (err) {
+    console.error(`ERROR: ${(err as Error).message}`);
     process.exit(1);
   }
 
@@ -239,7 +236,7 @@ function main(): void {
   let generated = 0;
   let errors = 0;
 
-  for (const cron of raw.crons) {
+  for (const cron of crons) {
     if (cron.enabled === false) {
       console.log(`[SKIP] ${cron.name} (enabled: false)`);
       continue;

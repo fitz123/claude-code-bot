@@ -13,7 +13,7 @@ function readRepoFile(relativePath: string): string {
 
 describe("project naming", () => {
   const readme = readRepoFile("README.md");
-  const configExample = readRepoFile("config.yaml.example");
+  const configYaml = readRepoFile("config.yaml");
   const packageJson = JSON.parse(readRepoFile("bot/package.json"));
   const changelog = readRepoFile("CHANGELOG.md");
 
@@ -48,10 +48,10 @@ describe("project naming", () => {
     );
   });
 
-  it("config.yaml.example has no openclaw references", () => {
+  it("config.yaml has no openclaw references", () => {
     assert.ok(
-      !configExample.toLowerCase().includes("openclaw"),
-      "config.yaml.example still contains openclaw references"
+      !configYaml.toLowerCase().includes("openclaw"),
+      "config.yaml still contains openclaw references"
     );
   });
 
@@ -109,25 +109,39 @@ describe("project naming", () => {
     );
   });
 
-  it("config.yaml.example lives at workspace root, not bot/", () => {
+  it("config.yaml lives at workspace root (tracked defaults)", () => {
     assert.ok(
-      existsSync(resolve(repoRoot, "config.yaml.example")),
-      "config.yaml.example missing from workspace root"
+      existsSync(resolve(repoRoot, "config.yaml")),
+      "config.yaml missing from workspace root"
     );
     assert.ok(
-      !existsSync(resolve(repoRoot, "bot/config.yaml.example")),
-      "config.yaml.example should not exist in bot/ (moved to workspace root)"
+      !existsSync(resolve(repoRoot, "bot/config.yaml")),
+      "config.yaml should not exist in bot/ (belongs at workspace root)"
     );
   });
 
-  it("crons.yaml.example lives at workspace root, not bot/", () => {
+  it("config.local.yaml.example lives at workspace root", () => {
     assert.ok(
-      existsSync(resolve(repoRoot, "crons.yaml.example")),
-      "crons.yaml.example missing from workspace root"
+      existsSync(resolve(repoRoot, "config.local.yaml.example")),
+      "config.local.yaml.example missing from workspace root"
+    );
+  });
+
+  it("crons.yaml lives at workspace root (tracked defaults)", () => {
+    assert.ok(
+      existsSync(resolve(repoRoot, "crons.yaml")),
+      "crons.yaml missing from workspace root"
     );
     assert.ok(
-      !existsSync(resolve(repoRoot, "bot/crons.yaml.example")),
-      "crons.yaml.example should not exist in bot/ (moved to workspace root)"
+      !existsSync(resolve(repoRoot, "bot/crons.yaml")),
+      "crons.yaml should not exist in bot/ (belongs at workspace root)"
+    );
+  });
+
+  it("crons.local.yaml.example lives at workspace root", () => {
+    assert.ok(
+      existsSync(resolve(repoRoot, "crons.local.yaml.example")),
+      "crons.local.yaml.example missing from workspace root"
     );
   });
 
@@ -137,6 +151,11 @@ describe("project naming", () => {
     assert.ok(
       configTs.includes('resolve(__dirname, "..", "..", "config.yaml")'),
       "config.ts should resolve config.yaml from workspace root (2 levels up)"
+    );
+    // Should check for and load config.local.yaml when present
+    assert.ok(
+      configTs.includes("existsSync(localPath)"),
+      "config.ts should check for and load config.local.yaml when it exists"
     );
   });
 

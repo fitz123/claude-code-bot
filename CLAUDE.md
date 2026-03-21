@@ -53,4 +53,6 @@ Subdirectories:
 - Edit `USER.md` with your details
 - Edit `IDENTITY.md` to shape the assistant's personality
 - Copy optional rules from `.claude/optional-rules/` to `.claude/rules/custom/`
-- Override settings via `.claude/settings.local.json` (see `.claude/settings.local.json.example`)
+- Override settings via `.claude/settings.local.json` (create it manually; see `.claude/settings.json` for available keys)
+- Override bot config via `config.local.yaml` (deep-merged over `config.yaml`; see `config.local.yaml.example`)
+- Add or override cron jobs via `crons.local.yaml` (merged with `crons.yaml`; see `crons.local.yaml.example`)

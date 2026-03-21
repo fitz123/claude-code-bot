@@ -37,19 +37,19 @@ describe("cron field documentation", () => {
     );
   });
 
-  it("crons.yaml.example demonstrates deliveryThreadId", () => {
-    const example = readRepoFile("crons.yaml.example");
+  it("crons.yaml demonstrates deliveryThreadId", () => {
+    const example = readRepoFile("crons.yaml");
     assert.ok(
       example.includes("deliveryThreadId"),
-      "crons.yaml.example does not demonstrate deliveryThreadId"
+      "crons.yaml does not demonstrate deliveryThreadId"
     );
   });
 
-  it("crons.yaml.example demonstrates enabled field", () => {
-    const example = readRepoFile("crons.yaml.example");
+  it("crons.yaml demonstrates enabled field", () => {
+    const example = readRepoFile("crons.yaml");
     assert.ok(
       example.includes("enabled"),
-      "crons.yaml.example does not demonstrate enabled field"
+      "crons.yaml does not demonstrate enabled field"
     );
   });
 

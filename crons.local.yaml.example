@@ -1,0 +1,27 @@
+# User cron overrides — loaded by cron-runner.ts alongside crons.yaml
+# All times use the machine's local timezone
+#
+# Crons defined here extend crons.yaml.
+# If a cron name matches one in crons.yaml, the local definition wins entirely.
+#
+# Copy this file to crons.local.yaml and add your own crons:
+#   cp crons.local.yaml.example crons.local.yaml
+
+crons:
+  # Enable and configure the upstream workspace-health example with your chat ID:
+  - name: workspace-health
+    enabled: true
+    schedule: "0 10 * * 1"            # Monday 10:00 AM
+    prompt: /workspace-health
+    agentId: main
+    deliveryChatId: 123456789          # Replace with your Telegram chat ID
+    timeout: 600000
+
+  # Your own crons:
+  # - name: daily-briefing
+  #   schedule: "0 9 * * *"           # 9:00 AM daily
+  #   prompt: >
+  #     Give me a brief summary of what I should focus on today.
+  #   agentId: main
+  #   deliveryChatId: 123456789        # Replace with your Telegram chat ID
+  #   timeout: 300000

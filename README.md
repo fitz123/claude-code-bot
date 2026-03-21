@@ -63,7 +63,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
 
-**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
+**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). User-specific overrides live in `config.local.yaml` (gitignored, deep-merged over `config.yaml`). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
 
 ## Installation
 
@@ -84,19 +84,23 @@ git clone https://github.com/fitz123/claude-code-bot.git ~/.minime
 cd ~/.minime/bot && npm install
 ```
 
-**2. Copy and edit config files**
+**2. Configure for your environment**
+
+`config.yaml` ships with working defaults. Create `config.local.yaml` for your overrides:
 
 ```bash
-cp config.yaml.example config.yaml
-cp crons.yaml.example crons.yaml
-cp .claude/settings.local.json.example .claude/settings.local.json
+cp config.local.yaml.example config.local.yaml
 ```
 
-Edit `config.yaml` — set `workspaceCwd` to the absolute path of your repo and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it). See [config.yaml.example](config.yaml.example) for all options.
+Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of your repo and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it).
 
-Edit `.claude/settings.local.json` — set `autoMemoryDirectory` to `<repo-path>/memory/auto`.
+`crons.yaml` ships with example crons (all disabled). Create `crons.local.yaml` for your own crons:
 
-To start with no crons, replace contents of `crons.yaml` with `crons: []`.
+```bash
+cp crons.local.yaml.example crons.local.yaml
+```
+
+Optionally create `.claude/settings.local.json` to override Claude Code settings (e.g. set `autoMemoryDirectory` to `<repo-path>/memory/auto`).
 
 **3. Store Telegram bot token in macOS Keychain**
 
@@ -137,9 +141,9 @@ Send a message to your bot in Telegram to confirm it responds.
 
 ### Optional setup
 
-**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.yaml`. See [config.yaml.example](config.yaml.example).
+**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.local.yaml`. See [config.yaml](config.yaml) for full reference.
 
-**Crons:** Edit `crons.yaml`, then generate and load plists:
+**Crons:** Add your crons to `crons.local.yaml` (copy from `crons.local.yaml.example`), then generate and load plists:
 ```bash
 cd ~/.minime/bot && npx tsx scripts/generate-plists.ts
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.cron.<name>.plist
@@ -171,7 +175,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
 ## Add a Cron
 
-1. Edit `crons.yaml` — add a new entry:
+1. Edit `crons.local.yaml` — add a new entry:
    ```yaml
    - name: my-task
      schedule: "30 9 * * *"
@@ -181,7 +185,20 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
      deliveryChatId: YOUR_CHAT_ID
    ```
 
-   See [crons.yaml.example](crons.yaml.example) for all available fields.
+   Cron field reference:
+
+   | Field | Type | Required | Description |
+   |-------|------|----------|-------------|
+   | `name` | string | yes | Unique identifier for the cron job |
+   | `schedule` | string | yes | 5-field cron expression, local timezone |
+   | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs `claude -p`; `"script"` runs a shell command |
+   | `prompt` | string | for llm | Prompt sent to Claude |
+   | `command` | string | for script | Shell command to execute |
+   | `agentId` | string | yes | Must match an agent in `config.yaml` or `config.local.yaml` |
+   | `deliveryChatId` | number | no | Telegram chat ID for delivery (falls back to config default) |
+   | `deliveryThreadId` | number | no | Telegram forum topic ID for delivery |
+   | `timeout` | number | no | Per-cron timeout in ms (default: 300000 = 5 min) |
+   | `enabled` | boolean | no | Set `false` to disable without deleting (default: `true`) |
 
 2. Generate launchd plists:
    ```bash
@@ -195,11 +212,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    tail -f ~/.minime/logs/cron-my-task.log
    ```
 
-To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `crons.yaml`, regenerate.
+To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `crons.local.yaml`, regenerate.
 
 ## Add a Binding
 
-1. Add an agent and binding to `config.yaml`:
+1. Add an agent and binding to `config.local.yaml`:
    ```yaml
    agents:
      new-agent:
@@ -214,7 +231,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
        label: New Agent DM
    ```
 
-   See [config.yaml.example](config.yaml.example) for all binding options including `requireMention`, `voiceTranscriptEcho`, `streamingUpdates`, `typingIndicator`, and per-topic overrides for forum supergroups.
+   See [config.yaml](config.yaml) for all binding options including `requireMention`, `voiceTranscriptEcho`, `streamingUpdates`, `typingIndicator`, and per-topic overrides for forum supergroups.
 
 2. Validate and restart:
    ```bash
@@ -229,7 +246,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
    security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
    ```
 
-2. Add the `discord` section to `config.yaml`:
+2. Add the `discord` section to `config.local.yaml`:
    ```yaml
    discord:
      tokenService: discord-bot-token
@@ -241,7 +258,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
          requireMention: true
    ```
 
-   See [config.yaml.example](config.yaml.example) for per-channel overrides and guild-wide defaults.
+   See [config.yaml](config.yaml) for per-channel overrides and guild-wide defaults.
 
 3. Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages. Slash commands (`/start`, `/reset`, `/status`) are registered per-guild on startup.
 
@@ -267,6 +284,28 @@ metricsPort: 9090
 ```
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
+
+## Upgrading from config.yaml.example
+
+Older versions shipped `config.yaml.example` which you copied to `config.yaml` (gitignored). The current version tracks `config.yaml` directly and uses `config.local.yaml` for user overrides.
+
+If you have a local `config.yaml` from the old workflow, git will refuse to pull because the file is now tracked. Migrate before pulling:
+
+```bash
+# 1. Back up your current config
+cp config.yaml config.local.yaml
+
+# 2. Remove the untracked file so git can check out the new tracked version
+rm config.yaml
+
+# 3. Pull — git will restore config.yaml with upstream defaults
+git pull
+
+# 4. Edit config.local.yaml — keep only your overrides (workspaceCwd, chatId, tokens, bindings)
+#    Remove anything that matches the upstream defaults in config.yaml
+```
+
+Your `config.local.yaml` is deep-merged over `config.yaml` at startup, so you only need to keep what differs from the defaults.
 
 ## Similar Projects
 
