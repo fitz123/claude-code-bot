@@ -777,8 +777,9 @@ describe("relayStream newline collapsing", () => {
 
     await relayStream(stream, platform);
 
-    // edits[0] is the intermediate edit from doEdit; it must have collapsed newlines
-    assert.ok(edits.length >= 1, "Should have at least one intermediate edit");
+    // edits[0] is the intermediate edit from doEdit, edits[1] is the final edit
+    // If doEdit never fires, edits.length === 1 (final only) and this assertion fails
+    assert.ok(edits.length >= 2, "Should have intermediate edit (doEdit) plus final edit");
     assert.ok(!edits[0].text.includes("\n\n\n"), "Intermediate edit should not contain 3+ consecutive newlines");
     assert.strictEqual(edits[0].text, "Before\n\nAfter");
   });
