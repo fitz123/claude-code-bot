@@ -168,10 +168,10 @@ export async function relayStream(
     editPending = false;
 
     // Truncate to platform limit for in-progress updates
-    const normalizedForEdit = collapseNewlines(accumulated);
-    const displayText = normalizedForEdit.length > platform.maxMessageLength
-      ? normalizedForEdit.slice(0, platform.maxMessageLength - 3) + "..."
-      : normalizedForEdit;
+    const collapsed = collapseNewlines(accumulated);
+    const displayText = collapsed.length > platform.maxMessageLength
+      ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
+      : collapsed;
 
     try {
       await platform.editMessage(sentMessageId, displayText);
@@ -232,10 +232,10 @@ export async function relayStream(
 
       // Send initial message once we have text (only if streaming is enabled)
       if (accumulated && sentMessageId === null && platform.streamingUpdates && !initialSendFailed) {
-        const normalizedInitial = collapseNewlines(accumulated);
-        const displayText = normalizedInitial.length > platform.maxMessageLength
-          ? normalizedInitial.slice(0, platform.maxMessageLength - 3) + "..."
-          : normalizedInitial;
+        const collapsed = collapseNewlines(accumulated);
+        const displayText = collapsed.length > platform.maxMessageLength
+          ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
+          : collapsed;
         try {
           sentMessageId = await platform.sendMessage(displayText);
           lastEditTime = Date.now();

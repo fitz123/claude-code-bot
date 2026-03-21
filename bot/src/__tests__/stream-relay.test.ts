@@ -399,6 +399,7 @@ function mockPlatform(options?: {
   sendShouldThrow?: boolean | number;
   streamingUpdates?: boolean;
   typingIndicator?: boolean;
+  editDebounceMs?: number;
 }) {
   const sends: Array<{ text: string }> = [];
   const edits: Array<{ messageId: string; text: string }> = [];
@@ -407,7 +408,7 @@ function mockPlatform(options?: {
 
   const platform: PlatformContext = {
     maxMessageLength: 4096,
-    editDebounceMs: 2000,
+    editDebounceMs: options?.editDebounceMs ?? 2000,
     typingIntervalMs: 4000,
     streamingUpdates: options?.streamingUpdates !== false,
     typingIndicator: options?.typingIndicator !== false,
@@ -755,6 +756,31 @@ describe("relayStream newline collapsing", () => {
 
     assert.strictEqual(sends.length, 1);
     assert.strictEqual(sends[0].text, "Line 1\nLine 2\nLine 3");
+  });
+
+  it("collapses newlines in initial streaming send", async () => {
+    // Exercises the collapseNewlines call at the initial sendMessage path
+    const { platform, sends } = mockPlatform({ streamingUpdates: true });
+    // First delta itself contains 3+ newlines — initial send must collapse them
+    const stream = fakeStream(["Hello\n\n\nWorld"]);
+
+    await relayStream(stream, platform);
+
+    assert.ok(sends.length >= 1, "Should have sent at least one message");
+    assert.strictEqual(sends[0].text, "Hello\n\nWorld");
+  });
+
+  it("collapses newlines in intermediate streaming edits (doEdit path)", async () => {
+    // editDebounceMs:0 makes doEdit fire immediately, exercising collapseNewlines at line 171
+    const { platform, edits } = mockPlatform({ streamingUpdates: true, editDebounceMs: 0 });
+    const stream = fakeStreamWithTools(["Before\n", "tool_use", "\nAfter"]);
+
+    await relayStream(stream, platform);
+
+    // edits[0] is the intermediate edit from doEdit; it must have collapsed newlines
+    assert.ok(edits.length >= 1, "Should have at least one intermediate edit");
+    assert.ok(!edits[0].text.includes("\n\n\n"), "Intermediate edit should not contain 3+ consecutive newlines");
+    assert.strictEqual(edits[0].text, "Before\n\nAfter");
   });
 });
 
