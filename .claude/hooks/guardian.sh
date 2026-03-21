@@ -76,36 +76,48 @@ fi
 
 ROOT_COMPONENT="${REL_PATH%%/*}"
 
-# Load allowlist (same file orphan-scan.sh uses)
-ALLOWLIST="$WORKSPACE/.claude/skills/workspace-health/scripts/orphan-allowlist.txt"
+# Load allowlists (workspace-level first, fallback to skill-level)
+# Same logic as orphan-scan.sh for consistency
+ALLOWLIST_FILES=()
+if [[ -f "$WORKSPACE/.orphan-allowlist.txt" ]] || [[ -f "$WORKSPACE/.orphan-allowlist.local.txt" ]]; then
+  [[ -f "$WORKSPACE/.orphan-allowlist.txt" ]] && ALLOWLIST_FILES+=("$WORKSPACE/.orphan-allowlist.txt")
+  [[ -f "$WORKSPACE/.orphan-allowlist.local.txt" ]] && ALLOWLIST_FILES+=("$WORKSPACE/.orphan-allowlist.local.txt")
+else
+  SKILL_ALLOWLIST="$WORKSPACE/.claude/skills/workspace-health/scripts/orphan-allowlist.txt"
+  SKILL_ALLOWLIST_LOCAL="$WORKSPACE/.claude/skills/workspace-health/scripts/orphan-allowlist.local.txt"
+  [[ -f "$SKILL_ALLOWLIST" ]] && ALLOWLIST_FILES+=("$SKILL_ALLOWLIST")
+  [[ -f "$SKILL_ALLOWLIST_LOCAL" ]] && ALLOWLIST_FILES+=("$SKILL_ALLOWLIST_LOCAL")
+fi
 
-if [[ ! -f "$ALLOWLIST" ]]; then
-  echo "BLOCKED by directory guardian: allowlist not found at $ALLOWLIST" >&2
+if [[ ${#ALLOWLIST_FILES[@]} -eq 0 ]]; then
+  echo "BLOCKED by directory guardian: no allowlist found" >&2
   echo "Cannot verify whether '${REL_PATH}' is allowed. Blocking to be safe." >&2
   exit 2
 fi
 
 # Check root component against allowlist patterns
-while IFS= read -r line; do
-  # Strip comments and whitespace
-  line="${line%%#*}"
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
-  [[ -z "$line" ]] && continue
+for ALLOWLIST in "${ALLOWLIST_FILES[@]}"; do
+  while IFS= read -r line; do
+    # Strip comments and whitespace
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
 
-  # Exact match
-  [[ "$ROOT_COMPONENT" == "$line" ]] && exit 0
+    # Exact match
+    [[ "$ROOT_COMPONENT" == "$line" ]] && exit 0
 
-  # Glob match
-  # shellcheck disable=SC2254
-  case "$ROOT_COMPONENT" in $line) exit 0 ;; esac
-done < "$ALLOWLIST"
+    # Glob match
+    # shellcheck disable=SC2254
+    case "$ROOT_COMPONENT" in $line) exit 0 ;; esac
+  done < "$ALLOWLIST"
+done
 
 # Not in allowlist — block with helpful error
 cat >&2 <<ERRMSG
 BLOCKED by directory guardian: cannot create '${REL_PATH}' in workspace root.
 
 The root-level name '${ROOT_COMPONENT}' is not in the allowed workspace structure.
-To allow it, add a pattern to: .claude/skills/workspace-health/scripts/orphan-allowlist.txt
+To allow it, add entry to: .orphan-allowlist.local.txt in workspace root
 ERRMSG
 exit 2
