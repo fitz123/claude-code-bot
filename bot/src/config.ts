@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,52 @@ import { log, parseLogLevel } from "./logger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
+
+// Derive the .local counterpart path: config.yaml → config.local.yaml
+function deriveLocalConfigPath(configPath: string): string {
+  return configPath.replace(/\.yaml$/, ".local.yaml");
+}
+
+// Deep-merge two plain objects. Local values win. Arrays are replaced entirely.
+export function mergeDeep(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...base };
+  for (const key of Object.keys(override)) {
+    const baseVal = base[key];
+    const overrideVal = override[key];
+    if (
+      typeof overrideVal === "object" &&
+      overrideVal !== null &&
+      !Array.isArray(overrideVal) &&
+      typeof baseVal === "object" &&
+      baseVal !== null &&
+      !Array.isArray(baseVal)
+    ) {
+      result[key] = mergeDeep(
+        baseVal as Record<string, unknown>,
+        overrideVal as Record<string, unknown>,
+      );
+    } else {
+      result[key] = overrideVal;
+    }
+  }
+  return result;
+}
+
+// Load config.yaml and merge config.local.yaml on top if it exists.
+// Exported for use by cron-runner.ts and tests.
+export function loadRawMergedConfig(configPath?: string): Record<string, unknown> {
+  const path = configPath ?? DEFAULT_CONFIG_PATH;
+  const base = (parseYaml(readFileSync(path, "utf8")) as Record<string, unknown>) ?? {};
+  const localPath = deriveLocalConfigPath(path);
+  if (existsSync(localPath)) {
+    const local = (parseYaml(readFileSync(localPath, "utf8")) as Record<string, unknown>) ?? {};
+    return mergeDeep(base, local);
+  }
+  return base;
+}
 
 interface RawConfig {
   telegramTokenService?: string;
@@ -238,8 +284,7 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
 }
 
 export function loadConfig(configPath?: string): BotConfig {
-  const path = configPath ?? DEFAULT_CONFIG_PATH;
-  const raw: RawConfig = parseYaml(readFileSync(path, "utf8"));
+  const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
 
   if (!raw || typeof raw !== "object") {
     throw new Error("Config file is empty or invalid");

@@ -3,6 +3,7 @@
 // Loads cron definition from crons.yaml, runs claude -p one-shot, delivers output to Telegram
 
 import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
+import { loadRawMergedConfig } from "./config.js";
 import { execSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,7 +115,7 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
 }
 
 function getAgentWorkspace(agentId: string): string {
-  const raw = parseYaml(readFileSync(CONFIG_PATH, "utf8")) as {
+  const raw = loadRawMergedConfig() as {
     agents?: Record<string, unknown>;
   };
   if (!raw?.agents?.[agentId]) {
@@ -125,7 +126,7 @@ function getAgentWorkspace(agentId: string): string {
 }
 
 export function loadAdminChatId(configPath?: string): number | undefined {
-  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+  const raw = loadRawMergedConfig(configPath) as {
     adminChatId?: unknown;
   };
   if (raw?.adminChatId === undefined) {
@@ -139,7 +140,7 @@ export function loadAdminChatId(configPath?: string): number | undefined {
 }
 
 export function loadDefaultDelivery(configPath?: string): DeliveryDefaults {
-  const raw = parseYaml(readFileSync(configPath ?? CONFIG_PATH, "utf8")) as {
+  const raw = loadRawMergedConfig(configPath) as {
     defaultDeliveryChatId?: unknown;
     defaultDeliveryThreadId?: unknown;
   };

@@ -183,18 +183,18 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 - `config.local.yaml.example` added — shows what users typically override
 - `.gitignore` updated: remove `config.yaml`, add `config.local.yaml`
 
-- [ ] `config.yaml` is tracked in git with working defaults (no placeholder values)
-- [ ] `config.local.yaml` is gitignored
-- [ ] `config.local.yaml.example` exists with clear examples of user overrides
-- [ ] `config.yaml.example` is removed
-- [ ] Nested config values in `config.local.yaml` override corresponding values in `config.yaml` without losing unrelated keys
-- [ ] Bot starts successfully with only `config.yaml` (no local override) — using defaults
-- [ ] Bot starts successfully with `config.yaml` + `config.local.yaml` — local values override defaults
-- [ ] Merge precedence: `config.local.yaml` values always win over `config.yaml`
-- [ ] All config consumers (config.ts, cron-runner.ts) use merged config — no direct reads of `config.yaml` alone
-- [ ] `.gitignore` lists `config.local.yaml` instead of `config.yaml`
-- [ ] Add tests for config merging logic
-- [ ] Verify existing tests pass
+- [x] `config.yaml` is tracked in git with working defaults (no placeholder values)
+- [x] `config.local.yaml` is gitignored
+- [x] `config.local.yaml.example` exists with clear examples of user overrides
+- [x] `config.yaml.example` is removed
+- [x] Nested config values in `config.local.yaml` override corresponding values in `config.yaml` without losing unrelated keys
+- [x] Bot starts successfully with only `config.yaml` (no local override) — using defaults
+- [x] Bot starts successfully with `config.yaml` + `config.local.yaml` — local values override defaults
+- [x] Merge precedence: `config.local.yaml` values always win over `config.yaml`
+- [x] All config consumers (config.ts, cron-runner.ts) use merged config — no direct reads of `config.yaml` alone
+- [x] `.gitignore` lists `config.local.yaml` instead of `config.yaml`
+- [x] Add tests for config merging logic
+- [x] Verify existing tests pass
 
 ### Task 3: Implement crons.yaml + crons.local.yaml layering (workspace-voy5, P1)
 

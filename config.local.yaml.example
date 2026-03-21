@@ -1,0 +1,31 @@
+# config.local.yaml — per-instance overrides (gitignored)
+#
+# Values here are deep-merged over config.yaml.
+# Only specify what differs from the defaults.
+# Nested objects are merged field-by-field; arrays replace entirely.
+
+agents:
+  main:
+    workspaceCwd: /Users/you/.minime/workspace   # absolute path to your Claude workspace (~ not expanded)
+
+bindings:
+  - chatId: 123456789           # your Telegram user ID (get it from @userinfobot)
+    agentId: main
+    kind: dm
+    label: My DM
+
+# Optional: default delivery target for cron results
+# defaultDeliveryChatId: -1001234567890
+# defaultDeliveryThreadId: 42
+
+# Optional: admin chat for fallback notifications when cron delivery fails
+# adminChatId: 123456789
+
+# Optional: Discord support
+# discord:
+#   tokenService: discord-bot-token
+#   bindings:
+#     - guildId: 'YOUR_GUILD_ID'
+#       agentId: main
+#       kind: channel
+#       requireMention: true

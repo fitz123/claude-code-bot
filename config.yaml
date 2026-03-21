@@ -1,17 +1,19 @@
 # Minime Bot Configuration
 #
-# Copy this file to config.yaml and fill in your values:
-#   cp config.yaml.example config.yaml
+# This file ships with working defaults.
+# Per-instance overrides go in config.local.yaml (gitignored, deep-merged over this file).
+# Only user-specific values need to be in config.local.yaml:
+#   agents.<name>.workspaceCwd, bindings with real chatIds, discord config.
 
-# Keychain service name for the Telegram bot token
-# Store it: security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_BOT_TOKEN'
+# Keychain service name for the Telegram bot token.
+# Store your token: security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_BOT_TOKEN'
 telegramTokenService: telegram-bot-token
 logLevel: info
 
 agents:
   main:
     id: main
-    workspaceCwd: /Users/YOU/.minime/workspace   # absolute path required (~ not expanded)
+    workspaceCwd: /tmp/minime-workspace   # override in config.local.yaml with your actual workspace path
     model: claude-opus-4-6
     fallbackModel: claude-sonnet-4-6
     maxTurns: 250     # safety limit for agentic loops per message (omit for unlimited)
@@ -20,18 +22,18 @@ agents:
   # Add more agents as needed:
   # coder:
   #   id: coder
-  #   workspaceCwd: /Users/YOU/.minime/workspace-coder
+  #   workspaceCwd: /tmp/minime-workspace-coder
   #   model: claude-opus-4-6
   #   maxTurns: 250
 
 bindings:
-  - chatId: YOUR_CHAT_ID             # your Telegram user ID (numeric)
+  - chatId: 111111111           # override in config.local.yaml with your Telegram user ID (numeric)
     agentId: main
-    kind: dm                          # "dm" or "group"
+    kind: dm                    # "dm" or "group"
     label: My DM
 
   # Group binding example (forum supergroup with per-topic routing):
-  # - chatId: -100YOUR_GROUP_ID
+  # - chatId: -100111111111
   #   agentId: main
   #   kind: group
   #   label: My Group
@@ -40,18 +42,13 @@ bindings:
   #   # requireMention: true          # require @mention or reply-to-bot (default: true for groups, false for DMs)
   #   # voiceTranscriptEcho: true     # echo voice transcript back to chat (default: true)
   #   # streamingUpdates: true        # progressive streaming edits during response (default: true)
-  #   #                               # set false to send only the final message (reduces API rate limit usage)
   #   # typingIndicator: true         # send typing indicators while processing (default: true)
   #
   #   ## Per-topic overrides (forum supergroups only):
-  #   # Each topic gets its own isolated Claude session.
-  #   # Messages in unbound topics fall back to the chat-level binding.
   #   # topics:
-  #   #   - topicId: 42               # message_thread_id from Telegram
-  #   #     agentId: coder            # override agent for this topic (optional, inherits from parent)
-  #   #     requireMention: false     # override per topic (optional, inherits from parent)
-  #   #   - topicId: 99
-  #   #     requireMention: false     # inherits agentId from parent binding
+  #   #   - topicId: 42
+  #   #     agentId: coder
+  #   #     requireMention: false
 
 sessionDefaults:
   idleTimeoutMs: 3600000              # 1 hour (default)
@@ -66,35 +63,17 @@ metricsPort: 9091
 # defaultDeliveryThreadId: 42
 
 # Admin chat for fallback notifications when cron delivery fails (optional).
-# Must be a non-zero integer. Use negative ID for groups/supergroups.
 # adminChatId: 123456789
 
 # Discord support (optional — bot works Telegram-only without this section)
 # Store token: security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN'
-# Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages
-# Slash commands (/start, /reset, /status) are registered per-guild on startup.
 # discord:
 #   tokenService: discord-bot-token
 #   bindings:
-#     # Guild-wide default: covers all channels in the server
-#     - guildId: 'YOUR_GUILD_ID'
+#     - guildId: '1234567890'
 #       agentId: main
 #       kind: channel
 #       label: My Server
 #       requireMention: true
 #       streamingUpdates: true
 #       typingIndicator: true
-#       # Per-channel overrides (optional):
-#       # channels:
-#       #   - channelId: '1234567890'
-#       #     label: Dev Channel
-#       #     requireMention: false
-#       #   - channelId: '1111111111'
-#       #     agentId: coder            # different agent for this channel
-#
-#     # Per-channel binding (exact channelId match wins over guild-wide fallback):
-#     # - channelId: '5555555555'
-#     #   guildId: 'YOUR_GUILD_ID'
-#     #   agentId: main
-#     #   kind: channel
-#     #   label: Legacy Channel
