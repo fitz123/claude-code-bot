@@ -122,6 +122,20 @@ sessionDefaults:
     const nested = result.nested as Record<string, unknown>;
     assert.strictEqual(nested.x, 99);
   });
+
+  it("ignores __proto__ key to prevent prototype pollution", () => {
+    const before = ({} as Record<string, unknown>).polluted;
+    mergeDeep({}, JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>);
+    assert.strictEqual(({} as Record<string, unknown>).polluted, before);
+  });
+
+  it("ignores constructor and prototype keys", () => {
+    const result = mergeDeep({ a: 1 }, { constructor: "evil", prototype: "evil" });
+    assert.strictEqual(result.a, 1);
+    // dangerous keys must not appear in the result
+    assert.ok(!Object.prototype.hasOwnProperty.call(result, "constructor"));
+    assert.ok(!Object.prototype.hasOwnProperty.call(result, "prototype"));
+  });
 });
 
 describe("loadRawMergedConfig", () => {

@@ -14,6 +14,9 @@ function deriveLocalConfigPath(configPath: string): string {
   return configPath.replace(/\.yaml$/, ".local.yaml");
 }
 
+// Keys that must never be copied during merge to prevent prototype pollution.
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 // Deep-merge two plain objects. Local values win. Arrays are replaced entirely.
 export function mergeDeep(
   base: Record<string, unknown>,
@@ -21,6 +24,7 @@ export function mergeDeep(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = { ...base };
   for (const key of Object.keys(override)) {
+    if (UNSAFE_KEYS.has(key)) continue;
     const baseVal = base[key];
     const overrideVal = override[key];
     if (
