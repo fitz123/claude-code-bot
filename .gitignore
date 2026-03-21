@@ -46,6 +46,4 @@ crons.local.yaml
 *.log
 node_modules/
 .ralphex/progress/
-
-# ralphex progress logs
 .ralphex/worktrees/
