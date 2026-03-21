@@ -125,8 +125,13 @@ sessionDefaults:
 
   it("ignores __proto__ key to prevent prototype pollution", () => {
     const before = ({} as Record<string, unknown>).polluted;
-    mergeDeep({}, JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>);
+    const result = mergeDeep({}, JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>);
+    // Verify global Object.prototype is not polluted
     assert.strictEqual(({} as Record<string, unknown>).polluted, before);
+    // Verify the returned result's prototype chain is also not polluted
+    // (old vulnerable code would set result's __proto__ to {polluted:true}, making result.polluted === true)
+    assert.strictEqual(result.polluted, undefined);
+    assert.strictEqual(Object.getPrototypeOf(result), Object.prototype);
   });
 
   it("ignores constructor and prototype keys", () => {
