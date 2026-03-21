@@ -274,9 +274,6 @@ export async function relayStream(
 
     // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery
     const trimmed = accumulated?.trim() ?? "";
-    if (trimmed !== "NO_REPLY" && trimmed.length < 30) {
-      process.stderr.write(`[stream-relay] DEBUG final text (${trimmed.length} chars): ${JSON.stringify(trimmed)}\n`);
-    }
     if (accumulated && trimmed === "NO_REPLY") {
       if (sentMessageId !== null) {
         // Delete the streaming message that was already sent
