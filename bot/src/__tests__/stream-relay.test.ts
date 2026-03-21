@@ -2,7 +2,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { splitMessage, extractText, isImageExtension, sendOutboxFiles, relayStream } from "../stream-relay.js";
+import { splitMessage, extractText, isImageExtension, sendOutboxFiles, relayStream, collapseNewlines } from "../stream-relay.js";
 import type { StreamLine, StreamEvent, AssistantMessage, ResultMessage, ToolProgress, PlatformContext } from "../types.js";
 
 describe("splitMessage", () => {
@@ -399,6 +399,7 @@ function mockPlatform(options?: {
   sendShouldThrow?: boolean | number;
   streamingUpdates?: boolean;
   typingIndicator?: boolean;
+  editDebounceMs?: number;
 }) {
   const sends: Array<{ text: string }> = [];
   const edits: Array<{ messageId: string; text: string }> = [];
@@ -407,7 +408,7 @@ function mockPlatform(options?: {
 
   const platform: PlatformContext = {
     maxMessageLength: 4096,
-    editDebounceMs: 2000,
+    editDebounceMs: options?.editDebounceMs ?? 2000,
     typingIntervalMs: 4000,
     streamingUpdates: options?.streamingUpdates !== false,
     typingIndicator: options?.typingIndicator !== false,
@@ -676,6 +677,111 @@ describe("relayStream paragraph breaks across tool-use", () => {
     assert.strictEqual(sends.length, 2, "Should split into 2 messages");
     assert.strictEqual(sends[0].text, longBefore);
     assert.strictEqual(sends[1].text, longAfter);
+  });
+});
+
+describe("collapseNewlines", () => {
+  it("collapses 4+ consecutive newlines to \\n\\n", () => {
+    assert.strictEqual(collapseNewlines("a\n\n\n\nb"), "a\n\nb");
+    assert.strictEqual(collapseNewlines("a\n\n\n\n\nb"), "a\n\nb");
+  });
+
+  it("collapses 3 consecutive newlines to \\n\\n", () => {
+    assert.strictEqual(collapseNewlines("a\n\n\nb"), "a\n\nb");
+  });
+
+  it("does not collapse \\n\\n (paragraph break)", () => {
+    assert.strictEqual(collapseNewlines("a\n\nb"), "a\n\nb");
+  });
+
+  it("does not affect single \\n (line break)", () => {
+    assert.strictEqual(collapseNewlines("a\nb"), "a\nb");
+  });
+
+  it("handles multiple collapse sites in one string", () => {
+    assert.strictEqual(collapseNewlines("a\n\n\nb\n\n\n\nc"), "a\n\nb\n\nc");
+  });
+
+  it("returns empty string unchanged", () => {
+    assert.strictEqual(collapseNewlines(""), "");
+  });
+
+  it("handles string with no newlines", () => {
+    assert.strictEqual(collapseNewlines("hello world"), "hello world");
+  });
+});
+
+describe("relayStream newline collapsing", () => {
+  it("collapses excess newlines produced by text ending in \\n + tool_use + text starting with \\n", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    // text1 ends with \n, tool_use adds another \n (making \n\n), text2 starts with \n → \n\n\n
+    const stream = fakeStreamWithTools(["Line 1\n", "tool_use", "\nLine 2"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    // \n\n\n should be collapsed to \n\n
+    assert.strictEqual(sends[0].text, "Line 1\n\nLine 2");
+    assert.ok(!sends[0].text.includes("\n\n\n"), "Should not contain 3+ consecutive newlines");
+  });
+
+  it("collapses newlines in final streaming edit", async () => {
+    const { platform, edits } = mockPlatform({ streamingUpdates: true });
+    const stream = fakeStreamWithTools(["Before\n", "tool_use", "\nAfter"]);
+
+    await relayStream(stream, platform);
+
+    const finalEdit = edits[edits.length - 1];
+    assert.ok(!finalEdit.text.includes("\n\n\n"), "Streaming edit should not contain 3+ consecutive newlines");
+    assert.strictEqual(finalEdit.text, "Before\n\nAfter");
+  });
+
+  it("preserves \\n\\n after collapsing", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    // Normal case: paragraph break, no excess
+    const stream = fakeStreamWithTools(["Para 1", "tool_use", "Para 2"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Para 1\n\nPara 2");
+  });
+
+  it("preserves single \\n after collapsing", async () => {
+    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    // Text with line breaks (not paragraph breaks) — no tool use, no change
+    const stream = fakeStream(["Line 1\nLine 2\nLine 3"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Line 1\nLine 2\nLine 3");
+  });
+
+  it("collapses newlines in initial streaming send", async () => {
+    // Exercises the collapseNewlines call at the initial sendMessage path
+    const { platform, sends } = mockPlatform({ streamingUpdates: true });
+    // First delta itself contains 3+ newlines — initial send must collapse them
+    const stream = fakeStream(["Hello\n\n\nWorld"]);
+
+    await relayStream(stream, platform);
+
+    assert.ok(sends.length >= 1, "Should have sent at least one message");
+    assert.strictEqual(sends[0].text, "Hello\n\nWorld");
+  });
+
+  it("collapses newlines in intermediate streaming edits (doEdit path)", async () => {
+    // editDebounceMs:0 makes doEdit fire immediately, exercising collapseNewlines at line 171
+    const { platform, edits } = mockPlatform({ streamingUpdates: true, editDebounceMs: 0 });
+    const stream = fakeStreamWithTools(["Before\n", "tool_use", "\nAfter"]);
+
+    await relayStream(stream, platform);
+
+    // edits[0] is the intermediate edit from doEdit, edits[1] is the final edit
+    // If doEdit never fires, edits.length === 1 (final only) and this assertion fails
+    assert.ok(edits.length >= 2, "Should have intermediate edit (doEdit) plus final edit");
+    assert.ok(!edits[0].text.includes("\n\n\n"), "Intermediate edit should not contain 3+ consecutive newlines");
+    assert.strictEqual(edits[0].text, "Before\n\nAfter");
   });
 });
 

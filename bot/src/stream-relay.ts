@@ -55,6 +55,14 @@ export function splitMessage(text: string, maxLen: number): string[] {
 }
 
 /**
+ * Collapse runs of 3+ consecutive newlines down to exactly 2 (\n\n).
+ * Preserves single newlines (line breaks) and double newlines (paragraph breaks).
+ */
+export function collapseNewlines(text: string): string {
+  return text.replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * Extract text content from a stream line.
  * Returns text delta for streaming events, full text for assistant/result messages.
  */
@@ -160,9 +168,10 @@ export async function relayStream(
     editPending = false;
 
     // Truncate to platform limit for in-progress updates
-    const displayText = accumulated.length > platform.maxMessageLength
-      ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
-      : accumulated;
+    const collapsed = collapseNewlines(accumulated);
+    const displayText = collapsed.length > platform.maxMessageLength
+      ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
+      : collapsed;
 
     try {
       await platform.editMessage(sentMessageId, displayText);
@@ -223,9 +232,10 @@ export async function relayStream(
 
       // Send initial message once we have text (only if streaming is enabled)
       if (accumulated && sentMessageId === null && platform.streamingUpdates && !initialSendFailed) {
-        const displayText = accumulated.length > platform.maxMessageLength
-          ? accumulated.slice(0, platform.maxMessageLength - 3) + "..."
-          : accumulated;
+        const collapsed = collapseNewlines(accumulated);
+        const displayText = collapsed.length > platform.maxMessageLength
+          ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
+          : collapsed;
         try {
           sentMessageId = await platform.sendMessage(displayText);
           lastEditTime = Date.now();
@@ -264,9 +274,6 @@ export async function relayStream(
 
     // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery
     const trimmed = accumulated?.trim() ?? "";
-    if (trimmed !== "NO_REPLY" && trimmed.length < 30) {
-      process.stderr.write(`[stream-relay] DEBUG final text (${trimmed.length} chars): ${JSON.stringify(trimmed)}\n`);
-    }
     if (accumulated && trimmed === "NO_REPLY") {
       if (sentMessageId !== null) {
         // Delete the streaming message that was already sent
@@ -281,7 +288,7 @@ export async function relayStream(
 
     // Send final text version
     if (accumulated) {
-      const chunks = splitMessage(accumulated, platform.maxMessageLength);
+      const chunks = splitMessage(collapseNewlines(accumulated), platform.maxMessageLength);
 
       if (sentMessageId !== null && chunks.length >= 1) {
         // Edit the first message to final text
