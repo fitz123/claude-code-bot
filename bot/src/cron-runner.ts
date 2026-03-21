@@ -54,12 +54,12 @@ export function loadMergedCrons(cronsPath?: string): Array<Record<string, unknow
 
   const localPath = deriveCronsLocalPath(path);
   if (!existsSync(localPath)) {
-    return baseCrons;
+    return [...baseCrons];
   }
   const localRaw: CronsYaml = parseYaml(readFileSync(localPath, "utf8"));
   if (!localRaw?.crons || !Array.isArray(localRaw.crons)) {
     process.stderr.write(`Warning: ${localPath} found but has no valid 'crons' array — ignoring local overrides\n`);
-    return baseCrons;
+    return [...baseCrons];
   }
   const localCrons = localRaw.crons as Array<Record<string, unknown>>;
 
