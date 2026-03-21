@@ -1,3 +1,4 @@
+process.env.TZ = "UTC";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS } from "../telegram-bot.js";

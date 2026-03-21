@@ -109,8 +109,8 @@ export function buildDiscordSourcePrefix(
 
   if (timestampMs !== undefined) {
     const d = new Date(timestampMs);
-    const hh = d.getUTCHours().toString().padStart(2, "0");
-    const mm = d.getUTCMinutes().toString().padStart(2, "0");
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
     parts.push(`${hh}:${mm}`);
   }
 
