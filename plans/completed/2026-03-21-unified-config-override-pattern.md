@@ -80,10 +80,10 @@ crons.yaml
 Skill dir (upstream, tracked):
 - `~/src/claude-code-bot/.claude/skills/workspace-health/scripts/orphan-allowlist.txt` — 39 lines, platform defaults
 
-Note: `orphan-allowlist.local.txt` does NOT exist in the public repo skill dir. It exists only in the private workspace's copy at `<workspace>/.claude/skills/workspace-health/scripts/orphan-allowlist.local.txt` (contains `.playwright-mcp`). This is a workspace-side cleanup item, not a public repo change.
+Note: `orphan-allowlist.local.txt` does NOT exist in the public repo skill dir. It exists only in the private workspace's copy at `/Users/ninja/.minime/workspace/.claude/skills/workspace-health/scripts/orphan-allowlist.local.txt` (contains `.playwright-mcp`). This is a workspace-side cleanup item, not a public repo change.
 
 Workspace root (private workspace):
-- `<workspace>/.orphan-allowlist.local.txt` — hidden file (dot-prefix), inconsistent naming with skill-level `orphan-allowlist.txt`
+- `/Users/ninja/.minime/workspace/.orphan-allowlist.local.txt` — hidden file (dot-prefix), inconsistent naming with skill-level `orphan-allowlist.txt`
 
 ### guardian.sh allowlist loading (PR#54)
 `~/src/claude-code-bot/.claude/hooks/guardian.sh:79-90`:
@@ -152,7 +152,7 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 2. `orphan-allowlist.local.txt` exists in skill dir (`scripts/`) — it should only exist at workspace root. Skill dir = upstream platform defaults only.
 3. When workspace root file exists, skill-level is completely ignored — so `.playwright-mcp` entry from skill-level `.local.txt` is silently lost.
 
-**Evidence:** File listing shows dot-prefix at root: `<workspace>/.orphan-allowlist.local.txt`. In the private workspace, skill-dir has `orphan-allowlist.local.txt` with `.playwright-mcp` entry that's now unreachable because root file exists. The public repo skill dir does not have a `.local.txt` file.
+**Evidence:** File listing shows dot-prefix at root: `/Users/ninja/.minime/workspace/.orphan-allowlist.local.txt`. In the private workspace, skill-dir has `orphan-allowlist.local.txt` with `.playwright-mcp` entry that's now unreachable because root file exists. The public repo skill dir does not have a `.local.txt` file.
 
 **What we want:**
 - `orphan-allowlist.txt` at workspace root (no dot, not hidden) = upstream platform defaults. Shipped by upstream, tracked in git.
@@ -160,14 +160,14 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 - guardian.sh and orphan-scan.sh use `orphan-allowlist.txt` and `orphan-allowlist.local.txt` from workspace root.
 - Both files are read and combined (platform defaults + user additions).
 
-- [x] `orphan-allowlist.txt` exists at workspace root (not hidden, tracked in git)
-- [x] `orphan-allowlist.local.txt` is gitignored (not hidden, in workspace root)
-- [x] `orphan-allowlist.txt` no longer exists in `.claude/skills/workspace-health/scripts/`
-- [x] guardian.sh reads allowlists from workspace root only (no fallback to skill dir)
-- [x] orphan-scan.sh reads allowlists from workspace root only (no fallback to skill dir)
-- [x] Both files are concatenated (user additions extend platform defaults, not replace)
-- [x] Add tests for allowlist loading and concatenation (both files combined, local extends platform)
-- [x] Verify existing tests pass
+- [ ] `orphan-allowlist.txt` exists at workspace root (not hidden, tracked in git)
+- [ ] `orphan-allowlist.local.txt` is gitignored (not hidden, in workspace root)
+- [ ] `orphan-allowlist.txt` no longer exists in `.claude/skills/workspace-health/scripts/`
+- [ ] guardian.sh reads allowlists from workspace root only (no fallback to skill dir)
+- [ ] orphan-scan.sh reads allowlists from workspace root only (no fallback to skill dir)
+- [ ] Both files are concatenated (user additions extend platform defaults, not replace)
+- [ ] Add tests for allowlist loading and concatenation (both files combined, local extends platform)
+- [ ] Verify existing tests pass
 
 ### Task 2: Implement config.yaml + config.local.yaml layering (workspace-voy5, P1)
 
@@ -183,18 +183,18 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 - `config.local.yaml.example` added — shows what users typically override
 - `.gitignore` updated: remove `config.yaml`, add `config.local.yaml`
 
-- [x] `config.yaml` is tracked in git with working defaults (no placeholder values)
-- [x] `config.local.yaml` is gitignored
-- [x] `config.local.yaml.example` exists with clear examples of user overrides
-- [x] `config.yaml.example` is removed
-- [x] Nested config values in `config.local.yaml` override corresponding values in `config.yaml` without losing unrelated keys
-- [x] Bot starts successfully with only `config.yaml` (no local override) — using defaults
-- [x] Bot starts successfully with `config.yaml` + `config.local.yaml` — local values override defaults
-- [x] Merge precedence: `config.local.yaml` values always win over `config.yaml`
-- [x] All config consumers (config.ts, cron-runner.ts) use merged config — no direct reads of `config.yaml` alone
-- [x] `.gitignore` lists `config.local.yaml` instead of `config.yaml`
-- [x] Add tests for config merging logic
-- [x] Verify existing tests pass
+- [ ] `config.yaml` is tracked in git with working defaults (no placeholder values)
+- [ ] `config.local.yaml` is gitignored
+- [ ] `config.local.yaml.example` exists with clear examples of user overrides
+- [ ] `config.yaml.example` is removed
+- [ ] Nested config values in `config.local.yaml` override corresponding values in `config.yaml` without losing unrelated keys
+- [ ] Bot starts successfully with only `config.yaml` (no local override) — using defaults
+- [ ] Bot starts successfully with `config.yaml` + `config.local.yaml` — local values override defaults
+- [ ] Merge precedence: `config.local.yaml` values always win over `config.yaml`
+- [ ] All config consumers (config.ts, cron-runner.ts) use merged config — no direct reads of `config.yaml` alone
+- [ ] `.gitignore` lists `config.local.yaml` instead of `config.yaml`
+- [ ] Add tests for config merging logic
+- [ ] Verify existing tests pass
 
 ### Task 3: Implement crons.yaml + crons.local.yaml layering (workspace-voy5, P1)
 
@@ -211,18 +211,18 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 - `crons.local.yaml.example` added — shows format for user crons
 - `.gitignore` updated: remove `crons.yaml`, add `crons.local.yaml`
 
-- [x] `crons.yaml` is tracked in git with documented example crons
-- [x] `crons.local.yaml` is gitignored
-- [x] `crons.local.yaml.example` exists with clear user cron examples
-- [x] `crons.yaml.example` is removed
-- [x] Cron loader concatenates cron arrays from both files
-- [x] Duplicate cron names: local wins over upstream
-- [x] Bot starts with only `crons.yaml` (no local) — example crons loaded (or disabled by default)
-- [x] Bot starts with both files — all crons from both are available
-- [x] generate-plists.ts reads and merges both crons.yaml and crons.local.yaml when generating plists
-- [x] `.gitignore` lists `crons.local.yaml` instead of `crons.yaml`
-- [x] Add tests for cron merging logic
-- [x] Verify existing tests pass
+- [ ] `crons.yaml` is tracked in git with documented example crons
+- [ ] `crons.local.yaml` is gitignored
+- [ ] `crons.local.yaml.example` exists with clear user cron examples
+- [ ] `crons.yaml.example` is removed
+- [ ] Cron loader concatenates cron arrays from both files
+- [ ] Duplicate cron names: local wins over upstream
+- [ ] Bot starts with only `crons.yaml` (no local) — example crons loaded (or disabled by default)
+- [ ] Bot starts with both files — all crons from both are available
+- [ ] generate-plists.ts reads and merges both crons.yaml and crons.local.yaml when generating plists
+- [ ] `.gitignore` lists `crons.local.yaml` instead of `crons.yaml`
+- [ ] Add tests for cron merging logic
+- [ ] Verify existing tests pass
 
 ### Task 4: Clean up .gitattributes and .example files (workspace-voy5, P2)
 
@@ -250,13 +250,13 @@ Files referencing `.example` that will break:
 - Update CLAUDE.md setup instructions to reference new pattern
 - Update README if it references `.example` copy workflow
 
-- [x] `config.yaml.example` no longer exists in repo
-- [x] `crons.yaml.example` no longer exists in repo
-- [x] `.claude/settings.local.json.example` no longer exists in repo
-- [x] `bot/telegram-bot.plist.example` still exists (not part of this migration)
-- [x] `reference/governance/decisions.md.example` still exists (not part of this migration)
-- [x] `.gitattributes` retains identity files + settings.json + .gitignore + .gitattributes
-- [x] Setup documentation updated to describe `X` + `X.local` pattern
-- [x] All test files updated to reference `config.yaml`/`crons.yaml` instead of `.example` variants
-- [x] No broken references to removed `.example` files anywhere in codebase (verified by grep)
-- [x] Verify existing tests pass
+- [ ] `config.yaml.example` no longer exists in repo
+- [ ] `crons.yaml.example` no longer exists in repo
+- [ ] `.claude/settings.local.json.example` no longer exists in repo
+- [ ] `bot/telegram-bot.plist.example` still exists (not part of this migration)
+- [ ] `reference/governance/decisions.md.example` still exists (not part of this migration)
+- [ ] `.gitattributes` retains identity files + settings.json + .gitignore + .gitattributes
+- [ ] Setup documentation updated to describe `X` + `X.local` pattern
+- [ ] All test files updated to reference `config.yaml`/`crons.yaml` instead of `.example` variants
+- [ ] No broken references to removed `.example` files anywhere in codebase (verified by grep)
+- [ ] Verify existing tests pass
