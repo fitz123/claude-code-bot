@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for platform integration: memory directories, crons.yaml.example, .gitignore, memory-protocol.
+# Tests for platform integration: memory directories, crons.yaml, .gitignore, memory-protocol.
 # Usage: bash test-platform-integration.sh
 # Runs assertions against repo files — no side effects.
 set -euo pipefail
@@ -38,12 +38,12 @@ assert_eq "memory/auto/.gitkeep exists in repo" "true" "$([ -f "$REPO_DIR/memory
 assert_eq "memory/diary/.gitkeep exists in repo" "true" "$([ -f "$REPO_DIR/memory/diary/.gitkeep" ] && echo true || echo false)"
 assert_eq "memory/.gitkeep exists in repo" "true" "$([ -f "$REPO_DIR/memory/.gitkeep" ] && echo true || echo false)"
 
-echo "=== crons.yaml.example ==="
+echo "=== crons.yaml ==="
 
-CRONS_FILE="$REPO_DIR/crons.yaml.example"
+CRONS_FILE="$REPO_DIR/crons.yaml"
 
-# Test: crons.yaml.example exists
-assert_eq "crons.yaml.example exists" "true" "$([ -f "$CRONS_FILE" ] && echo true || echo false)"
+# Test: crons.yaml exists
+assert_eq "crons.yaml exists" "true" "$([ -f "$CRONS_FILE" ] && echo true || echo false)"
 
 # Test: contains memory-consolidation entry
 crons_content=$(cat "$CRONS_FILE")
@@ -51,7 +51,7 @@ assert_contains "crons.yaml has memory-consolidation entry" "$crons_content" "me
 assert_contains "crons.yaml has nightly schedule" "$crons_content" '"0 2 \* \* \*"'
 assert_contains "crons.yaml has adequate timeout" "$crons_content" "600000"
 
-# Test: crons.yaml.example is valid YAML (requires yq or python, fallback to basic check)
+# Test: crons.yaml is valid YAML (requires yq or python, fallback to basic check)
 if command -v python3 >/dev/null 2>&1; then
   yaml_result=$(python3 -c "
 import sys, json
@@ -68,12 +68,12 @@ except Exception as e:
     print(f'INVALID: {e}')
   " "$CRONS_FILE" 2>&1)
   if [ "$yaml_result" = "VALID" ]; then
-    assert_eq "crons.yaml.example is valid YAML with memory-consolidation" "VALID" "$yaml_result"
+    assert_eq "crons.yaml is valid YAML with memory-consolidation" "VALID" "$yaml_result"
   elif [ "$yaml_result" = "SKIP_YAML" ]; then
     PASS=$((PASS + 1))
     TESTS+=("SKIP: YAML validation (PyYAML not installed)")
   else
-    assert_eq "crons.yaml.example is valid YAML" "VALID" "$yaml_result"
+    assert_eq "crons.yaml is valid YAML" "VALID" "$yaml_result"
   fi
 fi
 

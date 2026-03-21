@@ -1,5 +1,0 @@
-{
-  "outputStyle": "verbose",
-  "autoMemoryEnabled": true,
-  "autoMemoryDirectory": "/absolute/path/to/your/workspace/memory/auto"
-}

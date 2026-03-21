@@ -35,5 +35,6 @@ completed
 *.txt
 *.yaml
 *.yml
+*.example
 LICENSE
 Makefile

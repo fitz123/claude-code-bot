@@ -36,9 +36,9 @@ orphan-allowlist.local.txt
 # Ralphex
 completed/
 
-# Instance config (user creates from .example)
-config.yaml
-crons.yaml
+# Instance config overrides (user creates from .example)
+config.local.yaml
+crons.local.yaml
 
 # OS
 .DS_Store

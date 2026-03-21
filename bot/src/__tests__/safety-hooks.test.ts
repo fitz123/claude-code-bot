@@ -185,14 +185,9 @@ describe("guardian.sh", () => {
     rmSync(TMP_WORKSPACE, { recursive: true, force: true });
     mkdirSync(TMP_WORKSPACE, { recursive: true });
 
-    // Create allowlist
-    const allowlistDir = join(
-      TMP_WORKSPACE,
-      ".claude/skills/workspace-health/scripts",
-    );
-    mkdirSync(allowlistDir, { recursive: true });
+    // Create allowlist at workspace root (new pattern: orphan-allowlist.txt at root)
     writeFileSync(
-      join(allowlistDir, "orphan-allowlist.txt"),
+      join(TMP_WORKSPACE, "orphan-allowlist.txt"),
       [
         "# Test allowlist",
         "memory",
@@ -352,13 +347,8 @@ describe("guardian.sh", () => {
   });
 
   it("blocks when allowlist is missing", () => {
-    // Remove the allowlist file
-    rmSync(
-      join(
-        TMP_WORKSPACE,
-        ".claude/skills/workspace-health/scripts/orphan-allowlist.txt",
-      ),
-    );
+    // Remove the allowlist file from workspace root (new pattern)
+    rmSync(join(TMP_WORKSPACE, "orphan-allowlist.txt"));
     const result = runHook(
       GUARDIAN,
       {
