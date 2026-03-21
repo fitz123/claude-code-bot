@@ -76,8 +76,9 @@ fi
 
 ROOT_COMPONENT="${REL_PATH%%/*}"
 
-# Load allowlist (same file orphan-scan.sh uses)
-ALLOWLIST="$WORKSPACE/.claude/skills/workspace-health/scripts/orphan-allowlist.txt"
+# Load allowlist from workspace root (platform defaults + user additions)
+ALLOWLIST="$WORKSPACE/orphan-allowlist.txt"
+ALLOWLIST_LOCAL="$WORKSPACE/orphan-allowlist.local.txt"
 
 if [[ ! -f "$ALLOWLIST" ]]; then
   echo "BLOCKED by directory guardian: allowlist not found at $ALLOWLIST" >&2
@@ -85,27 +86,30 @@ if [[ ! -f "$ALLOWLIST" ]]; then
   exit 2
 fi
 
-# Check root component against allowlist patterns
-while IFS= read -r line; do
-  # Strip comments and whitespace
-  line="${line%%#*}"
-  line="${line#"${line%%[![:space:]]*}"}"
-  line="${line%"${line##*[![:space:]]}"}"
-  [[ -z "$line" ]] && continue
+# Check root component against allowlist patterns (platform defaults + user additions)
+for allowfile in "$ALLOWLIST" "$ALLOWLIST_LOCAL"; do
+  [[ -f "$allowfile" ]] || continue
+  while IFS= read -r line; do
+    # Strip comments and whitespace
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
 
-  # Exact match
-  [[ "$ROOT_COMPONENT" == "$line" ]] && exit 0
+    # Exact match
+    [[ "$ROOT_COMPONENT" == "$line" ]] && exit 0
 
-  # Glob match
-  # shellcheck disable=SC2254
-  case "$ROOT_COMPONENT" in $line) exit 0 ;; esac
-done < "$ALLOWLIST"
+    # Glob match
+    # shellcheck disable=SC2254
+    case "$ROOT_COMPONENT" in $line) exit 0 ;; esac
+  done < "$allowfile"
+done
 
 # Not in allowlist — block with helpful error
 cat >&2 <<ERRMSG
 BLOCKED by directory guardian: cannot create '${REL_PATH}' in workspace root.
 
 The root-level name '${ROOT_COMPONENT}' is not in the allowed workspace structure.
-To allow it, add a pattern to: .claude/skills/workspace-health/scripts/orphan-allowlist.txt
+To allow it, add a pattern to: orphan-allowlist.local.txt (workspace root, gitignored)
 ERRMSG
 exit 2

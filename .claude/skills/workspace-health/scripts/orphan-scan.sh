@@ -16,9 +16,8 @@ WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 echo "=== Orphan Scan: $WORKSPACE ==="
 echo ""
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ALLOWLIST="$SCRIPT_DIR/orphan-allowlist.txt"
-ALLOWLIST_LOCAL="$SCRIPT_DIR/orphan-allowlist.local.txt"
+ALLOWLIST="$WORKSPACE/orphan-allowlist.txt"
+ALLOWLIST_LOCAL="$WORKSPACE/orphan-allowlist.local.txt"
 
 # Load allowlist entries (skip comments and blank lines)
 ALLOWED=()
@@ -124,7 +123,7 @@ else
     fi
   done
   echo ""
-  echo "To suppress: add entries to .claude/skills/workspace-health/scripts/orphan-allowlist.local.txt"
+  echo "To suppress: add entries to orphan-allowlist.local.txt (workspace root, gitignored)"
 fi
 
 echo ""

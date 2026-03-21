@@ -151,9 +151,29 @@ echo "--- orphan-scan.sh ---"
 run_test "exits 0 on valid workspace" 0 bash "$SCRIPT_DIR/orphan-scan.sh" "$WORKSPACE"
 assert_contains "reports scan" "Orphan Scan:" bash "$SCRIPT_DIR/orphan-scan.sh" "$WORKSPACE"
 
+# Allowlist must be at workspace root, not in skill scripts dir
+TESTS=$((TESTS + 1))
+ALLOWLIST="$WORKSPACE/orphan-allowlist.txt"
+if [ -f "$ALLOWLIST" ]; then
+  echo "  PASS: orphan-allowlist.txt exists at workspace root"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: orphan-allowlist.txt not found at workspace root ($ALLOWLIST)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Allowlist should not exist in skill scripts dir (moved to workspace root)
+TESTS=$((TESTS + 1))
+if [ -f "$SCRIPT_DIR/orphan-allowlist.txt" ]; then
+  echo "  FAIL: orphan-allowlist.txt still exists in skill scripts dir (should be at workspace root)"
+  FAIL=$((FAIL + 1))
+else
+  echo "  PASS: orphan-allowlist.txt not in skill scripts dir (correctly at workspace root)"
+  PASS=$((PASS + 1))
+fi
+
 # Allowlist should not contain workspace-specific entries
 TESTS=$((TESTS + 1))
-ALLOWLIST="$SCRIPT_DIR/orphan-allowlist.txt"
 if grep -qE '^(config\.yaml|crons\.yaml|monitoring|\.minime|\.playwright-mcp|\.maintenance\.lock)$' "$ALLOWLIST" 2>/dev/null; then
   echo "  FAIL: orphan-allowlist.txt contains workspace-specific entries"
   FAIL=$((FAIL + 1))
@@ -162,13 +182,41 @@ else
   PASS=$((PASS + 1))
 fi
 
-# Local allowlist mechanism exists
+# orphan-scan.sh reads from workspace root, not skill dir
+TESTS=$((TESTS + 1))
+if grep -q 'ALLOWLIST="$WORKSPACE/' "$SCRIPT_DIR/orphan-scan.sh"; then
+  echo "  PASS: orphan-scan.sh reads allowlist from workspace root"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: orphan-scan.sh does not read allowlist from workspace root"
+  FAIL=$((FAIL + 1))
+fi
+
+# Local allowlist mechanism exists (workspace root)
 TESTS=$((TESTS + 1))
 if grep -q "orphan-allowlist.local.txt" "$SCRIPT_DIR/orphan-scan.sh"; then
   echo "  PASS: orphan-scan.sh supports local allowlist"
   PASS=$((PASS + 1))
 else
   echo "  FAIL: orphan-scan.sh does not reference local allowlist"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test: both allowlist files are concatenated (local extends platform)
+TESTS=$((TESTS + 1))
+_TMP_WS=$(mktemp -d)
+git -C "$_TMP_WS" init -q
+printf 'allowed-platform\n' > "$_TMP_WS/orphan-allowlist.txt"
+printf 'allowed-local\n' > "$_TMP_WS/orphan-allowlist.local.txt"
+mkdir -p "$_TMP_WS/allowed-platform" "$_TMP_WS/allowed-local" "$_TMP_WS/orphan-dir"
+_SCAN_OUT=$(bash "$SCRIPT_DIR/orphan-scan.sh" "$_TMP_WS" 2>&1) || true
+rm -rf "$_TMP_WS"
+if echo "$_SCAN_OUT" | grep -q "orphan-dir" && ! echo "$_SCAN_OUT" | grep -q "allowed-platform" && ! echo "$_SCAN_OUT" | grep -q "allowed-local"; then
+  echo "  PASS: both allowlist files concatenated (local extends platform)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: allowlist concatenation broken (expected orphan-dir flagged, allowed-* not flagged)"
+  echo "    Output: $(echo "$_SCAN_OUT" | head -5)"
   FAIL=$((FAIL + 1))
 fi
 echo ""

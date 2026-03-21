@@ -160,14 +160,14 @@ This script generates launchd plists from cron definitions. If it doesn't read `
 - guardian.sh and orphan-scan.sh use `orphan-allowlist.txt` and `orphan-allowlist.local.txt` from workspace root.
 - Both files are read and combined (platform defaults + user additions).
 
-- [ ] `orphan-allowlist.txt` exists at workspace root (not hidden, tracked in git)
-- [ ] `orphan-allowlist.local.txt` is gitignored (not hidden, in workspace root)
-- [ ] `orphan-allowlist.txt` no longer exists in `.claude/skills/workspace-health/scripts/`
-- [ ] guardian.sh reads allowlists from workspace root only (no fallback to skill dir)
-- [ ] orphan-scan.sh reads allowlists from workspace root only (no fallback to skill dir)
-- [ ] Both files are concatenated (user additions extend platform defaults, not replace)
-- [ ] Add tests for allowlist loading and concatenation (both files combined, local extends platform)
-- [ ] Verify existing tests pass
+- [x] `orphan-allowlist.txt` exists at workspace root (not hidden, tracked in git)
+- [x] `orphan-allowlist.local.txt` is gitignored (not hidden, in workspace root)
+- [x] `orphan-allowlist.txt` no longer exists in `.claude/skills/workspace-health/scripts/`
+- [x] guardian.sh reads allowlists from workspace root only (no fallback to skill dir)
+- [x] orphan-scan.sh reads allowlists from workspace root only (no fallback to skill dir)
+- [x] Both files are concatenated (user additions extend platform defaults, not replace)
+- [x] Add tests for allowlist loading and concatenation (both files combined, local extends platform)
+- [x] Verify existing tests pass
 
 ### Task 2: Implement config.yaml + config.local.yaml layering (workspace-voy5, P1)
 
