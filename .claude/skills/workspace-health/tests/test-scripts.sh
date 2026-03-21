@@ -123,6 +123,63 @@ fi
 # settings.local.json missing should not be a FAIL
 assert_not_contains "missing settings.local.json is not a FAIL" "FAIL.*settings.local.json" bash "$SCRIPT_DIR/config-check.sh" "$WORKSPACE"
 
+# --- Settings separation tests ---
+# Test with synthetic workspace: user prefs in settings.json should FAIL
+TESTS=$((TESTS + 1))
+_TMP_CFG=$(mktemp -d)
+git -C "$_TMP_CFG" init -q >/dev/null 2>&1
+mkdir -p "$_TMP_CFG/.claude"
+echo '{"outputStyle":"X","autoMemoryEnabled":true}' > "$_TMP_CFG/.claude/settings.json"
+touch "$_TMP_CFG/CLAUDE.md" "$_TMP_CFG/USER.md" "$_TMP_CFG/IDENTITY.md" "$_TMP_CFG/.gitignore" "$_TMP_CFG/MEMORY.md"
+_CFG_OUT=$(bash "$SCRIPT_DIR/config-check.sh" "$_TMP_CFG" 2>&1 || true)
+if echo "$_CFG_OUT" | grep -q "FAIL.*outputStyle.*settings.local" && echo "$_CFG_OUT" | grep -q "FAIL.*autoMemoryEnabled.*settings.local"; then
+  echo "  PASS: detects user prefs in settings.json"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: did not detect user prefs in settings.json"
+  echo "    Output: $(echo "$_CFG_OUT" | grep -i 'fail\|warn' | head -5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_TMP_CFG"
+
+# Test: autoMemoryDirectory not ending in /memory/auto should FAIL
+TESTS=$((TESTS + 1))
+_TMP_CFG2=$(mktemp -d)
+git -C "$_TMP_CFG2" init -q >/dev/null 2>&1
+mkdir -p "$_TMP_CFG2/.claude"
+echo '{}' > "$_TMP_CFG2/.claude/settings.json"
+echo '{"autoMemoryEnabled":true,"autoMemoryDirectory":"/bad/path/memory"}' > "$_TMP_CFG2/.claude/settings.local.json"
+touch "$_TMP_CFG2/CLAUDE.md" "$_TMP_CFG2/USER.md" "$_TMP_CFG2/IDENTITY.md" "$_TMP_CFG2/.gitignore" "$_TMP_CFG2/MEMORY.md"
+_CFG_OUT2=$(bash "$SCRIPT_DIR/config-check.sh" "$_TMP_CFG2" 2>&1 || true)
+if echo "$_CFG_OUT2" | grep -q "FAIL.*autoMemoryDirectory.*memory/auto"; then
+  echo "  PASS: detects wrong autoMemoryDirectory path"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: did not detect wrong autoMemoryDirectory path"
+  echo "    Output: $(echo "$_CFG_OUT2" | grep -i 'fail\|warn' | head -5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_TMP_CFG2"
+
+# Test: missing required keys in settings.local.json should WARN
+TESTS=$((TESTS + 1))
+_TMP_CFG3=$(mktemp -d)
+git -C "$_TMP_CFG3" init -q >/dev/null 2>&1
+mkdir -p "$_TMP_CFG3/.claude"
+echo '{}' > "$_TMP_CFG3/.claude/settings.json"
+echo '{}' > "$_TMP_CFG3/.claude/settings.local.json"
+touch "$_TMP_CFG3/CLAUDE.md" "$_TMP_CFG3/USER.md" "$_TMP_CFG3/IDENTITY.md" "$_TMP_CFG3/.gitignore" "$_TMP_CFG3/MEMORY.md"
+_CFG_OUT3=$(bash "$SCRIPT_DIR/config-check.sh" "$_TMP_CFG3" 2>&1 || true)
+if echo "$_CFG_OUT3" | grep -q "WARN.*outputStyle" && echo "$_CFG_OUT3" | grep -q "WARN.*autoMemoryEnabled" && echo "$_CFG_OUT3" | grep -q "WARN.*autoMemoryDirectory"; then
+  echo "  PASS: warns about missing required keys in settings.local.json"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: did not warn about missing required keys"
+  echo "    Output: $(echo "$_CFG_OUT3" | grep -i 'fail\|warn' | head -5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_TMP_CFG3"
+
 # No ADR references
 TESTS=$((TESTS + 1))
 if grep -q 'ADR-[0-9]' "$SCRIPT_DIR/config-check.sh"; then

@@ -84,6 +84,34 @@ if [ -f "$SETTINGS_LOCAL" ]; then
 else
   echo "  INFO: settings.local.json not created (optional override file)"
 fi
+
+# --- Settings separation: user prefs must be in settings.local.json, not settings.json ---
+if [ -f "$SETTINGS" ] && command -v jq >/dev/null 2>&1; then
+  USER_PREF_KEYS=("outputStyle" "autoMemoryEnabled" "autoMemoryDirectory")
+  for key in "${USER_PREF_KEYS[@]}"; do
+    if jq -e "has(\"$key\")" "$SETTINGS" >/dev/null 2>&1; then
+      echo "  FAIL: settings.json contains user preference '$key' (move to settings.local.json)"
+      ERRORS=$((ERRORS + 1))
+    fi
+  done
+fi
+
+# --- Required fields in settings.local.json ---
+if [ -f "$SETTINGS_LOCAL" ] && command -v jq >/dev/null 2>&1; then
+  REQUIRED_LOCAL_KEYS=("outputStyle" "autoMemoryEnabled" "autoMemoryDirectory")
+  for key in "${REQUIRED_LOCAL_KEYS[@]}"; do
+    if ! jq -e "has(\"$key\")" "$SETTINGS_LOCAL" >/dev/null 2>&1; then
+      echo "  WARN: settings.local.json missing '$key'"
+      WARNINGS=$((WARNINGS + 1))
+    fi
+  done
+  # autoMemoryDirectory must end with /memory/auto
+  MEM_DIR=$(jq -r '.autoMemoryDirectory // empty' "$SETTINGS_LOCAL" 2>/dev/null)
+  if [ -n "$MEM_DIR" ] && [[ "$MEM_DIR" != */memory/auto ]]; then
+    echo "  FAIL: autoMemoryDirectory must end with /memory/auto (got: $MEM_DIR)"
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
 echo ""
 
 # --- Hooks configuration ---
