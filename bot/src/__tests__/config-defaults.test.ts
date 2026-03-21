@@ -9,7 +9,7 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
     assert.strictEqual(defaults.streamingUpdates, false);
-    assert.strictEqual(defaults.requireMention, false);
+    assert.strictEqual(defaults.requireMention, true);
   });
 
   it("returns production defaults when input is undefined", () => {
@@ -18,7 +18,7 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
     assert.strictEqual(defaults.streamingUpdates, false);
-    assert.strictEqual(defaults.requireMention, false);
+    assert.strictEqual(defaults.requireMention, true);
   });
 
   it("returns production defaults when input is empty object", () => {
@@ -27,7 +27,7 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
     assert.strictEqual(defaults.streamingUpdates, false);
-    assert.strictEqual(defaults.requireMention, false);
+    assert.strictEqual(defaults.requireMention, true);
   });
 
   it("allows overriding individual fields", () => {
@@ -116,12 +116,25 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(off.requireMention, false);
   });
 
-  it("ignores non-boolean streamingUpdates and requireMention", () => {
-    const defaults = validateSessionDefaults({
-      streamingUpdates: "yes",
-      requireMention: 1,
-    });
-    assert.strictEqual(defaults.streamingUpdates, false);
-    assert.strictEqual(defaults.requireMention, false);
+  it("throws on non-boolean streamingUpdates", () => {
+    assert.throws(
+      () => validateSessionDefaults({ streamingUpdates: "yes" }),
+      /Invalid streamingUpdates/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ streamingUpdates: 1 }),
+      /Invalid streamingUpdates/,
+    );
+  });
+
+  it("throws on non-boolean requireMention", () => {
+    assert.throws(
+      () => validateSessionDefaults({ requireMention: "true" }),
+      /Invalid requireMention/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ requireMention: 1 }),
+      /Invalid requireMention/,
+    );
   });
 });

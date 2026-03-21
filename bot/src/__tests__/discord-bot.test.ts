@@ -195,8 +195,8 @@ describe("shouldRespondInDiscord", () => {
     assert.strictEqual(shouldRespondInDiscord(channelNoMention, botUserId, mockMessage()), true);
   });
 
-  it("returns true for channel with no requireMention set and no sessionDefaults (default false)", () => {
-    assert.strictEqual(shouldRespondInDiscord(channelBinding, botUserId, mockMessage()), true);
+  it("returns false for channel with no requireMention set and no sessionDefaults (default true)", () => {
+    assert.strictEqual(shouldRespondInDiscord(channelBinding, botUserId, mockMessage()), false);
   });
 
   it("returns false for channel with requireMention: true and no mention", () => {

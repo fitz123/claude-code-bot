@@ -79,7 +79,7 @@ export function shouldRespondInDiscord(
   sessionDefaults?: { requireMention?: boolean },
 ): boolean {
   if (binding.kind === "dm") return true;
-  const requireMention = binding.requireMention ?? sessionDefaults?.requireMention ?? false;
+  const requireMention = binding.requireMention ?? sessionDefaults?.requireMention ?? true;
   if (!requireMention) return true;
   if (message.mentions.has(botUserId)) return true;
   return false;

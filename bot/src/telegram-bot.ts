@@ -361,7 +361,7 @@ export function shouldRespondInGroup(
 ): boolean {
   if (binding.kind !== "group") return true;
 
-  const requireMention = binding.requireMention ?? sessionDefaults?.requireMention ?? false;
+  const requireMention = binding.requireMention ?? sessionDefaults?.requireMention ?? true;
   if (!requireMention) return true;
 
   if (

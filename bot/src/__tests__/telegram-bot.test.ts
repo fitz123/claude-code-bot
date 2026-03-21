@@ -413,9 +413,9 @@ describe("shouldRespondInGroup", () => {
     assert.strictEqual(shouldRespondInGroup(groupNoMention, botId, botUsername, {}), true);
   });
 
-  it("returns true for group with no requireMention set and no sessionDefaults (default false)", () => {
+  it("returns false for group with no requireMention set and no sessionDefaults (default true)", () => {
     const msg = { text: "hello everyone" };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
   });
 
   it("returns false for group with requireMention: true and no reply/mention", () => {
