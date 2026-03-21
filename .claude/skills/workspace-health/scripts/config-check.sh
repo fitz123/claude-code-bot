@@ -98,7 +98,7 @@ fi
 
 # --- Required fields in settings.local.json ---
 if [ -f "$SETTINGS_LOCAL" ] && command -v jq >/dev/null 2>&1; then
-  REQUIRED_LOCAL_KEYS=("autoMemoryEnabled" "autoMemoryDirectory")
+  REQUIRED_LOCAL_KEYS=("outputStyle" "autoMemoryEnabled" "autoMemoryDirectory")
   for key in "${REQUIRED_LOCAL_KEYS[@]}"; do
     if ! jq -e "has(\"$key\")" "$SETTINGS_LOCAL" >/dev/null 2>&1; then
       echo "  WARN: settings.local.json missing '$key'"

@@ -170,7 +170,7 @@ echo '{}' > "$_TMP_CFG3/.claude/settings.json"
 echo '{}' > "$_TMP_CFG3/.claude/settings.local.json"
 touch "$_TMP_CFG3/CLAUDE.md" "$_TMP_CFG3/USER.md" "$_TMP_CFG3/IDENTITY.md" "$_TMP_CFG3/.gitignore" "$_TMP_CFG3/MEMORY.md"
 _CFG_OUT3=$(bash "$SCRIPT_DIR/config-check.sh" "$_TMP_CFG3" 2>&1 || true)
-if echo "$_CFG_OUT3" | grep -q "WARN.*autoMemoryEnabled" && echo "$_CFG_OUT3" | grep -q "WARN.*autoMemoryDirectory"; then
+if echo "$_CFG_OUT3" | grep -q "WARN.*outputStyle" && echo "$_CFG_OUT3" | grep -q "WARN.*autoMemoryEnabled" && echo "$_CFG_OUT3" | grep -q "WARN.*autoMemoryDirectory"; then
   echo "  PASS: warns about missing required keys in settings.local.json"
   PASS=$((PASS + 1))
 else
