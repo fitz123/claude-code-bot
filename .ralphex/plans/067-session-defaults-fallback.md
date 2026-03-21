@@ -10,7 +10,7 @@ GitHub issue: #67
 
 1. Add `streamingUpdates` and `requireMention` to `SessionDefaults` type and validation
 2. Use `sessionDefaults` as fallback in adapters when binding doesn't specify a value
-3. Change defaults: `streamingUpdates: false`, `requireMention: false`
+3. Change defaults: `streamingUpdates: false`, `requireMention: true`
 
 ## Files to change
 
@@ -41,7 +41,7 @@ if (typeof obj.streamingUpdates === "boolean") {
   streamingUpdates = obj.streamingUpdates;
 }
 
-let requireMention = false;
+let requireMention = true;
 if (typeof obj.requireMention === "boolean") {
   requireMention = obj.requireMention;
 }
