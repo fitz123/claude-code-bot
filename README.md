@@ -141,7 +141,7 @@ Send a message to your bot in Telegram to confirm it responds.
 
 ### Optional setup
 
-**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.yaml`. See [config.yaml](config.yaml).
+**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.local.yaml`. See [config.yaml](config.yaml) for full reference.
 
 **Crons:** Add your crons to `crons.local.yaml` (copy from `crons.local.yaml.example`), then generate and load plists:
 ```bash
@@ -284,6 +284,28 @@ metricsPort: 9090
 ```
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
+
+## Upgrading from config.yaml.example
+
+Older versions shipped `config.yaml.example` which you copied to `config.yaml` (gitignored). The current version tracks `config.yaml` directly and uses `config.local.yaml` for user overrides.
+
+If you have a local `config.yaml` from the old workflow, git will refuse to pull because the file is now tracked. Migrate before pulling:
+
+```bash
+# 1. Back up your current config
+cp config.yaml config.local.yaml
+
+# 2. Remove the untracked file so git can check out the new tracked version
+rm config.yaml
+
+# 3. Pull — git will restore config.yaml with upstream defaults
+git pull
+
+# 4. Edit config.local.yaml — keep only your overrides (workspaceCwd, chatId, tokens, bindings)
+#    Remove anything that matches the upstream defaults in config.yaml
+```
+
+Your `config.local.yaml` is deep-merged over `config.yaml` at startup, so you only need to keep what differs from the defaults.
 
 ## Similar Projects
 
