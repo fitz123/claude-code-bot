@@ -152,7 +152,7 @@ function getAgentWorkspace(agentId: string): string {
     agents?: Record<string, unknown>;
   };
   if (!raw?.agents?.[agentId]) {
-    throw new Error(`Agent "${agentId}" not found in config.yaml`);
+    throw new Error(`Agent "${agentId}" not found in config.yaml / config.local.yaml`);
   }
   const agent = raw.agents[agentId] as AgentConfig;
   return agent.workspaceCwd;
