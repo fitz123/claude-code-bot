@@ -115,6 +115,13 @@ sessionDefaults:
     assert.strictEqual(result.logLevel, "debug");
     assert.strictEqual(result.metricsPort, 8080);
   });
+
+  it("override introducing entirely new nested object is assigned as-is", () => {
+    const result = mergeDeep({ a: 1 }, { nested: { x: 99 } });
+    assert.strictEqual(result.a, 1);
+    const nested = result.nested as Record<string, unknown>;
+    assert.strictEqual(nested.x, 99);
+  });
 });
 
 describe("loadRawMergedConfig", () => {
@@ -161,6 +168,13 @@ describe("loadRawMergedConfig", () => {
     writeFileSync(localPath, "# no overrides\n");
     const result = loadRawMergedConfig(configPath);
     assert.strictEqual(result.logLevel, "info");
+  });
+
+  it("handles empty base YAML gracefully (returns empty object)", () => {
+    const configPath = join(TEST_DIR, "config.yaml");
+    writeFileSync(configPath, "# empty\n");
+    const result = loadRawMergedConfig(configPath);
+    assert.deepStrictEqual(result, {});
   });
 
   it("deep merges nested agent config from local", () => {

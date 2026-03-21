@@ -63,7 +63,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
 
-**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
+**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). User-specific overrides live in `config.local.yaml` (gitignored, deep-merged over `config.yaml`). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
 
 ## Installation
 
@@ -175,7 +175,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
 ## Add a Cron
 
-1. Edit `crons.yaml` — add a new entry:
+1. Edit `crons.local.yaml` — add a new entry:
    ```yaml
    - name: my-task
      schedule: "30 9 * * *"
@@ -194,7 +194,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs `claude -p`; `"script"` runs a shell command |
    | `prompt` | string | for llm | Prompt sent to Claude |
    | `command` | string | for script | Shell command to execute |
-   | `agentId` | string | yes | Must match an agent in `config.yaml` |
+   | `agentId` | string | yes | Must match an agent in `config.yaml` or `config.local.yaml` |
    | `deliveryChatId` | number | no | Telegram chat ID for delivery (falls back to config default) |
    | `deliveryThreadId` | number | no | Telegram forum topic ID for delivery |
    | `timeout` | number | no | Per-cron timeout in ms (default: 300000 = 5 min) |
@@ -212,11 +212,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    tail -f ~/.minime/logs/cron-my-task.log
    ```
 
-To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `crons.yaml`, regenerate.
+To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `crons.local.yaml`, regenerate.
 
 ## Add a Binding
 
-1. Add an agent and binding to `config.yaml`:
+1. Add an agent and binding to `config.local.yaml`:
    ```yaml
    agents:
      new-agent:
@@ -246,7 +246,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
    security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
    ```
 
-2. Add the `discord` section to `config.yaml`:
+2. Add the `discord` section to `config.local.yaml`:
    ```yaml
    discord:
      tokenService: discord-bot-token
