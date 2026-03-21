@@ -102,22 +102,22 @@ Pass `config.sessionDefaults` to `createDiscordAdapter()` calls.
 
 ### Tests
 
-- [ ] Test that `validateSessionDefaults()` returns correct defaults when not specified
-- [ ] Test that `validateSessionDefaults()` parses boolean values correctly
-- [ ] Test telegram adapter uses sessionDefaults.streamingUpdates as fallback
-- [ ] Test discord adapter uses sessionDefaults.streamingUpdates as fallback
-- [ ] Test requireMention falls back to sessionDefaults in telegram shouldRespond
-- [ ] Test requireMention falls back to sessionDefaults in discord shouldRespond
-- [ ] Test binding-level values override sessionDefaults
+- [x] Test that `validateSessionDefaults()` returns correct defaults when not specified
+- [x] Test that `validateSessionDefaults()` parses boolean values correctly
+- [x] Test telegram adapter uses sessionDefaults.streamingUpdates as fallback
+- [x] Test discord adapter uses sessionDefaults.streamingUpdates as fallback
+- [x] Test requireMention falls back to sessionDefaults in telegram shouldRespond
+- [x] Test requireMention falls back to sessionDefaults in discord shouldRespond
+- [x] Test binding-level values override sessionDefaults
 
 ## Checklist
 
-- [ ] Add fields to SessionDefaults type
-- [ ] Parse in validateSessionDefaults()
-- [ ] Update telegram-adapter.ts fallback
-- [ ] Update discord-adapter.ts fallback
-- [ ] Update telegram-bot.ts requireMention fallback
-- [ ] Update discord-bot.ts requireMention fallback
-- [ ] Pass sessionDefaults to adapter creation call sites
-- [ ] Update/add tests
-- [ ] All tests pass
+- [x] Add fields to SessionDefaults type
+- [x] Parse in validateSessionDefaults()
+- [x] Update telegram-adapter.ts fallback
+- [x] Update discord-adapter.ts fallback
+- [x] Update telegram-bot.ts requireMention fallback
+- [x] Update discord-bot.ts requireMention fallback
+- [x] Pass sessionDefaults to adapter creation call sites
+- [x] Update/add tests
+- [x] All tests pass

@@ -82,6 +82,8 @@ export interface SessionDefaults {
   idleTimeoutMs: number;
   maxConcurrentSessions: number;
   maxMessageAgeMs: number;
+  streamingUpdates: boolean;
+  requireMention: boolean;
 }
 
 export interface BotConfig {

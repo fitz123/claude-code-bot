@@ -8,6 +8,8 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
+    assert.strictEqual(defaults.streamingUpdates, false);
+    assert.strictEqual(defaults.requireMention, false);
   });
 
   it("returns production defaults when input is undefined", () => {
@@ -15,6 +17,8 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
+    assert.strictEqual(defaults.streamingUpdates, false);
+    assert.strictEqual(defaults.requireMention, false);
   });
 
   it("returns production defaults when input is empty object", () => {
@@ -22,6 +26,8 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
+    assert.strictEqual(defaults.streamingUpdates, false);
+    assert.strictEqual(defaults.requireMention, false);
   });
 
   it("allows overriding individual fields", () => {
@@ -90,5 +96,28 @@ describe("validateSessionDefaults", () => {
   it("ignores non-numeric types and uses defaults", () => {
     const defaults = validateSessionDefaults({ idleTimeoutMs: "not a number" });
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
+  });
+
+  it("parses streamingUpdates boolean", () => {
+    const on = validateSessionDefaults({ streamingUpdates: true });
+    assert.strictEqual(on.streamingUpdates, true);
+    const off = validateSessionDefaults({ streamingUpdates: false });
+    assert.strictEqual(off.streamingUpdates, false);
+  });
+
+  it("parses requireMention boolean", () => {
+    const on = validateSessionDefaults({ requireMention: true });
+    assert.strictEqual(on.requireMention, true);
+    const off = validateSessionDefaults({ requireMention: false });
+    assert.strictEqual(off.requireMention, false);
+  });
+
+  it("ignores non-boolean streamingUpdates and requireMention", () => {
+    const defaults = validateSessionDefaults({
+      streamingUpdates: "yes",
+      requireMention: 1,
+    });
+    assert.strictEqual(defaults.streamingUpdates, false);
+    assert.strictEqual(defaults.requireMention, false);
   });
 });
