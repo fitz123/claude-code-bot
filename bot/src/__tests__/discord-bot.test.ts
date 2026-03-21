@@ -1,3 +1,4 @@
+process.env.TZ = "UTC";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
@@ -279,6 +280,41 @@ describe("buildDiscordSourcePrefix", () => {
     assert.strictEqual(
       buildDiscordSourcePrefix(binding, author),
       "[Chat: Chat | From: Evil Name (@eviluser)]\n",
+    );
+  });
+
+  it("appends HH:MM timestamp as last field when timestampMs is provided", () => {
+    // 1700000000000 ms = 2023-11-14T22:13:20Z (UTC)
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "General" };
+    const author = { username: "johndoe", globalName: "John Doe" };
+    assert.strictEqual(
+      buildDiscordSourcePrefix(binding, author, 1700000000000),
+      "[Chat: General | From: John Doe (@johndoe) | 22:13]\n",
+    );
+  });
+
+  it("works without crash when timestamp is undefined (backward compat)", () => {
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "Dev" };
+    const author = { username: "alice", globalName: "Alice" };
+    assert.strictEqual(
+      buildDiscordSourcePrefix(binding, author, undefined),
+      "[Chat: Dev | From: Alice (@alice)]\n",
+    );
+  });
+
+  it("includes timestamp even when no label and no author", () => {
+    // 1700000000000 ms = 2023-11-14T22:13:20Z (UTC)
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "dm" };
+    assert.strictEqual(buildDiscordSourcePrefix(binding, undefined, 1700000000000), "[22:13]\n");
+  });
+
+  it("zero-pads single-digit hours and minutes in timestamp", () => {
+    // 1700006700000 ms = 2023-11-15T00:05:00Z (UTC) → "00:05"
+    const binding: DiscordBinding = { channelId: "1", guildId: "g1", agentId: "main", kind: "channel", label: "General" };
+    const author = { username: "johndoe", globalName: "John Doe" };
+    assert.strictEqual(
+      buildDiscordSourcePrefix(binding, author, 1700006700000),
+      "[Chat: General | From: John Doe (@johndoe) | 00:05]\n",
     );
   });
 });
