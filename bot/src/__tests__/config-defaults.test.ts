@@ -42,10 +42,14 @@ describe("validateSessionDefaults", () => {
       idleTimeoutMs: 5000,
       maxConcurrentSessions: 5,
       maxMessageAgeMs: 10000,
+      streamingUpdates: true,
+      requireMention: true,
     });
     assert.strictEqual(defaults.idleTimeoutMs, 5000);
     assert.strictEqual(defaults.maxConcurrentSessions, 5);
     assert.strictEqual(defaults.maxMessageAgeMs, 10000);
+    assert.strictEqual(defaults.streamingUpdates, true);
+    assert.strictEqual(defaults.requireMention, true);
   });
 
   it("throws on invalid maxMessageAgeMs", () => {

@@ -14,6 +14,11 @@ bindings:
     kind: dm
     label: My DM
 
+# Optional: global defaults for all bindings (per-binding values override these)
+# sessionDefaults:
+#   streamingUpdates: true            # enable streaming for all bindings unless overridden
+#   requireMention: true              # require @mention for all group bindings unless overridden
+
 # Optional: default delivery target for cron results
 # defaultDeliveryChatId: -1001234567890
 # defaultDeliveryThreadId: 42

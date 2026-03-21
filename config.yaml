@@ -39,9 +39,9 @@ bindings:
   #   label: My Group
   #
   #   ## Binding options (all optional):
-  #   # requireMention: true          # require @mention or reply-to-bot (default: true for groups, false for DMs)
+  #   # requireMention: true          # require @mention or reply-to-bot (overrides sessionDefaults.requireMention; default for DMs: always false)
   #   # voiceTranscriptEcho: true     # echo voice transcript back to chat (default: true)
-  #   # streamingUpdates: true        # progressive streaming edits during response (default: true)
+  #   # streamingUpdates: true        # progressive streaming edits during response (overrides sessionDefaults.streamingUpdates)
   #   # typingIndicator: true         # send typing indicators while processing (default: true)
   #
   #   ## Per-topic overrides (forum supergroups only):
@@ -54,6 +54,8 @@ sessionDefaults:
   idleTimeoutMs: 3600000              # 1 hour (default)
   maxConcurrentSessions: 12           # default
   maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart (default)
+  # streamingUpdates: false           # global default for streaming edits (default: false; per-binding overrides)
+  # requireMention: false             # global default for @mention gating in groups (default: false; per-binding overrides)
 
 metricsPort: 9091
 
