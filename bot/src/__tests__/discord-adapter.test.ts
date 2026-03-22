@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createDiscordAdapter, type DiscordSendableChannel } from "../discord-adapter.js";
-import type { DiscordBinding } from "../types.js";
+import type { DiscordBinding, SessionDefaults } from "../types.js";
 
 /** Create a mock Discord channel for testing. */
 function mockChannel(): DiscordSendableChannel & { sentMessages: Array<{ content?: string; files?: unknown[] }>; editedMessages: Array<{ id: string; content: string }> } {
@@ -50,18 +50,25 @@ describe("createDiscordAdapter", () => {
   });
 
   describe("streamingUpdates and typingIndicator flags", () => {
-    it("defaults to true when binding has no flags", () => {
+    it("defaults to false when binding and sessionDefaults have no flags", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel, defaultBinding);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 
-    it("defaults to true when no binding provided", () => {
+    it("defaults to false when no binding or sessionDefaults provided", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
+    });
+
+    it("respects binding streamingUpdates: true", () => {
+      const channel = mockChannel();
+      const binding: DiscordBinding = { ...defaultBinding, streamingUpdates: true };
+      const adapter = createDiscordAdapter(channel, binding);
+      assert.strictEqual(adapter.streamingUpdates, true);
     });
 
     it("respects streamingUpdates: false", () => {
@@ -76,6 +83,21 @@ describe("createDiscordAdapter", () => {
       const binding: DiscordBinding = { ...defaultBinding, typingIndicator: false };
       const adapter = createDiscordAdapter(channel, binding);
       assert.strictEqual(adapter.typingIndicator, false);
+    });
+
+    it("uses sessionDefaults.streamingUpdates as fallback when binding has no flag", () => {
+      const channel = mockChannel();
+      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
+      const adapter = createDiscordAdapter(channel, defaultBinding, defaults);
+      assert.strictEqual(adapter.streamingUpdates, true);
+    });
+
+    it("binding streamingUpdates overrides sessionDefaults", () => {
+      const channel = mockChannel();
+      const binding: DiscordBinding = { ...defaultBinding, streamingUpdates: false };
+      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
+      const adapter = createDiscordAdapter(channel, binding, defaults);
+      assert.strictEqual(adapter.streamingUpdates, false);
     });
   });
 

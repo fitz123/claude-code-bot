@@ -171,6 +171,7 @@ describe("resolveDiscordBinding with guild-wide defaults", () => {
 
 describe("shouldRespondInDiscord", () => {
   const channelBinding: DiscordBinding = { channelId: "111", guildId: "g1", agentId: "main", kind: "channel" };
+  const channelRequireMention: DiscordBinding = { channelId: "111", guildId: "g1", agentId: "main", kind: "channel", requireMention: true };
   const channelNoMention: DiscordBinding = { channelId: "111", guildId: "g1", agentId: "main", kind: "channel", requireMention: false };
   const dmBinding: DiscordBinding = { channelId: "333", guildId: "g1", agentId: "main", kind: "dm" };
   const botUserId = "bot999";
@@ -194,13 +195,27 @@ describe("shouldRespondInDiscord", () => {
     assert.strictEqual(shouldRespondInDiscord(channelNoMention, botUserId, mockMessage()), true);
   });
 
-  it("returns false for channel with default requireMention and no mention", () => {
+  it("returns false for channel with no requireMention set and no sessionDefaults (default true)", () => {
     assert.strictEqual(shouldRespondInDiscord(channelBinding, botUserId, mockMessage()), false);
+  });
+
+  it("returns false for channel with requireMention: true and no mention", () => {
+    assert.strictEqual(shouldRespondInDiscord(channelRequireMention, botUserId, mockMessage()), false);
+  });
+
+  it("falls back to sessionDefaults.requireMention when binding has none", () => {
+    assert.strictEqual(shouldRespondInDiscord(channelBinding, botUserId, mockMessage(), { requireMention: true }), false);
+    assert.strictEqual(shouldRespondInDiscord(channelBinding, botUserId, mockMessage(), { requireMention: false }), true);
+  });
+
+  it("binding requireMention overrides sessionDefaults", () => {
+    assert.strictEqual(shouldRespondInDiscord(channelRequireMention, botUserId, mockMessage(), { requireMention: false }), false);
+    assert.strictEqual(shouldRespondInDiscord(channelNoMention, botUserId, mockMessage(), { requireMention: true }), true);
   });
 
   it("returns true when bot is mentioned", () => {
     assert.strictEqual(
-      shouldRespondInDiscord(channelBinding, botUserId, mockMessage({ hasBotMention: true })),
+      shouldRespondInDiscord(channelRequireMention, botUserId, mockMessage({ hasBotMention: true })),
       true,
     );
   });
@@ -213,7 +228,7 @@ describe("shouldRespondInDiscord", () => {
         },
       },
     };
-    assert.strictEqual(shouldRespondInDiscord(channelBinding, botUserId, msg as any), false);
+    assert.strictEqual(shouldRespondInDiscord(channelRequireMention, botUserId, msg as any), false);
   });
 
   it("returns true for channel with explicit requireMention: true and bot mention", () => {

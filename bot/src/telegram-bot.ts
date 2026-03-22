@@ -357,10 +357,11 @@ export function shouldRespondInGroup(
     entities?: Array<{ type: string; offset: number; length: number }>;
     caption_entities?: Array<{ type: string; offset: number; length: number }>;
   },
+  sessionDefaults?: { requireMention?: boolean },
 ): boolean {
   if (binding.kind !== "group") return true;
 
-  const requireMention = binding.requireMention ?? true;
+  const requireMention = binding.requireMention ?? sessionDefaults?.requireMention ?? true;
   if (!requireMention) return true;
 
   if (
@@ -574,7 +575,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
 
     // Discard stale messages accumulated during bot downtime
     if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
@@ -592,7 +593,7 @@ export function createTelegramBot(
 
     // Enqueue: debounce rapid messages, collect mid-turn messages.
     // Processing happens in the background after debounce timer expires.
-    messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding));
+    messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
   });
 
   // Handle voice messages — transcribe with whisper-cli and send to Claude
@@ -604,7 +605,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
 
     if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
       log.debug("telegram-bot", `Discarding stale voice message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
@@ -639,7 +640,7 @@ export function createTelegramBot(
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
-      messageQueue.enqueue(key, binding.agentId, `${prefix}${replyCtx}${fwdCtx}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding));
+      messageQueue.enqueue(key, binding.agentId, `${prefix}${replyCtx}${fwdCtx}[Voice message] ${transcript}`, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
 
       // Echo transcript back to user (non-critical — don't block enqueue)
       if (binding.voiceTranscriptEcho !== false) {
@@ -666,7 +667,7 @@ export function createTelegramBot(
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
 
-    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
 
     if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
       log.debug("telegram-bot", `Discarding stale photo message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
@@ -701,7 +702,7 @@ export function createTelegramBot(
       // Cleanup callback runs after the queue finishes processing this message
       const pathToClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding), () => {
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults), () => {
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
@@ -724,7 +725,7 @@ export function createTelegramBot(
 
     const doc = ctx.msg.document;
 
-    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message)) return;
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
 
     if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
       log.debug("telegram-bot", `Discarding stale document message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
@@ -773,7 +774,7 @@ export function createTelegramBot(
 
       const pathToClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding), () => {
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults), () => {
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
@@ -827,7 +828,7 @@ export function createTelegramBot(
       });
 
       const key = sessionKey(chatId, topicId);
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, topicId));
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, topicId, config.sessionDefaults));
     } catch (err) {
       log.error("telegram-bot", `Reaction handling error for chat ${chatId}:`, err);
     }
