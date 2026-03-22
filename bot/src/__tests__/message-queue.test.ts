@@ -18,7 +18,6 @@ function mockPlatform(): PlatformContext {
     typingIntervalMs: 4000,
     typingIndicator: true,
     async sendMessage() { return "1"; },
-    async editMessage() {},
     async deleteMessage() {},
     async sendDraft() {},
     async sendTyping() {},
@@ -698,7 +697,6 @@ function mockTypingPlatform(opts?: { typingIndicator?: boolean }) {
     typingIntervalMs: 50, // short interval for fast tests
     typingIndicator: opts?.typingIndicator !== false,
     async sendMessage() { return "1"; },
-    async editMessage() {},
     async deleteMessage() {},
     async sendDraft() {},
     async sendTyping() { typings.push(Date.now()); },

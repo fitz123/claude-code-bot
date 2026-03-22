@@ -418,8 +418,6 @@ function mockPlatform(options?: {
       return String(messageCounter);
     },
 
-    async editMessage(): Promise<void> {},
-
     async sendDraft(draftId: number, text: string): Promise<void> {
       drafts.push({ draftId, text });
     },

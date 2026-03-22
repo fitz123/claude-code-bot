@@ -33,14 +33,6 @@ export function createDiscordAdapter(
       return msg.id;
     },
 
-    async editMessage(messageId: string, text: string): Promise<void> {
-      const msg = sentMessages.get(messageId);
-      if (msg) {
-        const edited = await msg.edit(text);
-        sentMessages.set(messageId, edited);
-      }
-    },
-
     async sendDraft(_draftId: number, _text: string): Promise<void> {
       // Discord has no equivalent of Telegram's sendMessageDraft — no-op
     },

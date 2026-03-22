@@ -99,25 +99,6 @@ describe("createDiscordAdapter", () => {
     });
   });
 
-  describe("editMessage", () => {
-    it("edits a previously sent message by ID", async () => {
-      const channel = mockChannel();
-      const adapter = createDiscordAdapter(channel, defaultBinding);
-      const id = await adapter.sendMessage("Initial");
-      await adapter.editMessage(id, "Updated");
-      assert.strictEqual(channel.editedMessages.length, 1);
-      assert.strictEqual(channel.editedMessages[0].id, id);
-      assert.strictEqual(channel.editedMessages[0].content, "Updated");
-    });
-
-    it("is a no-op for unknown message ID", async () => {
-      const channel = mockChannel();
-      const adapter = createDiscordAdapter(channel, defaultBinding);
-      await adapter.editMessage("unknown-id", "text");
-      assert.strictEqual(channel.editedMessages.length, 0);
-    });
-  });
-
   describe("sendTyping", () => {
     it("calls channel.sendTyping()", async () => {
       let typingCalled = false;
