@@ -28,7 +28,6 @@ export interface TelegramBinding {
   requireMention?: boolean;
   topics?: TopicOverride[];
   voiceTranscriptEcho?: boolean;
-  streamingUpdates?: boolean;
   typingIndicator?: boolean;
 }
 
@@ -37,7 +36,6 @@ export interface DiscordChannelOverride {
   agentId?: string;
   label?: string;
   requireMention?: boolean;
-  streamingUpdates?: boolean;
   typingIndicator?: boolean;
 }
 
@@ -48,7 +46,6 @@ export interface DiscordBinding {
   kind: "dm" | "channel";
   label?: string;
   requireMention?: boolean;
-  streamingUpdates?: boolean;
   typingIndicator?: boolean;
   channels?: DiscordChannelOverride[];
 }
@@ -82,7 +79,6 @@ export interface SessionDefaults {
   idleTimeoutMs: number;
   maxConcurrentSessions: number;
   maxMessageAgeMs: number;
-  streamingUpdates: boolean;
   requireMention: boolean;
 }
 
@@ -108,14 +104,14 @@ export interface PlatformContext {
   /** Send a new message, returns a platform-specific message ID for later editing. */
   sendMessage(text: string): Promise<string>;
 
-  /** Edit a previously sent message by its ID. */
-  editMessage(messageId: string, text: string): Promise<void>;
-
   /** Delete a previously sent message by its ID. Best-effort — failures are silently ignored by callers. */
   deleteMessage(messageId: string): Promise<void>;
 
   /** Send a typing/action indicator. */
   sendTyping(): Promise<void>;
+
+  /** Send a streaming draft update (cosmetic, fire-and-forget). No-op on platforms without draft support. */
+  sendDraft(draftId: number, text: string): Promise<void>;
 
   /** Send a file (image or document). */
   sendFile(filePath: string, isImage: boolean): Promise<void>;
@@ -126,14 +122,8 @@ export interface PlatformContext {
   /** Maximum message length for this platform. */
   readonly maxMessageLength: number;
 
-  /** Minimum interval between message edits (ms). */
-  readonly editDebounceMs: number;
-
   /** Interval between typing indicator resends (ms). */
   readonly typingIntervalMs: number;
-
-  /** Whether to send progressive streaming edits (default false). */
-  readonly streamingUpdates: boolean;
 
   /** Whether to send typing indicators (default true). */
   readonly typingIndicator: boolean;

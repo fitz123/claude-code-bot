@@ -23,7 +23,7 @@ Telegram Cloud          Discord Gateway
    │  Platform Context (interface)   │
    │  - sendMessage, editMessage     │
    │  - sendTyping, sendFile         │
-   │  - per-binding streaming flags  │
+   │  - sendDraft (DM streaming)     │
    └───────────────┬─────────────────┘
                    │
                    ▼
@@ -243,7 +243,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
        label: New Agent DM
    ```
 
-   See [config.yaml](config.yaml) for all binding options including `requireMention`, `voiceTranscriptEcho`, `streamingUpdates`, `typingIndicator`, and per-topic overrides for forum supergroups.
+   See [config.yaml](config.yaml) for all binding options including `requireMention`, `voiceTranscriptEcho`, `typingIndicator`, and per-topic overrides for forum supergroups.
 
 2. Validate and restart:
    ```bash

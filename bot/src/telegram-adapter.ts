@@ -6,7 +6,6 @@ import { recordMessage } from "./message-content-index.js";
 
 /** Telegram platform constants. */
 const TELEGRAM_MAX_MSG_LENGTH = 4096;
-const TELEGRAM_EDIT_DEBOUNCE_MS = 2000;
 const TELEGRAM_TYPING_INTERVAL_MS = 4000;
 
 /** Bot username for outgoing message recording. Set at startup via setBotUsername(). */
@@ -32,11 +31,11 @@ export function createTelegramAdapter(
   const threadId = threadIdOverride ?? ctx.message?.message_thread_id;
   const threadOpts = threadId != null ? { message_thread_id: threadId } : {};
 
+  const isDm = binding?.kind === "dm";
+
   return {
     maxMessageLength: TELEGRAM_MAX_MSG_LENGTH,
-    editDebounceMs: TELEGRAM_EDIT_DEBOUNCE_MS,
     typingIntervalMs: TELEGRAM_TYPING_INTERVAL_MS,
-    streamingUpdates: binding?.streamingUpdates ?? sessionDefaults?.streamingUpdates ?? false,
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
@@ -58,23 +57,17 @@ export function createTelegramAdapter(
       }
     },
 
-    async editMessage(messageId: string, text: string): Promise<void> {
-      if (!chatId) return;
+    async sendDraft(draftId: number, text: string): Promise<void> {
+      if (!chatId || !isDm) return;
       const html = markdownToHtml(text);
       try {
-        await ctx.api.editMessageText(chatId, Number(messageId), html, { parse_mode: "HTML" });
-      } catch (err) {
-        // Only fall back to plain text for HTML parse errors; re-throw everything else
-        if (err instanceof Error && /can't parse entities|message is too long/.test(err.message)) {
-          await ctx.api.editMessageText(chatId, Number(messageId), text);
-          // Record after successful fallback edit
-          recordMessage(chatId, Number(messageId), `@${_botUsername}`, text, "out");
-          return;
-        }
-        throw err;
+        await ctx.api.sendMessageDraft(chatId, draftId, html, {
+          parse_mode: "HTML",
+          ...threadOpts,
+        });
+      } catch {
+        // Draft failures are cosmetic — silently ignore
       }
-      // Record after successful edit (streamed replies edit multiple times — last success wins)
-      recordMessage(chatId, Number(messageId), `@${_botUsername}`, text, "out");
     },
 
     async deleteMessage(messageId: string): Promise<void> {

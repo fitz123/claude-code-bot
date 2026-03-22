@@ -44,38 +44,21 @@ describe("createDiscordAdapter", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel, defaultBinding);
       assert.strictEqual(adapter.maxMessageLength, 2000);
-      assert.strictEqual(adapter.editDebounceMs, 2000);
       assert.strictEqual(adapter.typingIntervalMs, 9000);
     });
   });
 
-  describe("streamingUpdates and typingIndicator flags", () => {
-    it("defaults to false when binding and sessionDefaults have no flags", () => {
+  describe("typingIndicator flag", () => {
+    it("defaults to true when binding has no flag", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel, defaultBinding);
-      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 
-    it("defaults to false when no binding or sessionDefaults provided", () => {
+    it("defaults to true when no binding provided", () => {
       const channel = mockChannel();
       const adapter = createDiscordAdapter(channel);
-      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
-    });
-
-    it("respects binding streamingUpdates: true", () => {
-      const channel = mockChannel();
-      const binding: DiscordBinding = { ...defaultBinding, streamingUpdates: true };
-      const adapter = createDiscordAdapter(channel, binding);
-      assert.strictEqual(adapter.streamingUpdates, true);
-    });
-
-    it("respects streamingUpdates: false", () => {
-      const channel = mockChannel();
-      const binding: DiscordBinding = { ...defaultBinding, streamingUpdates: false };
-      const adapter = createDiscordAdapter(channel, binding);
-      assert.strictEqual(adapter.streamingUpdates, false);
     });
 
     it("respects typingIndicator: false", () => {
@@ -84,20 +67,15 @@ describe("createDiscordAdapter", () => {
       const adapter = createDiscordAdapter(channel, binding);
       assert.strictEqual(adapter.typingIndicator, false);
     });
+  });
 
-    it("uses sessionDefaults.streamingUpdates as fallback when binding has no flag", () => {
+  describe("sendDraft", () => {
+    it("is a no-op (Discord has no draft support)", async () => {
       const channel = mockChannel();
-      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
-      const adapter = createDiscordAdapter(channel, defaultBinding, defaults);
-      assert.strictEqual(adapter.streamingUpdates, true);
-    });
-
-    it("binding streamingUpdates overrides sessionDefaults", () => {
-      const channel = mockChannel();
-      const binding: DiscordBinding = { ...defaultBinding, streamingUpdates: false };
-      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
-      const adapter = createDiscordAdapter(channel, binding, defaults);
-      assert.strictEqual(adapter.streamingUpdates, false);
+      const adapter = createDiscordAdapter(channel, defaultBinding);
+      // Should not throw, should not send anything
+      await adapter.sendDraft(42, "streaming text");
+      assert.strictEqual(channel.sentMessages.length, 0);
     });
   });
 
@@ -118,25 +96,6 @@ describe("createDiscordAdapter", () => {
       const id2 = await adapter.sendMessage("Second");
       assert.strictEqual(id1, "1");
       assert.strictEqual(id2, "2");
-    });
-  });
-
-  describe("editMessage", () => {
-    it("edits a previously sent message by ID", async () => {
-      const channel = mockChannel();
-      const adapter = createDiscordAdapter(channel, defaultBinding);
-      const id = await adapter.sendMessage("Initial");
-      await adapter.editMessage(id, "Updated");
-      assert.strictEqual(channel.editedMessages.length, 1);
-      assert.strictEqual(channel.editedMessages[0].id, id);
-      assert.strictEqual(channel.editedMessages[0].content, "Updated");
-    });
-
-    it("is a no-op for unknown message ID", async () => {
-      const channel = mockChannel();
-      const adapter = createDiscordAdapter(channel, defaultBinding);
-      await adapter.editMessage("unknown-id", "text");
-      assert.strictEqual(channel.editedMessages.length, 0);
     });
   });
 
