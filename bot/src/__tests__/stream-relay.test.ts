@@ -476,16 +476,19 @@ describe("relayStream draft streaming", () => {
     assert.strictEqual(totalText.length, 5000);
   });
 
-  it("does not send drafts for the final delta", async () => {
-    // The last delta before result should not trigger a draft since sendMessage follows immediately
+  it("delivers single-chunk stream via sendMessage after drafts complete", async () => {
     const { platform, drafts, sends } = mockPlatform();
     const stream = fakeStream(["Only chunk"]);
 
     await relayStream(stream, platform);
 
-    // Final delivery via sendMessage
+    // Draft may fire for the delta (debounce allows immediate send on first call)
+    // but final delivery always goes through sendMessage
     assert.strictEqual(sends.length, 1);
     assert.strictEqual(sends[0].text, "Only chunk");
+    // All drafts (if any) should use the same draftId
+    const draftIds = new Set(drafts.map(d => d.draftId));
+    assert.ok(draftIds.size <= 1, "All drafts should share the same draftId");
   });
 });
 

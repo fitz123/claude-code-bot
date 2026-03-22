@@ -143,6 +143,7 @@ export async function relayStream(
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let draftTimer: ReturnType<typeof setTimeout> | null = null;
   let lastDraftTime = 0;
+  let lastDraftPromise: Promise<void> = Promise.resolve();
   let sawNonTextBlock = false;
 
   // Generate a stable draft_id for this entire response
@@ -171,7 +172,7 @@ export async function relayStream(
     const displayText = collapsed.length > platform.maxMessageLength
       ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
       : collapsed;
-    platform.sendDraft(draftId, displayText).catch(() => {});
+    lastDraftPromise = platform.sendDraft(draftId, displayText).catch(() => {});
     lastDraftTime = Date.now();
   };
 
@@ -245,6 +246,10 @@ export async function relayStream(
       clearTimeout(draftTimer);
       draftTimer = null;
     }
+
+    // Wait for any in-flight draft to complete before final delivery,
+    // so a late-arriving draft can't overwrite the sent message in the composer.
+    await lastDraftPromise;
 
     // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery.
     // Drafts auto-disappear when no sendMessage follows.
