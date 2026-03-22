@@ -86,10 +86,10 @@ sendMessage(final_text)  // guaranteed, with retry
 ### Task 3: Remove streamingUpdates config from all config/docs/examples
 
 **Files to clean:**
-- [ ] `config.yaml` — remove `streamingUpdates` from sessionDefaults and any binding examples
-- [ ] `README.md` — remove `streamingUpdates` and `editDebounceMs` references
-- [ ] `CHANGELOG.md` — add entry for this change
-- [ ] Any `.md` files referencing streaming config
+- [x] `config.yaml` — remove `streamingUpdates` from sessionDefaults and any binding examples
+- [x] `README.md` — remove `streamingUpdates` and `editDebounceMs` references
+- [x] `CHANGELOG.md` — add entry for this change
+- [x] Any `.md` files referencing streaming config
 
 **Search pattern:** `grep -rn "streamingUpdates\|editDebounceMs\|editMessage.*stream\|streaming.*edit" --include="*.{ts,md,yaml,json}"`
 

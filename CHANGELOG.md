@@ -9,8 +9,8 @@ Initial public release of Minime — a multi-platform bot that routes messages t
 - Telegram bot via grammY with long polling, auto-retry, and command registration
 - Discord bot via discord.js with gateway websocket, slash commands, and guild-wide bindings
 - Platform abstraction layer (`PlatformContext` interface) shared by both adapters
-- Per-platform streaming updates, typing indicators, and message editing
-- Configurable per-binding options: `requireMention`, `voiceTranscriptEcho`, `streamingUpdates`, `typingIndicator`
+- Per-platform typing indicators and message editing
+- Configurable per-binding options: `requireMention`, `voiceTranscriptEcho`, `typingIndicator`
 
 ### Session Management
 
@@ -33,7 +33,7 @@ Initial public release of Minime — a multi-platform bot that routes messages t
 
 ### Streaming & Output
 
-- Real-time streaming message edits from Claude's `stream-json` protocol
+- Real-time streaming via `sendMessageDraft` (Telegram Bot API 9.3+) in DM chats
 - Paragraph-aware message splitting for platform character limits
 - NO_REPLY suppression — agent can signal "no response needed"
 - Markdown-to-HTML conversion for Telegram (`parse_mode: HTML`)
