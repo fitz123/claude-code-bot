@@ -24,26 +24,26 @@ Telegram Bot API 9.3+ provides `sendMessageDraft` — designed specifically for 
 **File: `bot/src/stream-relay.ts`**
 
 Remove:
-- `doEdit()` function (lines 166-183)
-- `scheduleEdit()` function (lines 185-196)
-- All `editMessage` calls for streaming (lines 177, 296)
-- `editTimer`, `editPending`, `lastEditTime` state variables
-- `sentMessageId` tracking for intermediate streaming (keep for NO_REPLY delete path)
-- The initial `sendMessage` for streaming (lines 234-248) — drafts replace this
-- The final `editMessage` + fallback path (lines 293-316)
+- [x] `doEdit()` function (lines 166-183)
+- [x] `scheduleEdit()` function (lines 185-196)
+- [x] All `editMessage` calls for streaming (lines 177, 296)
+- [x] `editTimer`, `editPending`, `lastEditTime` state variables
+- [x] `sentMessageId` tracking for intermediate streaming (keep for NO_REPLY delete path)
+- [x] The initial `sendMessage` for streaming (lines 234-248) — drafts replace this
+- [x] The final `editMessage` + fallback path (lines 293-316)
 
 Add:
-- `sendDraft(text)` method on PlatformContext — calls `sendMessageDraft` in DM, no-op in groups
-- Draft streaming loop: accumulate deltas, call `platform.sendDraft(accumulated)` with debounce
-- `draft_id` generation (random positive integer, stays same for entire response)
-- Final delivery: always `sendMessage(final)` — works for both DM (completes draft) and groups (sends as-is)
+- [x] `sendDraft(text)` method on PlatformContext — calls `sendMessageDraft` in DM, no-op in groups
+- [x] Draft streaming loop: accumulate deltas, call `platform.sendDraft(accumulated)` with debounce
+- [x] `draft_id` generation (random positive integer, stays same for entire response)
+- [x] Final delivery: always `sendMessage(final)` — works for both DM (completes draft) and groups (sends as-is)
 
 Keep unchanged:
-- `splitMessage()`, `collapseNewlines()`, `extractText()`, `sendOutboxFiles()`
-- Typing indicator logic
-- NO_REPLY handling (needs adjustment — drafts auto-disappear, no delete needed)
-- Multi-chunk overflow logic (sendMessage for remaining chunks)
-- Non-text block paragraph break insertion
+- [x] `splitMessage()`, `collapseNewlines()`, `extractText()`, `sendOutboxFiles()`
+- [x] Typing indicator logic
+- [x] NO_REPLY handling (needs adjustment — drafts auto-disappear, no delete needed)
+- [x] Multi-chunk overflow logic (sendMessage for remaining chunks)
+- [x] Non-text block paragraph break insertion
 
 **stream-relay.ts new flow:**
 ```

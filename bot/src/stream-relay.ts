@@ -119,17 +119,19 @@ export async function sendOutboxFiles(outboxPath: string, platform: PlatformCont
   }
 }
 
+/** Debounce interval for draft updates (ms). Drafts are cosmetic — no rate limits. */
+const DRAFT_DEBOUNCE_MS = 300;
+
 /**
  * Relay Claude CLI stream output to a chat using the platform-agnostic interface.
  *
  * Strategy:
- * 1. Send initial message with first text chunk
- * 2. Accumulate streaming deltas
- * 3. editMessage every editDebounceMs with accumulated text (if streamingUpdates enabled)
- * 4. On completion, send final version
- * 5. If text exceeds maxMessageLength, finish current message and send continuation
+ * 1. Accumulate streaming text deltas
+ * 2. Send draft updates via sendDraft (debounced, cosmetic, fire-and-forget)
+ * 3. On completion, sendMessage with final text (guaranteed delivery)
+ * 4. If text exceeds maxMessageLength, send continuation chunks via sendMessage
  *
- * When streamingUpdates is false, no intermediate edits are sent — only the final message.
+ * Drafts auto-disappear when sendMessage is called (or when the response is suppressed).
  * When typingIndicator is false, no typing actions are sent.
  */
 export async function relayStream(
@@ -138,14 +140,13 @@ export async function relayStream(
   outboxPath?: string,
 ): Promise<void> {
   let accumulated = "";
-  let sentMessageId: string | null = null;
-  let lastEditTime = 0;
-  let editPending = false;
-  let editTimer: ReturnType<typeof setTimeout> | null = null;
   let typingTimer: ReturnType<typeof setInterval> | null = null;
-  let finalSent = false;
+  let draftTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastDraftTime = 0;
   let sawNonTextBlock = false;
-  let initialSendFailed = false;
+
+  // Generate a stable draft_id for this entire response
+  const draftId = Math.floor(Math.random() * 2147483647) + 1;
 
   // Take over pre-stream typing if active (clean handoff from message queue)
   if (platform.preStreamTypingTimer) {
@@ -163,35 +164,28 @@ export async function relayStream(
     await platform.sendTyping().catch(() => {});
   }
 
-  const doEdit = async () => {
-    if (!sentMessageId || !accumulated || finalSent) return;
-    editPending = false;
-
-    // Truncate to platform limit for in-progress updates
+  /** Send a draft update with the current accumulated text. Fire-and-forget. */
+  const sendDraftNow = () => {
+    if (!accumulated || !platform.sendDraft) return;
     const collapsed = collapseNewlines(accumulated);
     const displayText = collapsed.length > platform.maxMessageLength
       ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
       : collapsed;
-
-    try {
-      await platform.editMessage(sentMessageId, displayText);
-      lastEditTime = Date.now();
-    } catch (err) {
-      // Streaming edit failure is cosmetic — next edit or final edit will update
-      log.debug("stream-relay", `Streaming edit failed: ${err instanceof Error ? err.message : err}`);
-    }
+    platform.sendDraft(draftId, displayText).catch(() => {});
+    lastDraftTime = Date.now();
   };
 
-  const scheduleEdit = () => {
-    if (editPending || finalSent || !platform.streamingUpdates) return;
-    const elapsed = Date.now() - lastEditTime;
-    if (elapsed >= platform.editDebounceMs) {
-      editPending = true;
-      doEdit().catch(() => {});
+  /** Schedule a debounced draft update. */
+  const scheduleDraft = () => {
+    if (!platform.sendDraft || draftTimer) return;
+    const elapsed = Date.now() - lastDraftTime;
+    if (elapsed >= DRAFT_DEBOUNCE_MS) {
+      sendDraftNow();
     } else {
-      editPending = true;
-      if (editTimer) clearTimeout(editTimer);
-      editTimer = setTimeout(doEdit, platform.editDebounceMs - elapsed);
+      draftTimer = setTimeout(() => {
+        draftTimer = null;
+        sendDraftNow();
+      }, DRAFT_DEBOUNCE_MS - elapsed);
     }
   };
 
@@ -223,6 +217,11 @@ export async function relayStream(
           sawNonTextBlock = false;
         }
         accumulated += text;
+
+        // Send draft update (debounced, cosmetic)
+        if (!isFinal) {
+          scheduleDraft();
+        }
       }
 
       // Track result text as fallback when no streaming deltas arrive
@@ -230,29 +229,6 @@ export async function relayStream(
         resultText = msg.result;
       }
 
-      // Send initial message once we have text (only if streaming is enabled)
-      if (accumulated && sentMessageId === null && platform.streamingUpdates && !initialSendFailed) {
-        const collapsed = collapseNewlines(accumulated);
-        const displayText = collapsed.length > platform.maxMessageLength
-          ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
-          : collapsed;
-        try {
-          sentMessageId = await platform.sendMessage(displayText);
-          lastEditTime = Date.now();
-          messagesSent.inc();
-        } catch (err) {
-          log.warn("stream-relay", `Failed to send initial streaming message, falling back to final send: ${err instanceof Error ? err.message : err}`);
-          initialSendFailed = true;
-        }
-        continue;
-      }
-
-      // Schedule debounced edit for streaming updates
-      if (text !== null && sentMessageId !== null && !isFinal) {
-        scheduleEdit();
-      }
-
-      // On final message, do the last edit and handle overflow
       if (isFinal) {
         break;
       }
@@ -264,79 +240,33 @@ export async function relayStream(
       accumulated = resultText;
     }
 
-    // Clean up pending edit timer
-    if (editTimer) {
-      clearTimeout(editTimer);
-      editTimer = null;
+    // Clean up pending draft timer
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
     }
 
-    finalSent = true;
-
-    // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery
+    // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery.
+    // Drafts auto-disappear when no sendMessage follows.
     const trimmed = accumulated?.trim() ?? "";
     if (accumulated && trimmed === "NO_REPLY") {
-      if (sentMessageId !== null) {
-        // Delete the streaming message that was already sent
-        try {
-          await platform.deleteMessage(sentMessageId);
-        } catch {
-          // best-effort: message may already be gone
-        }
-      }
       return;
     }
 
-    // Send final text version
+    // Final delivery: always sendMessage (completes draft in DMs, sends fresh in groups)
     if (accumulated) {
       const chunks = splitMessage(collapseNewlines(accumulated), platform.maxMessageLength);
 
-      if (sentMessageId !== null && chunks.length >= 1) {
-        // Edit the first message to final text
+      for (let i = 0; i < chunks.length; i++) {
         try {
-          await platform.editMessage(sentMessageId, chunks[0]);
+          await platform.sendMessage(chunks[i]);
+          messagesSent.inc();
         } catch (err) {
-          // "Message is not modified" means text already matches — safe to ignore.
-          // Any other error (429, network, etc.) means the user may see truncated text.
-          // Fall back to sending the complete text as a new message.
-          const msg = err instanceof Error ? err.message : String(err);
-          if (!msg.includes("not modified")) {
-            log.warn("stream-relay", `Final edit failed, sending as new message: ${msg}`);
-            try {
-              sentMessageId = await platform.sendMessage(chunks[0]);
-              messagesSent.inc();
-            } catch (fallbackErr) {
-              log.error("stream-relay", `Fallback reply also failed: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
-              // If we can't send chunks[0] at all, skip remaining chunks —
-              // the API is clearly failing and partial output missing the
-              // beginning would be confusing.  Throw so the queue's error
-              // handler can attempt to notify the user.
-              throw new Error(`Failed to deliver response: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`);
-            }
-          }
-        }
-
-        // Send remaining chunks as new messages
-        for (let i = 1; i < chunks.length; i++) {
-          try {
-            await platform.sendMessage(chunks[i]);
-            messagesSent.inc();
-          } catch (err) {
-            log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
-          }
-        }
-      } else {
-        // No initial message was sent (streaming disabled or no text during streaming)
-        for (let i = 0; i < chunks.length; i++) {
-          try {
-            await platform.sendMessage(chunks[i]);
-            messagesSent.inc();
-          } catch (err) {
-            log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
-            // If the first chunk fails, skip remaining — partial output missing
-            // the beginning would be confusing.  Throw so the queue's error
-            // handler can attempt to notify the user.
-            if (i === 0) throw new Error(`Failed to deliver response: ${err instanceof Error ? err.message : err}`);
-          }
+          log.error("stream-relay", `Failed to send message chunk ${i + 1}/${chunks.length}: ${err instanceof Error ? err.message : err}`);
+          // If the first chunk fails, skip remaining — partial output missing
+          // the beginning would be confusing.  Throw so the queue's error
+          // handler can attempt to notify the user.
+          if (i === 0) throw new Error(`Failed to deliver response: ${err instanceof Error ? err.message : err}`);
         }
       }
     }
@@ -349,8 +279,8 @@ export async function relayStream(
     if (typingTimer) {
       clearInterval(typingTimer);
     }
-    if (editTimer) {
-      clearTimeout(editTimer);
+    if (draftTimer) {
+      clearTimeout(draftTimer);
     }
   }
 }

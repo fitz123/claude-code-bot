@@ -395,27 +395,24 @@ async function* fakeStreamWithTools(segments: Array<string | "tool_use">): Async
 
 /** Create a mock PlatformContext for relayStream tests. */
 function mockPlatform(options?: {
-  editShouldThrow?: boolean;
   sendShouldThrow?: boolean | number;
-  streamingUpdates?: boolean;
   typingIndicator?: boolean;
-  editDebounceMs?: number;
+  hasSendDraft?: boolean;
 }) {
   const sends: Array<{ text: string }> = [];
-  const edits: Array<{ messageId: string; text: string }> = [];
+  const drafts: Array<{ draftId: number; text: string }> = [];
   const typings: number[] = [];
   let messageCounter = 0;
 
   const platform: PlatformContext = {
     maxMessageLength: 4096,
-    editDebounceMs: options?.editDebounceMs ?? 2000,
+    editDebounceMs: 2000,
     typingIntervalMs: 4000,
-    streamingUpdates: options?.streamingUpdates !== false,
+    streamingUpdates: false,
     typingIndicator: options?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
       messageCounter++;
-      // sendShouldThrow: true = always throw, number = throw on that call number
       if (options?.sendShouldThrow === true ||
           (typeof options?.sendShouldThrow === "number" && messageCounter === options.sendShouldThrow)) {
         throw new Error("NetworkError: sendMessage failed");
@@ -424,12 +421,7 @@ function mockPlatform(options?: {
       return String(messageCounter);
     },
 
-    async editMessage(messageId: string, text: string): Promise<void> {
-      if (options?.editShouldThrow) {
-        throw new Error("429: Too Many Requests: retry after 30");
-      }
-      edits.push({ messageId, text });
-    },
+    async editMessage(): Promise<void> {},
 
     async sendTyping(): Promise<void> {
       typings.push(Date.now());
@@ -444,77 +436,73 @@ function mockPlatform(options?: {
     },
   };
 
-  return { platform, sends, edits, typings };
+  // Add sendDraft unless explicitly disabled
+  if (options?.hasSendDraft !== false) {
+    platform.sendDraft = async (draftId: number, text: string): Promise<void> => {
+      drafts.push({ draftId, text });
+    };
+  }
+
+  return { platform, sends, drafts, typings };
 }
 
-describe("relayStream final edit fallback", () => {
-  it("delivers complete text via fallback when final edit fails", async () => {
-    const { platform, sends } = mockPlatform({ editShouldThrow: true });
-    const stream = fakeStream(["Hello", " ", "world"]);
-
-    await relayStream(stream, platform);
-
-    // First send: initial message with first delta ("Hello")
-    // Second send: fallback after final edit failed with complete text
-    assert.ok(sends.length >= 2, `Expected at least 2 sends, got ${sends.length}`);
-    const lastSend = sends[sends.length - 1];
-    assert.strictEqual(lastSend.text, "Hello world");
-  });
-
-  it("does not send fallback when final edit succeeds", async () => {
-    const { platform, sends, edits } = mockPlatform({ editShouldThrow: false });
-    const stream = fakeStream(["Hello", " ", "world"]);
-
-    await relayStream(stream, platform);
-
-    // Only one send: the initial message
-    assert.strictEqual(sends.length, 1);
-    // Final edit should have been called with complete text
-    assert.ok(edits.length >= 1);
-    assert.strictEqual(edits[edits.length - 1].text, "Hello world");
-  });
-
-  it("does not send fallback when edit fails with 'not modified'", async () => {
+describe("relayStream draft streaming", () => {
+  it("sends final message via sendMessage", async () => {
     const { platform, sends } = mockPlatform();
-    // Override editMessage to throw "not modified"
-    (platform as { editMessage: PlatformContext["editMessage"] }).editMessage = async () => {
-      throw new Error("Bad Request: message is not modified");
-    };
-
-    const stream = fakeStream(["Hello"]);
-    await relayStream(stream, platform);
-
-    // Only one send: the initial message. No fallback because "not modified" is fine.
-    assert.strictEqual(sends.length, 1);
-  });
-});
-
-describe("relayStream streamingUpdates=false", () => {
-  it("sends only the final message with no intermediate edits", async () => {
-    const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });
     const stream = fakeStream(["Hello", " ", "world"]);
 
     await relayStream(stream, platform);
 
-    // No intermediate sends or edits — only the final message
-    assert.strictEqual(edits.length, 0, "Should have no edits when streamingUpdates=false");
     assert.strictEqual(sends.length, 1, "Should send exactly one final message");
     assert.strictEqual(sends[0].text, "Hello world");
   });
 
-  it("handles multi-chunk final message without streaming", async () => {
-    const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });
-    // Create text longer than max message length
+  it("sends draft updates during streaming", async () => {
+    const { platform, drafts } = mockPlatform();
+    const stream = fakeStream(["Hello", " ", "world"]);
+
+    await relayStream(stream, platform);
+
+    // Draft updates are debounced, so at least one should fire
+    assert.ok(drafts.length >= 1, "Should send at least one draft update");
+    // All drafts use the same draftId
+    const draftIds = new Set(drafts.map(d => d.draftId));
+    assert.strictEqual(draftIds.size, 1, "All drafts should share the same draftId");
+  });
+
+  it("works without sendDraft (no-op for platforms without draft support)", async () => {
+    const { platform, sends } = mockPlatform({ hasSendDraft: false });
+    const stream = fakeStream(["Hello", " world"]);
+
+    await relayStream(stream, platform);
+
+    // Final message still delivered
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Hello world");
+  });
+
+  it("handles multi-chunk final message", async () => {
+    const { platform, sends } = mockPlatform();
     const longText = "x".repeat(5000);
     const stream = fakeStream([longText]);
 
     await relayStream(stream, platform);
 
-    assert.strictEqual(edits.length, 0, "Should have no edits when streamingUpdates=false");
     assert.ok(sends.length >= 2, "Should split into multiple messages");
-    // Total content preserved
     const totalText = sends.map(s => s.text).join("");
     assert.strictEqual(totalText.length, 5000);
+  });
+
+  it("does not send drafts for the final delta", async () => {
+    // The last delta before result should not trigger a draft since sendMessage follows immediately
+    const { platform, drafts, sends } = mockPlatform();
+    const stream = fakeStream(["Only chunk"]);
+
+    await relayStream(stream, platform);
+
+    // Final delivery via sendMessage
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Only chunk");
   });
 });
 
@@ -579,7 +567,7 @@ describe("relayStream pre-stream typing handoff", () => {
 
 describe("relayStream paragraph breaks across tool-use", () => {
   it("inserts paragraph break between text blocks separated by tool_use", async () => {
-    const { platform, sends, edits } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     const stream = fakeStreamWithTools(["Here's the plan:", "tool_use", "Done! Applied."]);
 
     await relayStream(stream, platform);
@@ -589,7 +577,7 @@ describe("relayStream paragraph breaks across tool-use", () => {
   });
 
   it("does not double paragraph break when text already ends with \\n\\n", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     const stream = fakeStreamWithTools(["Plan:\n\n", "tool_use", "Done!"]);
 
     await relayStream(stream, platform);
@@ -599,7 +587,7 @@ describe("relayStream paragraph breaks across tool-use", () => {
   });
 
   it("adds one \\n when text already ends with single \\n", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     const stream = fakeStreamWithTools(["Plan:\n", "tool_use", "Done!"]);
 
     await relayStream(stream, platform);
@@ -609,7 +597,7 @@ describe("relayStream paragraph breaks across tool-use", () => {
   });
 
   it("handles multiple tool-use blocks between text", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     const stream = fakeStreamWithTools(["Part 1", "tool_use", "Part 2", "tool_use", "Part 3"]);
 
     await relayStream(stream, platform);
@@ -619,7 +607,7 @@ describe("relayStream paragraph breaks across tool-use", () => {
   });
 
   it("does not insert break when tool_use is before any text", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     // Tool use before first text — no accumulated text yet, no separator needed
     async function* toolFirst(): AsyncGenerator<StreamLine> {
       yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", id: "t1", name: "Read" } } } as unknown as StreamEvent;
@@ -636,7 +624,7 @@ describe("relayStream paragraph breaks across tool-use", () => {
   });
 
   it("does not insert break when tool_use is before first text arriving in multiple deltas", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     // Tool use before first text, text arrives in multiple deltas — no spurious \n\n
     async function* toolFirstMultiDelta(): AsyncGenerator<StreamLine> {
       yield { type: "stream_event", event: { type: "content_block_start", content_block: { type: "tool_use", id: "t1", name: "Read" } } } as unknown as StreamEvent;
@@ -653,19 +641,19 @@ describe("relayStream paragraph breaks across tool-use", () => {
     assert.strictEqual(sends[0].text, "Result here");
   });
 
-  it("preserves paragraph breaks with streaming edits enabled", async () => {
-    const { platform, edits } = mockPlatform({ streamingUpdates: true });
+  it("preserves paragraph breaks in draft updates", async () => {
+    const { platform, drafts, sends } = mockPlatform();
     const stream = fakeStreamWithTools(["Before tool", "tool_use", "After tool"]);
 
     await relayStream(stream, platform);
 
-    // Final edit should contain the paragraph break
-    const finalEdit = edits[edits.length - 1];
-    assert.strictEqual(finalEdit.text, "Before tool\n\nAfter tool");
+    // Final sendMessage should contain the paragraph break
+    assert.strictEqual(sends.length, 1);
+    assert.strictEqual(sends[0].text, "Before tool\n\nAfter tool");
   });
 
   it("preserves paragraph breaks in split messages over 4096 chars", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     const longBefore = "x".repeat(3000);
     const longAfter = "y".repeat(3000);
     const stream = fakeStreamWithTools([longBefore, "tool_use", longAfter]);
@@ -713,7 +701,7 @@ describe("collapseNewlines", () => {
 
 describe("relayStream newline collapsing", () => {
   it("collapses excess newlines produced by text ending in \\n + tool_use + text starting with \\n", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     // text1 ends with \n, tool_use adds another \n (making \n\n), text2 starts with \n → \n\n\n
     const stream = fakeStreamWithTools(["Line 1\n", "tool_use", "\nLine 2"]);
 
@@ -725,19 +713,20 @@ describe("relayStream newline collapsing", () => {
     assert.ok(!sends[0].text.includes("\n\n\n"), "Should not contain 3+ consecutive newlines");
   });
 
-  it("collapses newlines in final streaming edit", async () => {
-    const { platform, edits } = mockPlatform({ streamingUpdates: true });
+  it("collapses newlines in draft updates", async () => {
+    const { platform, drafts } = mockPlatform();
     const stream = fakeStreamWithTools(["Before\n", "tool_use", "\nAfter"]);
 
     await relayStream(stream, platform);
 
-    const finalEdit = edits[edits.length - 1];
-    assert.ok(!finalEdit.text.includes("\n\n\n"), "Streaming edit should not contain 3+ consecutive newlines");
-    assert.strictEqual(finalEdit.text, "Before\n\nAfter");
+    // If any drafts were sent, they should have collapsed newlines
+    for (const draft of drafts) {
+      assert.ok(!draft.text.includes("\n\n\n"), "Draft should not contain 3+ consecutive newlines");
+    }
   });
 
   it("preserves \\n\\n after collapsing", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     // Normal case: paragraph break, no excess
     const stream = fakeStreamWithTools(["Para 1", "tool_use", "Para 2"]);
 
@@ -748,7 +737,7 @@ describe("relayStream newline collapsing", () => {
   });
 
   it("preserves single \\n after collapsing", async () => {
-    const { platform, sends } = mockPlatform({ streamingUpdates: false });
+    const { platform, sends } = mockPlatform();
     // Text with line breaks (not paragraph breaks) — no tool use, no change
     const stream = fakeStream(["Line 1\nLine 2\nLine 3"]);
 
@@ -758,10 +747,9 @@ describe("relayStream newline collapsing", () => {
     assert.strictEqual(sends[0].text, "Line 1\nLine 2\nLine 3");
   });
 
-  it("collapses newlines in initial streaming send", async () => {
-    // Exercises the collapseNewlines call at the initial sendMessage path
-    const { platform, sends } = mockPlatform({ streamingUpdates: true });
-    // First delta itself contains 3+ newlines — initial send must collapse them
+  it("collapses newlines in final sendMessage", async () => {
+    const { platform, sends } = mockPlatform();
+    // Text with 3+ newlines — final sendMessage must collapse them
     const stream = fakeStream(["Hello\n\n\nWorld"]);
 
     await relayStream(stream, platform);
@@ -769,50 +757,11 @@ describe("relayStream newline collapsing", () => {
     assert.ok(sends.length >= 1, "Should have sent at least one message");
     assert.strictEqual(sends[0].text, "Hello\n\nWorld");
   });
-
-  it("collapses newlines in intermediate streaming edits (doEdit path)", async () => {
-    // editDebounceMs:0 makes doEdit fire immediately, exercising collapseNewlines at line 171
-    const { platform, edits } = mockPlatform({ streamingUpdates: true, editDebounceMs: 0 });
-    const stream = fakeStreamWithTools(["Before\n", "tool_use", "\nAfter"]);
-
-    await relayStream(stream, platform);
-
-    // edits[0] is the intermediate edit from doEdit, edits[1] is the final edit
-    // If doEdit never fires, edits.length === 1 (final only) and this assertion fails
-    assert.ok(edits.length >= 2, "Should have intermediate edit (doEdit) plus final edit");
-    assert.ok(!edits[0].text.includes("\n\n\n"), "Intermediate edit should not contain 3+ consecutive newlines");
-    assert.strictEqual(edits[0].text, "Before\n\nAfter");
-  });
 });
 
 describe("relayStream sendMessage error handling", () => {
-  it("does not throw when initial streaming sendMessage fails", async () => {
-    const { platform, sends } = mockPlatform({ sendShouldThrow: 1 });
-    const stream = fakeStream(["Hello", " world"]);
-
-    // Should not throw — the error is caught internally
-    await relayStream(stream, platform);
-
-    // The initial send failed (call 1), but final send should succeed (call 2)
-    assert.ok(sends.length >= 1, "Should still deliver the final message");
-    assert.strictEqual(sends[0].text, "Hello world");
-  });
-
-  it("delivers full text via non-streaming path when initial send fails", async () => {
-    const { platform, sends } = mockPlatform({ sendShouldThrow: 1 });
-    const stream = fakeStream(["Part1", " Part2", " Part3"]);
-
-    await relayStream(stream, platform);
-
-    // sentMessageId stayed null after failed initial send, so final text
-    // goes through the "no initial message" path
-    assert.ok(sends.length >= 1, "Should deliver message despite initial failure");
-    const allText = sends.map(s => s.text).join("");
-    assert.ok(allText.includes("Part1"), "Should contain all accumulated text");
-  });
-
   it("aborts remaining chunks when first chunk fails", async () => {
-    const { platform, sends } = mockPlatform({ sendShouldThrow: 1, streamingUpdates: false });
+    const { platform, sends } = mockPlatform({ sendShouldThrow: 1 });
     // Create text that splits into 3 chunks (each ~3000 chars, max is 4096)
     const chunk1 = "a".repeat(3000);
     const chunk2 = "b".repeat(3000);
@@ -828,7 +777,7 @@ describe("relayStream sendMessage error handling", () => {
   });
 
   it("continues sending remaining chunks when a non-first chunk fails", async () => {
-    const { platform, sends } = mockPlatform({ sendShouldThrow: 2, streamingUpdates: false });
+    const { platform, sends } = mockPlatform({ sendShouldThrow: 2 });
     // Create text that splits into 3 chunks (each ~3000 chars, max is 4096)
     const chunk1 = "a".repeat(3000);
     const chunk2 = "b".repeat(3000);
@@ -850,5 +799,21 @@ describe("relayStream sendMessage error handling", () => {
     await assert.rejects(() => relayStream(stream, platform), /Failed to deliver response/);
 
     assert.strictEqual(sends.length, 0, "No messages should be recorded when all sends fail");
+  });
+});
+
+describe("relayStream NO_REPLY with drafts", () => {
+  it("suppresses delivery and does not call deleteMessage for NO_REPLY", async () => {
+    const { platform, sends, drafts } = mockPlatform();
+    let deleteCalled = false;
+    platform.deleteMessage = async () => { deleteCalled = true; };
+
+    const stream = fakeStream(["NO_REPLY"]);
+
+    await relayStream(stream, platform);
+
+    // No sendMessage for NO_REPLY — drafts auto-disappear
+    assert.strictEqual(sends.length, 0, "Should not send any messages for NO_REPLY");
+    assert.strictEqual(deleteCalled, false, "Should not call deleteMessage — drafts auto-disappear");
   });
 });

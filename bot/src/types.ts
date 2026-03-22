@@ -117,6 +117,9 @@ export interface PlatformContext {
   /** Send a typing/action indicator. */
   sendTyping(): Promise<void>;
 
+  /** Send a streaming draft update (cosmetic, fire-and-forget). No-op on platforms without draft support. */
+  sendDraft?(draftId: number, text: string): Promise<void>;
+
   /** Send a file (image or document). */
   sendFile(filePath: string, isImage: boolean): Promise<void>;
 
