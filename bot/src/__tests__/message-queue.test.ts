@@ -15,13 +15,12 @@ import { injectDirForChat, readAckCount, cleanupInjectDir, INJECT_DIR_BASE } fro
 function mockPlatform(): PlatformContext {
   return {
     maxMessageLength: 4096,
-    editDebounceMs: 2000,
     typingIntervalMs: 4000,
-    streamingUpdates: true,
     typingIndicator: true,
     async sendMessage() { return "1"; },
     async editMessage() {},
     async deleteMessage() {},
+    async sendDraft() {},
     async sendTyping() {},
     async sendFile() {},
     async replyError() {},
@@ -696,13 +695,12 @@ function mockTypingPlatform(opts?: { typingIndicator?: boolean }) {
   const typings: number[] = [];
   const platform: PlatformContext = {
     maxMessageLength: 4096,
-    editDebounceMs: 2000,
     typingIntervalMs: 50, // short interval for fast tests
-    streamingUpdates: true,
     typingIndicator: opts?.typingIndicator !== false,
     async sendMessage() { return "1"; },
     async editMessage() {},
     async deleteMessage() {},
+    async sendDraft() {},
     async sendTyping() { typings.push(Date.now()); },
     async sendFile() {},
     async replyError() {},

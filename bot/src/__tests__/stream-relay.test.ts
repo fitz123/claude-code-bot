@@ -397,7 +397,6 @@ async function* fakeStreamWithTools(segments: Array<string | "tool_use">): Async
 function mockPlatform(options?: {
   sendShouldThrow?: boolean | number;
   typingIndicator?: boolean;
-  hasSendDraft?: boolean;
 }) {
   const sends: Array<{ text: string }> = [];
   const drafts: Array<{ draftId: number; text: string }> = [];
@@ -406,9 +405,7 @@ function mockPlatform(options?: {
 
   const platform: PlatformContext = {
     maxMessageLength: 4096,
-    editDebounceMs: 2000,
     typingIntervalMs: 4000,
-    streamingUpdates: false,
     typingIndicator: options?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
@@ -423,6 +420,10 @@ function mockPlatform(options?: {
 
     async editMessage(): Promise<void> {},
 
+    async sendDraft(draftId: number, text: string): Promise<void> {
+      drafts.push({ draftId, text });
+    },
+
     async sendTyping(): Promise<void> {
       typings.push(Date.now());
     },
@@ -435,13 +436,6 @@ function mockPlatform(options?: {
       sends.push({ text });
     },
   };
-
-  // Add sendDraft unless explicitly disabled
-  if (options?.hasSendDraft !== false) {
-    platform.sendDraft = async (draftId: number, text: string): Promise<void> => {
-      drafts.push({ draftId, text });
-    };
-  }
 
   return { platform, sends, drafts, typings };
 }
@@ -468,17 +462,6 @@ describe("relayStream draft streaming", () => {
     // All drafts use the same draftId
     const draftIds = new Set(drafts.map(d => d.draftId));
     assert.strictEqual(draftIds.size, 1, "All drafts should share the same draftId");
-  });
-
-  it("works without sendDraft (no-op for platforms without draft support)", async () => {
-    const { platform, sends } = mockPlatform({ hasSendDraft: false });
-    const stream = fakeStream(["Hello", " world"]);
-
-    await relayStream(stream, platform);
-
-    // Final message still delivered
-    assert.strictEqual(sends.length, 1);
-    assert.strictEqual(sends[0].text, "Hello world");
   });
 
   it("handles multi-chunk final message", async () => {

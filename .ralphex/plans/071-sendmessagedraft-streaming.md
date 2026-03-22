@@ -62,55 +62,58 @@ sendMessage(final_text)  // guaranteed, with retry
 
 **File: `bot/src/types.ts`**
 
-- Add `sendDraft(draftId: number, text: string): Promise<void>` to PlatformContext interface
-- Remove `streamingUpdates` from TelegramBinding, DiscordBinding, DiscordChannelOverride, SessionDefaults
-- Remove `editDebounceMs` from PlatformContext
-- Keep `editMessage` on PlatformContext — still needed for other use cases (message corrections, etc.)
+- [x] Add `sendDraft(draftId: number, text: string): Promise<void>` to PlatformContext interface
+- [x] Remove `streamingUpdates` from TelegramBinding, DiscordBinding, DiscordChannelOverride, SessionDefaults
+- [x] Remove `editDebounceMs` from PlatformContext
+- [x] Keep `editMessage` on PlatformContext — still needed for other use cases (message corrections, etc.)
 
 **File: `bot/src/telegram-adapter.ts`**
 
-- Add `sendDraft` implementation: call `ctx.api.sendMessageDraft(chatId, { draft_id, text, message_thread_id })` with HTML formatting
-- Implementation should be try/catch — draft failures are cosmetic, not critical
-- Determine DM vs group from `binding.kind` — only send drafts for `kind: "dm"`
-- Remove `TELEGRAM_EDIT_DEBOUNCE_MS` constant
-- Remove `editDebounceMs` from returned PlatformContext
-- Remove `streamingUpdates` from returned PlatformContext
-- Keep `editMessage` method — may be used elsewhere
+- [x] Add `sendDraft` implementation: call `ctx.api.sendMessageDraft(chatId, { draft_id, text, message_thread_id })` with HTML formatting
+- [x] Implementation should be try/catch — draft failures are cosmetic, not critical
+- [x] Determine DM vs group from `binding.kind` — only send drafts for `kind: "dm"`
+- [x] Remove `TELEGRAM_EDIT_DEBOUNCE_MS` constant
+- [x] Remove `editDebounceMs` from returned PlatformContext
+- [x] Remove `streamingUpdates` from returned PlatformContext
+- [x] Keep `editMessage` method — may be used elsewhere
 
 **File: `bot/src/discord-adapter.ts`**
 
-- Add `sendDraft` as no-op (Discord has no equivalent API)
-- Remove `DISCORD_EDIT_DEBOUNCE_MS` constant
-- Remove `editDebounceMs` and `streamingUpdates` from returned PlatformContext
+- [x] Add `sendDraft` as no-op (Discord has no equivalent API)
+- [x] Remove `DISCORD_EDIT_DEBOUNCE_MS` constant
+- [x] Remove `editDebounceMs` and `streamingUpdates` from returned PlatformContext
 
 ### Task 3: Remove streamingUpdates config from all config/docs/examples
 
 **Files to clean:**
-- `config.yaml` — remove `streamingUpdates` from sessionDefaults and any binding examples
-- `README.md` — remove `streamingUpdates` and `editDebounceMs` references
-- `CHANGELOG.md` — add entry for this change
-- Any `.md` files referencing streaming config
+- [ ] `config.yaml` — remove `streamingUpdates` from sessionDefaults and any binding examples
+- [ ] `README.md` — remove `streamingUpdates` and `editDebounceMs` references
+- [ ] `CHANGELOG.md` — add entry for this change
+- [ ] Any `.md` files referencing streaming config
 
 **Search pattern:** `grep -rn "streamingUpdates\|editDebounceMs\|editMessage.*stream\|streaming.*edit" --include="*.{ts,md,yaml,json}"`
 
 ### Task 4: Update all tests
 
-**Files:**
-- `bot/src/__tests__/stream-relay.test.ts` — rewrite streaming tests: mock `sendDraft` instead of `editMessage`, test DM draft flow, test group final-only flow, test NO_REPLY with drafts
-- `bot/src/__tests__/telegram-adapter.test.ts` — remove `streamingUpdates` tests, add `sendDraft` tests
-- `bot/src/__tests__/discord-adapter.test.ts` — remove `streamingUpdates` tests, add no-op `sendDraft` test
-- `bot/src/__tests__/config-defaults.test.ts` — remove `streamingUpdates` default tests
-- `bot/src/__tests__/session-manager.test.ts` — remove any `streamingUpdates` references
-- `bot/src/__tests__/message-queue.test.ts` — remove `streamingUpdates` references if any
-- `bot/src/__tests__/metrics.test.ts` — remove `streamingUpdates` references if any
+(Completed as part of Task 2 — type changes cascaded to all test files)
+
+- [x] `bot/src/__tests__/stream-relay.test.ts` — mock `sendDraft` instead of optional, remove hasSendDraft option
+- [x] `bot/src/__tests__/telegram-adapter.test.ts` — remove `streamingUpdates` tests, add `sendDraft` tests
+- [x] `bot/src/__tests__/discord-adapter.test.ts` — remove `streamingUpdates` tests, add no-op `sendDraft` test
+- [x] `bot/src/__tests__/config-defaults.test.ts` — remove `streamingUpdates` default tests
+- [x] `bot/src/__tests__/session-manager.test.ts` — remove `streamingUpdates` references
+- [x] `bot/src/__tests__/message-queue.test.ts` — remove `streamingUpdates` and `editDebounceMs` references
+- [x] `bot/src/__tests__/metrics.test.ts` — no changes needed (no references found)
 
 ### Task 5: Remove streamingUpdates from config validation
 
+(Completed as part of Task 2 — type changes cascaded to config.ts)
+
 **File: `bot/src/config.ts`**
 
-- Remove `streamingUpdates` from binding validation schemas
-- Remove `streamingUpdates` from sessionDefaults validation
-- Remove `editDebounceMs` if present in config schema
+- [x] Remove `streamingUpdates` from binding validation schemas
+- [x] Remove `streamingUpdates` from sessionDefaults validation
+- [x] Remove `editDebounceMs` if present in config schema
 
 ## Verification
 

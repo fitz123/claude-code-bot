@@ -142,7 +142,6 @@ function validateBinding(raw: unknown, index: number): TelegramBinding {
     requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
     topics: validateTopics(obj.topics, index),
     voiceTranscriptEcho: typeof obj.voiceTranscriptEcho === "boolean" ? obj.voiceTranscriptEcho : undefined,
-    streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
     typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
   };
 }
@@ -186,7 +185,6 @@ export function validateDiscordChannels(raw: unknown, bindingIndex: number): Dis
       agentId: typeof obj.agentId === "string" ? obj.agentId : undefined,
       label: typeof obj.label === "string" ? obj.label : undefined,
       requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
-      streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
       typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
     };
   });
@@ -222,7 +220,6 @@ export function validateDiscordBinding(raw: unknown, index: number): DiscordBind
     kind: obj.kind,
     label: typeof obj.label === "string" ? obj.label : undefined,
     requireMention: typeof obj.requireMention === "boolean" ? obj.requireMention : undefined,
-    streamingUpdates: typeof obj.streamingUpdates === "boolean" ? obj.streamingUpdates : undefined,
     typingIndicator: typeof obj.typingIndicator === "boolean" ? obj.typingIndicator : undefined,
     channels: validateDiscordChannels(obj.channels, index),
   };
@@ -256,7 +253,7 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
 
 export function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: false, requireMention: true };
+    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, requireMention: true };
   }
   const obj = raw as Record<string, unknown>;
 
@@ -284,14 +281,6 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
     maxMessageAgeMs = obj.maxMessageAgeMs;
   }
 
-  let streamingUpdates = false;
-  if (obj.streamingUpdates !== undefined) {
-    if (typeof obj.streamingUpdates !== "boolean") {
-      throw new Error(`Invalid streamingUpdates: ${obj.streamingUpdates} (must be a boolean)`);
-    }
-    streamingUpdates = obj.streamingUpdates;
-  }
-
   let requireMention = true;
   if (obj.requireMention !== undefined) {
     if (typeof obj.requireMention !== "boolean") {
@@ -300,7 +289,7 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
     requireMention = obj.requireMention;
   }
 
-  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, streamingUpdates, requireMention };
+  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, requireMention };
 }
 
 export function loadConfig(configPath?: string): BotConfig {

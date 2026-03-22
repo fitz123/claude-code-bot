@@ -166,7 +166,7 @@ export async function relayStream(
 
   /** Send a draft update with the current accumulated text. Fire-and-forget. */
   const sendDraftNow = () => {
-    if (!accumulated || !platform.sendDraft) return;
+    if (!accumulated) return;
     const collapsed = collapseNewlines(accumulated);
     const displayText = collapsed.length > platform.maxMessageLength
       ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
@@ -177,7 +177,7 @@ export async function relayStream(
 
   /** Schedule a debounced draft update. */
   const scheduleDraft = () => {
-    if (!platform.sendDraft || draftTimer) return;
+    if (draftTimer) return;
     const elapsed = Date.now() - lastDraftTime;
     if (elapsed >= DRAFT_DEBOUNCE_MS) {
       sendDraftNow();

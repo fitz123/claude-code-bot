@@ -74,38 +74,21 @@ describe("createTelegramAdapter", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
       assert.strictEqual(adapter.maxMessageLength, 4096);
-      assert.strictEqual(adapter.editDebounceMs, 2000);
       assert.strictEqual(adapter.typingIntervalMs, 4000);
     });
   });
 
-  describe("streamingUpdates and typingIndicator flags", () => {
-    it("defaults to false when binding and sessionDefaults have no flags", () => {
+  describe("typingIndicator flag", () => {
+    it("defaults to true when binding has no flag", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
-      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 
-    it("defaults to false when no binding or sessionDefaults provided", () => {
+    it("defaults to true when no binding provided", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx);
-      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
-    });
-
-    it("respects binding streamingUpdates: true", () => {
-      const ctx = mockContext();
-      const binding: TelegramBinding = { ...defaultBinding, streamingUpdates: true };
-      const adapter = createTelegramAdapter(ctx, binding);
-      assert.strictEqual(adapter.streamingUpdates, true);
-    });
-
-    it("respects streamingUpdates: false", () => {
-      const ctx = mockContext();
-      const binding: TelegramBinding = { ...defaultBinding, streamingUpdates: false };
-      const adapter = createTelegramAdapter(ctx, binding);
-      assert.strictEqual(adapter.streamingUpdates, false);
     });
 
     it("respects typingIndicator: false", () => {
@@ -114,20 +97,66 @@ describe("createTelegramAdapter", () => {
       const adapter = createTelegramAdapter(ctx, binding);
       assert.strictEqual(adapter.typingIndicator, false);
     });
+  });
 
-    it("uses sessionDefaults.streamingUpdates as fallback when binding has no flag", () => {
+  describe("sendDraft", () => {
+    it("calls api.sendMessageDraft for DM bindings", async () => {
       const ctx = mockContext();
-      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
-      const adapter = createTelegramAdapter(ctx, defaultBinding, undefined, defaults);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      const draftCalls: Array<{ chatId: number; draftId: number; text: string; opts: any }> = [];
+      ctx.api.sendMessageDraft = async (cId: number, dId: number, text: string, opts?: any) => {
+        draftCalls.push({ chatId: cId, draftId: dId, text, opts });
+        return true;
+      };
+      const binding: TelegramBinding = { ...defaultBinding, kind: "dm" };
+      const adapter = createTelegramAdapter(ctx, binding);
+      await adapter.sendDraft(42, "streaming text");
+      assert.strictEqual(draftCalls.length, 1);
+      assert.strictEqual(draftCalls[0].chatId, 12345);
+      assert.strictEqual(draftCalls[0].draftId, 42);
+      assert.strictEqual(draftCalls[0].opts?.parse_mode, "HTML");
     });
 
-    it("binding streamingUpdates overrides sessionDefaults", () => {
+    it("is a no-op for group bindings", async () => {
       const ctx = mockContext();
-      const binding: TelegramBinding = { ...defaultBinding, streamingUpdates: false };
-      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
-      const adapter = createTelegramAdapter(ctx, binding, undefined, defaults);
-      assert.strictEqual(adapter.streamingUpdates, false);
+      const draftCalls: unknown[] = [];
+      ctx.api.sendMessageDraft = async () => { draftCalls.push(1); return true; };
+      const binding: TelegramBinding = { ...defaultBinding, kind: "group" };
+      const adapter = createTelegramAdapter(ctx, binding);
+      await adapter.sendDraft(42, "streaming text");
+      assert.strictEqual(draftCalls.length, 0);
+    });
+
+    it("silently ignores errors", async () => {
+      const ctx = mockContext();
+      ctx.api.sendMessageDraft = async () => { throw new Error("rate limited"); };
+      const binding: TelegramBinding = { ...defaultBinding, kind: "dm" };
+      const adapter = createTelegramAdapter(ctx, binding);
+      // Should not throw
+      await adapter.sendDraft(42, "text");
+    });
+
+    it("is a no-op when chatId is undefined", async () => {
+      const ctx = mockContext();
+      ctx.chat = undefined;
+      const draftCalls: unknown[] = [];
+      ctx.api.sendMessageDraft = async () => { draftCalls.push(1); return true; };
+      const binding: TelegramBinding = { ...defaultBinding, kind: "dm" };
+      const adapter = createTelegramAdapter(ctx, binding);
+      await adapter.sendDraft(42, "text");
+      assert.strictEqual(draftCalls.length, 0);
+    });
+
+    it("includes message_thread_id when thread is set", async () => {
+      const ctx = mockContext({ threadId: 77 });
+      const draftCalls: Array<{ opts: any }> = [];
+      ctx.api.sendMessageDraft = async (_cId: number, _dId: number, _text: string, opts?: any) => {
+        draftCalls.push({ opts });
+        return true;
+      };
+      const binding: TelegramBinding = { ...defaultBinding, kind: "dm" };
+      const adapter = createTelegramAdapter(ctx, binding);
+      await adapter.sendDraft(42, "text");
+      assert.strictEqual(draftCalls[0].opts?.message_thread_id, 77);
     });
   });
 

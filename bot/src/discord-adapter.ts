@@ -3,7 +3,6 @@ import type { PlatformContext, DiscordBinding, SessionDefaults } from "./types.j
 
 /** Discord platform constants. */
 const DISCORD_MAX_MSG_LENGTH = 2000;
-const DISCORD_EDIT_DEBOUNCE_MS = 2000;
 const DISCORD_TYPING_INTERVAL_MS = 9000;
 
 /** Minimal channel interface for Discord message I/O. */
@@ -25,9 +24,7 @@ export function createDiscordAdapter(
 
   return {
     maxMessageLength: DISCORD_MAX_MSG_LENGTH,
-    editDebounceMs: DISCORD_EDIT_DEBOUNCE_MS,
     typingIntervalMs: DISCORD_TYPING_INTERVAL_MS,
-    streamingUpdates: binding?.streamingUpdates ?? sessionDefaults?.streamingUpdates ?? false,
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
@@ -42,6 +39,10 @@ export function createDiscordAdapter(
         const edited = await msg.edit(text);
         sentMessages.set(messageId, edited);
       }
+    },
+
+    async sendDraft(_draftId: number, _text: string): Promise<void> {
+      // Discord has no equivalent of Telegram's sendMessageDraft — no-op
     },
 
     async deleteMessage(messageId: string): Promise<void> {
