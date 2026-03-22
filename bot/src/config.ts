@@ -256,7 +256,7 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
 
 export function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000 };
+    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: false, requireMention: true };
   }
   const obj = raw as Record<string, unknown>;
 
@@ -284,7 +284,23 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
     maxMessageAgeMs = obj.maxMessageAgeMs;
   }
 
-  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs };
+  let streamingUpdates = false;
+  if (obj.streamingUpdates !== undefined) {
+    if (typeof obj.streamingUpdates !== "boolean") {
+      throw new Error(`Invalid streamingUpdates: ${obj.streamingUpdates} (must be a boolean)`);
+    }
+    streamingUpdates = obj.streamingUpdates;
+  }
+
+  let requireMention = true;
+  if (obj.requireMention !== undefined) {
+    if (typeof obj.requireMention !== "boolean") {
+      throw new Error(`Invalid requireMention: ${obj.requireMention} (must be a boolean)`);
+    }
+    requireMention = obj.requireMention;
+  }
+
+  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, streamingUpdates, requireMention };
 }
 
 export function loadConfig(configPath?: string): BotConfig {

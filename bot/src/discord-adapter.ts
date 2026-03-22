@@ -1,5 +1,5 @@
 import type { Message } from "discord.js";
-import type { PlatformContext, DiscordBinding } from "./types.js";
+import type { PlatformContext, DiscordBinding, SessionDefaults } from "./types.js";
 
 /** Discord platform constants. */
 const DISCORD_MAX_MSG_LENGTH = 2000;
@@ -19,6 +19,7 @@ export interface DiscordSendableChannel {
 export function createDiscordAdapter(
   channel: DiscordSendableChannel,
   binding?: DiscordBinding,
+  sessionDefaults?: SessionDefaults,
 ): PlatformContext {
   const sentMessages = new Map<string, Message>();
 
@@ -26,7 +27,7 @@ export function createDiscordAdapter(
     maxMessageLength: DISCORD_MAX_MSG_LENGTH,
     editDebounceMs: DISCORD_EDIT_DEBOUNCE_MS,
     typingIntervalMs: DISCORD_TYPING_INTERVAL_MS,
-    streamingUpdates: binding?.streamingUpdates !== false,
+    streamingUpdates: binding?.streamingUpdates ?? sessionDefaults?.streamingUpdates ?? false,
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {

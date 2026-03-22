@@ -399,6 +399,7 @@ describe("resolveBinding with topics array", () => {
 
 describe("shouldRespondInGroup", () => {
   const groupBinding: TelegramBinding = { chatId: -100, agentId: "main", kind: "group" };
+  const groupRequireMention: TelegramBinding = { chatId: -100, agentId: "main", kind: "group", requireMention: true };
   const groupNoMention: TelegramBinding = { chatId: -100, agentId: "main", kind: "group", requireMention: false };
   const dmBinding: TelegramBinding = { chatId: 123, agentId: "main", kind: "dm" };
   const botId = 999;
@@ -412,14 +413,31 @@ describe("shouldRespondInGroup", () => {
     assert.strictEqual(shouldRespondInGroup(groupNoMention, botId, botUsername, {}), true);
   });
 
-  it("returns false for group with default requireMention and no reply/mention", () => {
+  it("returns false for group with no requireMention set and no sessionDefaults (default true)", () => {
     const msg = { text: "hello everyone" };
     assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
   });
 
+  it("returns false for group with requireMention: true and no reply/mention", () => {
+    const msg = { text: "hello everyone" };
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
+  });
+
+  it("falls back to sessionDefaults.requireMention when binding has none", () => {
+    const msg = { text: "hello everyone" };
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg, { requireMention: true }), false);
+    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg, { requireMention: false }), true);
+  });
+
+  it("binding requireMention overrides sessionDefaults", () => {
+    const msg = { text: "hello everyone" };
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg, { requireMention: false }), false);
+    assert.strictEqual(shouldRespondInGroup(groupNoMention, botId, botUsername, msg, { requireMention: true }), true);
+  });
+
   it("returns true when message is reply to bot", () => {
     const msg = { reply_to_message: { from: { id: botId } } };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), true);
   });
 
   it("returns true when bot is @mentioned in text", () => {
@@ -427,7 +445,7 @@ describe("shouldRespondInGroup", () => {
       text: "hey @testbot help me",
       entities: [{ type: "mention", offset: 4, length: 8 }],
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), true);
   });
 
   it("returns true when bot is @mentioned in caption", () => {
@@ -435,12 +453,12 @@ describe("shouldRespondInGroup", () => {
       caption: "@testbot check this",
       caption_entities: [{ type: "mention", offset: 0, length: 8 }],
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), true);
   });
 
   it("returns false for reply to a different user", () => {
     const msg = { reply_to_message: { from: { id: 888 } } };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns false when a different bot is mentioned", () => {
@@ -448,27 +466,27 @@ describe("shouldRespondInGroup", () => {
       text: "hey @otherbot help me",
       entities: [{ type: "mention", offset: 4, length: 9 }],
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns true when bot is @mentioned in text without entities", () => {
     const msg = { text: "hey @testbot help me" };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), true);
   });
 
   it("returns false for substring username match without entities", () => {
     const msg = { text: "hey @testbot2 help me" };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns false for email-like substring match without entities", () => {
     const msg = { text: "send to user@testbot.com" };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns true when @mention is at end of text without entities", () => {
     const msg = { text: "hey @testbot" };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), true);
   });
 
   it("returns true for group with explicit requireMention: true and reply to bot", () => {
@@ -482,7 +500,7 @@ describe("shouldRespondInGroup", () => {
       text: "hello",
       reply_to_message: { from: { id: botId }, forum_topic_created: { name: "Topic", icon_color: 0 } },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns false when reply_to_message is a forum_topic_edited service message from bot", () => {
@@ -490,7 +508,7 @@ describe("shouldRespondInGroup", () => {
       text: "hello",
       reply_to_message: { from: { id: botId }, forum_topic_edited: { name: "New Name" } },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns false when reply_to_message is a forum_topic_closed service message from bot", () => {
@@ -498,7 +516,7 @@ describe("shouldRespondInGroup", () => {
       text: "hello",
       reply_to_message: { from: { id: botId }, forum_topic_closed: {} },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns false when reply_to_message is a forum_topic_reopened service message from bot", () => {
@@ -506,7 +524,7 @@ describe("shouldRespondInGroup", () => {
       text: "hello",
       reply_to_message: { from: { id: botId }, forum_topic_reopened: {} },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns true when replying to a real bot message in a forum topic (no service fields)", () => {
@@ -514,7 +532,7 @@ describe("shouldRespondInGroup", () => {
       text: "thanks bot",
       reply_to_message: { from: { id: botId } },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), true);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), true);
   });
 
   it("returns true when requireMention is false, even for forum service messages (early exit)", () => {
@@ -531,7 +549,7 @@ describe("shouldRespondInGroup", () => {
       text: "hello",
       reply_to_message: { from: { id: botId }, general_forum_topic_hidden: {} },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 
   it("returns false for general_forum_topic_unhidden service message from bot", () => {
@@ -539,7 +557,7 @@ describe("shouldRespondInGroup", () => {
       text: "hello",
       reply_to_message: { from: { id: botId }, general_forum_topic_unhidden: {} },
     };
-    assert.strictEqual(shouldRespondInGroup(groupBinding, botId, botUsername, msg), false);
+    assert.strictEqual(shouldRespondInGroup(groupRequireMention, botId, botUsername, msg), false);
   });
 });
 

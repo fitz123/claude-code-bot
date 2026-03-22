@@ -1,7 +1,7 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { createTelegramAdapter, setBotUsername } from "../telegram-adapter.js";
-import type { TelegramBinding } from "../types.js";
+import type { SessionDefaults, TelegramBinding } from "../types.js";
 import { getThread, clearThreadCache } from "../message-thread-cache.js";
 import { lookupMessage, clearMessageIndex } from "../message-content-index.js";
 
@@ -80,18 +80,25 @@ describe("createTelegramAdapter", () => {
   });
 
   describe("streamingUpdates and typingIndicator flags", () => {
-    it("defaults to true when binding has no flags", () => {
+    it("defaults to false when binding and sessionDefaults have no flags", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
     });
 
-    it("defaults to true when no binding provided", () => {
+    it("defaults to false when no binding or sessionDefaults provided", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx);
-      assert.strictEqual(adapter.streamingUpdates, true);
+      assert.strictEqual(adapter.streamingUpdates, false);
       assert.strictEqual(adapter.typingIndicator, true);
+    });
+
+    it("respects binding streamingUpdates: true", () => {
+      const ctx = mockContext();
+      const binding: TelegramBinding = { ...defaultBinding, streamingUpdates: true };
+      const adapter = createTelegramAdapter(ctx, binding);
+      assert.strictEqual(adapter.streamingUpdates, true);
     });
 
     it("respects streamingUpdates: false", () => {
@@ -106,6 +113,21 @@ describe("createTelegramAdapter", () => {
       const binding: TelegramBinding = { ...defaultBinding, typingIndicator: false };
       const adapter = createTelegramAdapter(ctx, binding);
       assert.strictEqual(adapter.typingIndicator, false);
+    });
+
+    it("uses sessionDefaults.streamingUpdates as fallback when binding has no flag", () => {
+      const ctx = mockContext();
+      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
+      const adapter = createTelegramAdapter(ctx, defaultBinding, undefined, defaults);
+      assert.strictEqual(adapter.streamingUpdates, true);
+    });
+
+    it("binding streamingUpdates overrides sessionDefaults", () => {
+      const ctx = mockContext();
+      const binding: TelegramBinding = { ...defaultBinding, streamingUpdates: false };
+      const defaults: SessionDefaults = { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, streamingUpdates: true, requireMention: false };
+      const adapter = createTelegramAdapter(ctx, binding, undefined, defaults);
+      assert.strictEqual(adapter.streamingUpdates, false);
     });
   });
 

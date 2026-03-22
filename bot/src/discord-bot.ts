@@ -76,9 +76,10 @@ export function shouldRespondInDiscord(
   binding: DiscordBinding,
   botUserId: string,
   message: DiscordMessage,
+  sessionDefaults?: { requireMention?: boolean },
 ): boolean {
   if (binding.kind === "dm") return true;
-  const requireMention = binding.requireMention ?? true;
+  const requireMention = binding.requireMention ?? sessionDefaults?.requireMention ?? true;
   if (!requireMention) return true;
   if (message.mentions.has(botUserId)) return true;
   return false;
@@ -215,7 +216,7 @@ export async function createDiscordBot(
       if (!binding) { log.info("discord-bot", `No binding for channel ${channelId} (thread: ${threadId})`); return; }
 
       // Mention gating for channel bindings
-      if (!shouldRespondInDiscord(binding, client.user!.id, message)) return;
+      if (!shouldRespondInDiscord(binding, client.user!.id, message, config.sessionDefaults)) return;
 
       // Discard stale messages accumulated during bot downtime
       if (isStaleMessage(message.createdTimestamp, maxMessageAgeMs)) {
@@ -229,7 +230,7 @@ export async function createDiscordBot(
       // doesn't receive raw snowflake IDs in every requireMention message
       const botMentionRe = new RegExp(`<@!?${client.user!.id}>\\s*`, "g");
       const channel = message.channel as unknown as DiscordSendableChannel;
-      const adapter = createDiscordAdapter(channel, binding);
+      const adapter = createDiscordAdapter(channel, binding, config.sessionDefaults);
 
       // Collect image attachments (fall back to file extension when contentType is missing)
       const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp)$/i;

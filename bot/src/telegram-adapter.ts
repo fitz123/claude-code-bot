@@ -1,5 +1,5 @@
 import { type Context, InputFile } from "grammy";
-import type { PlatformContext, TelegramBinding } from "./types.js";
+import type { PlatformContext, SessionDefaults, TelegramBinding } from "./types.js";
 import { markdownToHtml } from "./markdown-html.js";
 import { setThread } from "./message-thread-cache.js";
 import { recordMessage } from "./message-content-index.js";
@@ -26,6 +26,7 @@ export function createTelegramAdapter(
   ctx: Context,
   binding?: TelegramBinding,
   threadIdOverride?: number,
+  sessionDefaults?: SessionDefaults,
 ): PlatformContext {
   const chatId = ctx.chat?.id;
   const threadId = threadIdOverride ?? ctx.message?.message_thread_id;
@@ -35,7 +36,7 @@ export function createTelegramAdapter(
     maxMessageLength: TELEGRAM_MAX_MSG_LENGTH,
     editDebounceMs: TELEGRAM_EDIT_DEBOUNCE_MS,
     typingIntervalMs: TELEGRAM_TYPING_INTERVAL_MS,
-    streamingUpdates: binding?.streamingUpdates !== false,
+    streamingUpdates: binding?.streamingUpdates ?? sessionDefaults?.streamingUpdates ?? false,
     typingIndicator: binding?.typingIndicator !== false,
 
     async sendMessage(text: string): Promise<string> {
