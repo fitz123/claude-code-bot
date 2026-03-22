@@ -18,7 +18,7 @@ const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
 
-const DEFAULT_TIMEOUT_MS = 300000; // 5 minutes
+const DEFAULT_TIMEOUT_MS = 900000; // 15 minutes
 
 function log(taskName: string, msg: string): void {
   mkdirSync(LOG_DIR, { recursive: true });
