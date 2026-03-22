@@ -55,7 +55,6 @@ export function resolveDiscordBinding(
         agentId: channel.agentId ?? guildFallback.agentId,
         label: channel.label ?? guildFallback.label,
         requireMention: channel.requireMention ?? guildFallback.requireMention,
-        streamingUpdates: channel.streamingUpdates ?? guildFallback.streamingUpdates,
         typingIndicator: channel.typingIndicator ?? guildFallback.typingIndicator,
       };
     }

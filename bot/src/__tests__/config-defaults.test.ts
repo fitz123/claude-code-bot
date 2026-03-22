@@ -8,7 +8,6 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
-    assert.strictEqual(defaults.streamingUpdates, false);
     assert.strictEqual(defaults.requireMention, true);
   });
 
@@ -17,7 +16,6 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
-    assert.strictEqual(defaults.streamingUpdates, false);
     assert.strictEqual(defaults.requireMention, true);
   });
 
@@ -26,7 +24,6 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
-    assert.strictEqual(defaults.streamingUpdates, false);
     assert.strictEqual(defaults.requireMention, true);
   });
 
@@ -42,13 +39,11 @@ describe("validateSessionDefaults", () => {
       idleTimeoutMs: 5000,
       maxConcurrentSessions: 5,
       maxMessageAgeMs: 10000,
-      streamingUpdates: true,
       requireMention: true,
     });
     assert.strictEqual(defaults.idleTimeoutMs, 5000);
     assert.strictEqual(defaults.maxConcurrentSessions, 5);
     assert.strictEqual(defaults.maxMessageAgeMs, 10000);
-    assert.strictEqual(defaults.streamingUpdates, true);
     assert.strictEqual(defaults.requireMention, true);
   });
 
@@ -102,29 +97,11 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.idleTimeoutMs, 3600000);
   });
 
-  it("parses streamingUpdates boolean", () => {
-    const on = validateSessionDefaults({ streamingUpdates: true });
-    assert.strictEqual(on.streamingUpdates, true);
-    const off = validateSessionDefaults({ streamingUpdates: false });
-    assert.strictEqual(off.streamingUpdates, false);
-  });
-
   it("parses requireMention boolean", () => {
     const on = validateSessionDefaults({ requireMention: true });
     assert.strictEqual(on.requireMention, true);
     const off = validateSessionDefaults({ requireMention: false });
     assert.strictEqual(off.requireMention, false);
-  });
-
-  it("throws on non-boolean streamingUpdates", () => {
-    assert.throws(
-      () => validateSessionDefaults({ streamingUpdates: "yes" }),
-      /Invalid streamingUpdates/,
-    );
-    assert.throws(
-      () => validateSessionDefaults({ streamingUpdates: 1 }),
-      /Invalid streamingUpdates/,
-    );
   });
 
   it("throws on non-boolean requireMention", () => {

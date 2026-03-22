@@ -39,7 +39,6 @@ const testConfig: BotConfig = {
     idleTimeoutMs: 100, // Short for testing
     maxConcurrentSessions: 2,
     maxMessageAgeMs: 300000,
-    streamingUpdates: false,
     requireMention: false,
   },
 };
