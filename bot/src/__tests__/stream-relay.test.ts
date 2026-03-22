@@ -702,7 +702,7 @@ describe("relayStream newline collapsing", () => {
 
     await relayStream(stream, platform);
 
-    // If any drafts were sent, they should have collapsed newlines
+    assert.ok(drafts.length >= 1, "Need at least one draft to verify collapsing");
     for (const draft of drafts) {
       assert.ok(!draft.text.includes("\n\n\n"), "Draft should not contain 3+ consecutive newlines");
     }
@@ -798,5 +798,48 @@ describe("relayStream NO_REPLY with drafts", () => {
     // No sendMessage for NO_REPLY — drafts auto-disappear
     assert.strictEqual(sends.length, 0, "Should not send any messages for NO_REPLY");
     assert.strictEqual(deleteCalled, false, "Should not call deleteMessage — drafts auto-disappear");
+  });
+});
+
+describe("relayStream edge cases", () => {
+  it("delivers resultText when no streaming deltas arrive", async () => {
+    const { platform, sends } = mockPlatform();
+    // Stream yields only a result message with no text_delta events
+    async function* resultOnly(): AsyncGenerator<StreamLine> {
+      yield {
+        type: "result",
+        result: "Fallback text from result",
+        session_id: "test",
+      } as ResultMessage;
+    }
+
+    await relayStream(resultOnly(), platform);
+
+    assert.strictEqual(sends.length, 1, "Should deliver the result text as fallback");
+    assert.strictEqual(sends[0].text, "Fallback text from result");
+  });
+
+  it("handles empty stream without sending any messages", async () => {
+    const { platform, sends, drafts } = mockPlatform();
+    async function* emptyStream(): AsyncGenerator<StreamLine> {
+      // yields nothing
+    }
+
+    await relayStream(emptyStream(), platform);
+
+    assert.strictEqual(sends.length, 0, "Should not send any messages for empty stream");
+    assert.strictEqual(drafts.length, 0, "Should not send any drafts for empty stream");
+  });
+
+  it("still delivers final message when sendDraft throws", async () => {
+    const { platform, sends } = mockPlatform();
+    platform.sendDraft = async () => { throw new Error("draft API unavailable"); };
+
+    const stream = fakeStream(["Hello", " ", "world"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1, "Final message should still be delivered");
+    assert.strictEqual(sends[0].text, "Hello world");
   });
 });
