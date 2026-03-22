@@ -122,6 +122,9 @@ export async function sendOutboxFiles(outboxPath: string, platform: PlatformCont
 /** Debounce interval for draft updates (ms). Drafts are cosmetic — no rate limits. */
 const DRAFT_DEBOUNCE_MS = 300;
 
+/** Max time (ms) to wait for in-flight drafts before final delivery. */
+const DRAFT_SETTLE_TIMEOUT_MS = 3000;
+
 /**
  * Relay Claude CLI stream output to a chat using the platform-agnostic interface.
  *
@@ -143,7 +146,7 @@ export async function relayStream(
   let typingTimer: ReturnType<typeof setInterval> | null = null;
   let draftTimer: ReturnType<typeof setTimeout> | null = null;
   let lastDraftTime = 0;
-  let lastDraftPromise: Promise<void> = Promise.resolve();
+  const draftPromises: Promise<void>[] = [];
   let sawNonTextBlock = false;
 
   // Generate a stable draft_id for this entire response
@@ -172,7 +175,7 @@ export async function relayStream(
     const displayText = collapsed.length > platform.maxMessageLength
       ? collapsed.slice(0, platform.maxMessageLength - 3) + "..."
       : collapsed;
-    lastDraftPromise = platform.sendDraft(draftId, displayText).catch(() => {});
+    draftPromises.push(platform.sendDraft(draftId, displayText).catch(() => {}));
     lastDraftTime = Date.now();
   };
 
@@ -247,9 +250,13 @@ export async function relayStream(
       draftTimer = null;
     }
 
-    // Wait for any in-flight draft to complete before final delivery,
+    // Wait for ALL in-flight drafts to settle before final delivery,
     // so a late-arriving draft can't overwrite the sent message in the composer.
-    await lastDraftPromise;
+    // Timeout ensures a stuck draft can't block final message delivery.
+    await Promise.race([
+      Promise.all(draftPromises),
+      new Promise<void>((resolve) => setTimeout(resolve, DRAFT_SETTLE_TIMEOUT_MS)),
+    ]);
 
     // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery.
     // Drafts auto-disappear when no sendMessage follows.
