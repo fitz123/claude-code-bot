@@ -837,7 +837,7 @@ export function createTelegramBot(
     let tempPath: string | null = null;
 
     try {
-      const file = await ctx.api.getFile(doc.file_id);
+      const file = await ctx.api.getFile(anim ? anim.file_id : doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       let ext: string;
