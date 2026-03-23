@@ -824,7 +824,8 @@ export function createTelegramBot(
     }
 
     // Telegram Bot API limits file downloads to 20 MB
-    if (doc.file_size !== undefined && doc.file_size > TELEGRAM_FILE_SIZE_LIMIT) {
+    const docSize = anim?.file_size ?? doc.file_size;
+    if (docSize !== undefined && docSize > TELEGRAM_FILE_SIZE_LIMIT) {
       await ctx.reply("File is too large (max 20 MB for bot downloads).").catch(() => {});
       return;
     }
