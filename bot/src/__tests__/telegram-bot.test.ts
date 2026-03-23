@@ -1122,6 +1122,8 @@ describe("extractMediaInfo", () => {
     assert.strictEqual(result.mediaType, "sticker");
     assert.strictEqual(result.typeLabel, "Sticker");
     assert.strictEqual(result.media.file_id, "stk1");
+    assert.strictEqual(result.media.is_animated, false);
+    assert.strictEqual(result.media.is_video, false);
   });
 
   it("prefers video over other types when multiple present", () => {

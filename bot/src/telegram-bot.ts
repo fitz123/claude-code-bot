@@ -872,8 +872,11 @@ export function createTelegramBot(
     }
   });
 
-  // Handle media types without specialized handlers (video, animation, video_note, audio, sticker)
-  bot.on(["message:video", "message:animation", "message:video_note", "message:audio", "message:sticker"], async (ctx) => {
+  // Handle media types without specialized handlers (video, video_note, audio, sticker).
+  // Note: animation messages are NOT listed here because Telegram includes a `document`
+  // field alongside `animation`, so grammY's message:document filter (registered above)
+  // matches them first. Animations are handled correctly by the document handler.
+  bot.on(["message:video", "message:video_note", "message:audio", "message:sticker"], async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
