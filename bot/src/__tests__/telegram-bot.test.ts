@@ -1,7 +1,7 @@
 process.env.TZ = "UTC";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, extractMediaInfo, extensionForMedia, formatMediaMeta } from "../telegram-bot.js";
 import type { TelegramBinding } from "../types.js";
 
 const testBindings: TelegramBinding[] = [
@@ -1078,5 +1078,180 @@ describe("AUTO_RETRY_OPTIONS", () => {
   it("has maxRetryAttempts and maxDelaySeconds configured", () => {
     assert.strictEqual(AUTO_RETRY_OPTIONS.maxRetryAttempts, 5);
     assert.strictEqual(AUTO_RETRY_OPTIONS.maxDelaySeconds, 60);
+  });
+});
+
+describe("extractMediaInfo", () => {
+  it("extracts video info", () => {
+    const msg = { video: { file_id: "vid1", file_name: "clip.mp4", mime_type: "video/mp4", file_size: 5000 } };
+    const result = extractMediaInfo(msg);
+    assert.strictEqual(result.mediaType, "video");
+    assert.strictEqual(result.typeLabel, "Video");
+    assert.strictEqual(result.media.file_id, "vid1");
+    assert.strictEqual(result.media.file_name, "clip.mp4");
+  });
+
+  it("extracts animation info", () => {
+    const msg = { animation: { file_id: "anim1", file_name: "funny.gif", mime_type: "video/mp4", file_size: 2000 } };
+    const result = extractMediaInfo(msg);
+    assert.strictEqual(result.mediaType, "animation");
+    assert.strictEqual(result.typeLabel, "Animation");
+    assert.strictEqual(result.media.file_id, "anim1");
+  });
+
+  it("extracts video_note info", () => {
+    const msg = { video_note: { file_id: "vn1", file_size: 1500 } };
+    const result = extractMediaInfo(msg);
+    assert.strictEqual(result.mediaType, "video_note");
+    assert.strictEqual(result.typeLabel, "Video Note");
+    assert.strictEqual(result.media.file_id, "vn1");
+    assert.strictEqual(result.media.file_name, undefined);
+  });
+
+  it("extracts audio info", () => {
+    const msg = { audio: { file_id: "aud1", file_name: "song.mp3", mime_type: "audio/mpeg", file_size: 3000 } };
+    const result = extractMediaInfo(msg);
+    assert.strictEqual(result.mediaType, "audio");
+    assert.strictEqual(result.typeLabel, "Audio");
+    assert.strictEqual(result.media.file_id, "aud1");
+  });
+
+  it("extracts sticker info", () => {
+    const msg = { sticker: { file_id: "stk1", file_size: 45000, is_animated: false, is_video: false } };
+    const result = extractMediaInfo(msg);
+    assert.strictEqual(result.mediaType, "sticker");
+    assert.strictEqual(result.typeLabel, "Sticker");
+    assert.strictEqual(result.media.file_id, "stk1");
+  });
+
+  it("prefers video over other types when multiple present", () => {
+    const msg = {
+      video: { file_id: "vid1", mime_type: "video/mp4" },
+      audio: { file_id: "aud1", mime_type: "audio/mpeg" },
+    };
+    const result = extractMediaInfo(msg);
+    assert.strictEqual(result.mediaType, "video");
+  });
+
+  it("throws when no supported media type found", () => {
+    assert.throws(() => extractMediaInfo({}), /No supported media type found/);
+  });
+});
+
+describe("extensionForMedia", () => {
+  it("returns .mp4 for video", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x" }, "video"), ".mp4");
+  });
+
+  it("returns .mp4 for animation", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x" }, "animation"), ".mp4");
+  });
+
+  it("returns .mp4 for video_note", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x" }, "video_note"), ".mp4");
+  });
+
+  it("returns .mp3 for audio with audio/mpeg", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/mpeg" }, "audio"), ".mp3");
+  });
+
+  it("returns .m4a for audio with audio/mp4", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/mp4" }, "audio"), ".m4a");
+  });
+
+  it("returns .m4a for audio with audio/x-m4a", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/x-m4a" }, "audio"), ".m4a");
+  });
+
+  it("returns .ogg for audio with audio/ogg", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/ogg" }, "audio"), ".ogg");
+  });
+
+  it("returns .flac for audio with audio/flac", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/flac" }, "audio"), ".flac");
+  });
+
+  it("returns .wav for audio with audio/wav", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/wav" }, "audio"), ".wav");
+  });
+
+  it("returns .wav for audio with audio/x-wav", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/x-wav" }, "audio"), ".wav");
+  });
+
+  it("returns .mp3 for audio with unknown MIME", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", mime_type: "audio/aac" }, "audio"), ".mp3");
+  });
+
+  it("returns .webp for static sticker", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", is_animated: false, is_video: false }, "sticker"), ".webp");
+  });
+
+  it("returns .tgs for animated sticker", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", is_animated: true, is_video: false }, "sticker"), ".tgs");
+  });
+
+  it("returns .webm for video sticker", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", is_animated: false, is_video: true }, "sticker"), ".webm");
+  });
+
+  it("prefers filename extension over default", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", file_name: "clip.mov" }, "video"), ".mov");
+  });
+
+  it("falls back to default when filename has no extension", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", file_name: "Untitled" }, "video"), ".mp4");
+  });
+
+  it("sanitizes path separators from filename extension", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x", file_name: "evil.../../etc/passwd" }, "video"), ".etcpasswd");
+  });
+
+  it("returns .bin for unknown media type", () => {
+    assert.strictEqual(extensionForMedia({ file_id: "x" }, "unknown"), ".bin");
+  });
+});
+
+describe("formatMediaMeta", () => {
+  it("formats full metadata with filename", () => {
+    assert.strictEqual(
+      formatMediaMeta("Video", "clip.mp4", "video/mp4", 5 * 1024 * 1024),
+      "[Video: clip.mp4 | Type: video/mp4 | Size: 5.0 MB]",
+    );
+  });
+
+  it("formats without filename", () => {
+    assert.strictEqual(
+      formatMediaMeta("Video Note", undefined, undefined, 1500),
+      "[Video Note | Size: 1.5 KB]",
+    );
+  });
+
+  it("formats sticker without MIME or size", () => {
+    assert.strictEqual(
+      formatMediaMeta("Sticker", undefined, undefined, undefined),
+      "[Sticker]",
+    );
+  });
+
+  it("formats audio with all fields", () => {
+    assert.strictEqual(
+      formatMediaMeta("Audio", "song.mp3", "audio/mpeg", 3072),
+      "[Audio: song.mp3 | Type: audio/mpeg | Size: 3.0 KB]",
+    );
+  });
+
+  it("formats animation without size", () => {
+    assert.strictEqual(
+      formatMediaMeta("Animation", "funny.gif", "video/mp4", undefined),
+      "[Animation: funny.gif | Type: video/mp4]",
+    );
+  });
+
+  it("formats with filename but no MIME", () => {
+    assert.strictEqual(
+      formatMediaMeta("Video", "clip.mp4", undefined, 2048),
+      "[Video: clip.mp4 | Size: 2.0 KB]",
+    );
   });
 });

@@ -60,14 +60,14 @@ When a user sends a video, animation, video_note, audio, or sticker, the bot sil
 
 We want: a single handler that catches all these types, downloads the file via Telegram Bot API, and passes it to the Claude session with metadata (type, filename, MIME, size). Follow the same pattern as the existing document handler.
 
-- [ ] video messages are downloaded and passed to session with metadata
-- [ ] animation (GIF) messages are downloaded and passed to session
-- [ ] video_note (round video) messages are downloaded and passed to session
-- [ ] audio messages are downloaded and passed to session
-- [ ] sticker messages are downloaded and passed to session (as image file)
-- [ ] Files over 20 MB are rejected with user-facing error message
-- [ ] Each type increments `messagesReceived` counter with appropriate type label
-- [ ] Message includes: source prefix, reply context, forward context, caption (if any), file metadata, temp file path
-- [ ] Temp files are cleaned up after session processes the message
-- [ ] Add tests for each media type handler
-- [ ] Verify existing tests pass
+- [x] video messages are downloaded and passed to session with metadata
+- [x] animation (GIF) messages are downloaded and passed to session
+- [x] video_note (round video) messages are downloaded and passed to session
+- [x] audio messages are downloaded and passed to session
+- [x] sticker messages are downloaded and passed to session (as image file)
+- [x] Files over 20 MB are rejected with user-facing error message
+- [x] Each type increments `messagesReceived` counter with appropriate type label
+- [x] Message includes: source prefix, reply context, forward context, caption (if any), file metadata, temp file path
+- [x] Temp files are cleaned up after session processes the message
+- [x] Add tests for each media type handler
+- [x] Verify existing tests pass
