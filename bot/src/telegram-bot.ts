@@ -800,21 +800,26 @@ export function createTelegramBot(
     }
   });
 
-  // Handle document messages (images and general files)
+  // Handle document messages (images, animations, and general files).
+  // Animation messages always carry a `document` field, so grammY's message:document
+  // filter catches them here. We detect animations via ctx.msg.animation to give them
+  // proper metadata and file extension instead of treating them as generic documents.
   bot.on("message:document", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
-    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? "[document]", "in");
+
+    const anim = ctx.msg.animation;
+    const doc = ctx.msg.document;
+
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? (anim ? "[animation]" : "[document]"), "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
-
-    const doc = ctx.msg.document;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
 
     if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
-      log.debug("telegram-bot", `Discarding stale document message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      log.debug("telegram-bot", `Discarding stale ${anim ? "animation" : "document"} message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
       return;
     }
 
@@ -824,8 +829,8 @@ export function createTelegramBot(
       return;
     }
 
-    const isImage = isImageMimeType(doc.mime_type);
-    messagesReceived.inc({ type: "document" });
+    const isImage = !anim && isImageMimeType(doc.mime_type);
+    messagesReceived.inc({ type: anim ? "animation" : "document" });
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
@@ -834,10 +839,15 @@ export function createTelegramBot(
       const file = await ctx.api.getFile(doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-      const ext = isImage
-        ? imageExtensionForMime(doc.mime_type)
-        : extensionForDocument(doc.file_name, doc.mime_type);
-      tempPath = tempFilePath("doc", ext);
+      let ext: string;
+      if (anim) {
+        ext = extensionForMedia(anim, "animation");
+      } else if (isImage) {
+        ext = imageExtensionForMime(doc.mime_type);
+      } else {
+        ext = extensionForDocument(doc.file_name, doc.mime_type);
+      }
+      tempPath = tempFilePath(anim ? "animation" : "doc", ext);
       await downloadFile(url, tempPath);
 
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
@@ -852,7 +862,9 @@ export function createTelegramBot(
           ? `${context}${caption.trimEnd()}\n\n${tempPath}`
           : `${context}${tempPath}`;
       } else {
-        const meta = formatDocumentMeta(doc.file_name, doc.mime_type, doc.file_size);
+        const meta = anim
+          ? formatMediaMeta("Animation", anim.file_name, anim.mime_type, anim.file_size)
+          : formatDocumentMeta(doc.file_name, doc.mime_type, doc.file_size);
         messageText = caption.trimEnd()
           ? `${context}${caption.trimEnd()}\n\n${meta}\n${tempPath}`
           : `${context}${meta}\n${tempPath}`;
@@ -864,8 +876,8 @@ export function createTelegramBot(
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
-      log.error("telegram-bot", `Document handling error for chat ${chatId}:`, err);
-      await ctx.reply("Failed to process document. Please try again.").catch(() => {});
+      log.error("telegram-bot", `${anim ? "Animation" : "Document"} handling error for chat ${chatId}:`, err);
+      await ctx.reply(`Failed to process ${anim ? "animation" : "document"}. Please try again.`).catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath);
       }
@@ -873,9 +885,8 @@ export function createTelegramBot(
   });
 
   // Handle media types without specialized handlers (video, video_note, audio, sticker).
-  // Note: animation messages are NOT listed here because Telegram includes a `document`
-  // field alongside `animation`, so grammY's message:document filter (registered above)
-  // matches them first. Animations are handled correctly by the document handler.
+  // Note: animation is NOT listed here — Telegram includes a `document` field alongside
+  // `animation`, so the document handler above catches them first with proper animation metadata.
   bot.on(["message:video", "message:video_note", "message:audio", "message:sticker"], async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
