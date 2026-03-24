@@ -323,6 +323,92 @@ export function formatDocumentMeta(
 }
 
 /**
+ * Media info extracted from a Telegram message for the generic media handler.
+ */
+export interface MediaInfo {
+  file_id: string;
+  file_size?: number;
+  file_name?: string;
+  mime_type?: string;
+  is_animated?: boolean;
+  is_video?: boolean;
+}
+
+/**
+ * Extract media object and type label from a Telegram message.
+ * Checks each supported media type in order and returns the first match.
+ */
+export function extractMediaInfo(msg: {
+  video?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  animation?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  video_note?: { file_id: string; file_size?: number };
+  audio?: { file_id: string; file_name?: string; mime_type?: string; file_size?: number };
+  sticker?: { file_id: string; file_size?: number; is_animated?: boolean; is_video?: boolean };
+}): { media: MediaInfo; mediaType: string; typeLabel: string } {
+  if (msg.video) return { media: msg.video, mediaType: "video", typeLabel: "Video" };
+  if (msg.animation) return { media: msg.animation, mediaType: "animation", typeLabel: "Animation" };
+  if (msg.video_note) return { media: msg.video_note, mediaType: "video_note", typeLabel: "Video Note" };
+  if (msg.audio) return { media: msg.audio, mediaType: "audio", typeLabel: "Audio" };
+  if (msg.sticker) return { media: msg.sticker, mediaType: "sticker", typeLabel: "Sticker" };
+  throw new Error("No supported media type found in message");
+}
+
+/**
+ * Derive a file extension for a media attachment.
+ * Prefers the original filename extension when available; falls back to type-specific defaults.
+ */
+export function extensionForMedia(media: MediaInfo, mediaType: string): string {
+  if (media.file_name) {
+    const dotIdx = media.file_name.lastIndexOf(".");
+    if (dotIdx > 0) {
+      return media.file_name.slice(dotIdx).replace(/[^a-zA-Z0-9.]/g, "");
+    }
+  }
+  switch (mediaType) {
+    case "video":
+    case "animation":
+    case "video_note":
+      return ".mp4";
+    case "audio": {
+      switch (media.mime_type) {
+        case "audio/mpeg": return ".mp3";
+        case "audio/mp4":
+        case "audio/x-m4a": return ".m4a";
+        case "audio/ogg": return ".ogg";
+        case "audio/flac": return ".flac";
+        case "audio/wav":
+        case "audio/x-wav": return ".wav";
+        default: return ".mp3";
+      }
+    }
+    case "sticker": {
+      if (media.is_video) return ".webm";
+      if (media.is_animated) return ".tgs";
+      return ".webp";
+    }
+    default:
+      return ".bin";
+  }
+}
+
+/**
+ * Build a metadata line for a media attachment.
+ * Example: `[Video: clip.mp4 | Type: video/mp4 | Size: 5.2 MB]`
+ */
+export function formatMediaMeta(
+  typeLabel: string,
+  filename?: string,
+  mimeType?: string,
+  fileSize?: number,
+): string {
+  const parts: string[] = [];
+  parts.push(filename ? `${typeLabel}: ${filename}` : typeLabel);
+  if (mimeType) parts.push(`Type: ${mimeType}`);
+  if (fileSize !== undefined) parts.push(`Size: ${formatFileSize(fileSize)}`);
+  return `[${parts.join(" | ")}]`;
+}
+
+/**
  * Check if a message is too old to process.
  * Used to discard stale messages that accumulated during bot downtime.
  * @param messageTimestampMs Message timestamp in milliseconds
@@ -714,44 +800,55 @@ export function createTelegramBot(
     }
   });
 
-  // Handle document messages (images and general files)
+  // Handle document messages (images, animations, and general files).
+  // Animation messages always carry a `document` field, so grammY's message:document
+  // filter catches them here. We detect animations via ctx.msg.animation to give them
+  // proper metadata and file extension instead of treating them as generic documents.
   bot.on("message:document", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
     setThread(chatId, ctx.message.message_id, topicId);
-    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? "[document]", "in");
+
+    const anim = ctx.msg.animation;
+    const doc = ctx.msg.document;
+
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? (anim ? "[animation]" : "[document]"), "in");
     const binding = resolveBinding(chatId, config.bindings, topicId);
     if (!binding) return;
-
-    const doc = ctx.msg.document;
 
     if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
 
     if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
-      log.debug("telegram-bot", `Discarding stale document message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      log.debug("telegram-bot", `Discarding stale ${anim ? "animation" : "document"} message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
       return;
     }
 
     // Telegram Bot API limits file downloads to 20 MB
-    if (doc.file_size !== undefined && doc.file_size > TELEGRAM_FILE_SIZE_LIMIT) {
+    const docSize = anim?.file_size ?? doc.file_size;
+    if (docSize !== undefined && docSize > TELEGRAM_FILE_SIZE_LIMIT) {
       await ctx.reply("File is too large (max 20 MB for bot downloads).").catch(() => {});
       return;
     }
 
-    const isImage = isImageMimeType(doc.mime_type);
-    messagesReceived.inc({ type: "document" });
+    const isImage = !anim && isImageMimeType(doc.mime_type);
+    messagesReceived.inc({ type: anim ? "animation" : "document" });
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
 
     try {
-      const file = await ctx.api.getFile(doc.file_id);
+      const file = await ctx.api.getFile(anim ? anim.file_id : doc.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-      const ext = isImage
-        ? imageExtensionForMime(doc.mime_type)
-        : extensionForDocument(doc.file_name, doc.mime_type);
-      tempPath = tempFilePath("doc", ext);
+      let ext: string;
+      if (anim) {
+        ext = extensionForMedia(anim, "animation");
+      } else if (isImage) {
+        ext = imageExtensionForMime(doc.mime_type);
+      } else {
+        ext = extensionForDocument(doc.file_name, doc.mime_type);
+      }
+      tempPath = tempFilePath(anim ? "animation" : "doc", ext);
       await downloadFile(url, tempPath);
 
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
@@ -766,7 +863,9 @@ export function createTelegramBot(
           ? `${context}${caption.trimEnd()}\n\n${tempPath}`
           : `${context}${tempPath}`;
       } else {
-        const meta = formatDocumentMeta(doc.file_name, doc.mime_type, doc.file_size);
+        const meta = anim
+          ? formatMediaMeta("Animation", anim.file_name, anim.mime_type, anim.file_size)
+          : formatDocumentMeta(doc.file_name, doc.mime_type, doc.file_size);
         messageText = caption.trimEnd()
           ? `${context}${caption.trimEnd()}\n\n${meta}\n${tempPath}`
           : `${context}${meta}\n${tempPath}`;
@@ -778,8 +877,71 @@ export function createTelegramBot(
         cleanupTempFile(pathToClean);
       });
     } catch (err) {
-      log.error("telegram-bot", `Document handling error for chat ${chatId}:`, err);
-      await ctx.reply("Failed to process document. Please try again.").catch(() => {});
+      log.error("telegram-bot", `${anim ? "Animation" : "Document"} handling error for chat ${chatId}:`, err);
+      await ctx.reply(`Failed to process ${anim ? "animation" : "document"}. Please try again.`).catch(() => {});
+      if (tempPath) {
+        cleanupTempFile(tempPath);
+      }
+    }
+  });
+
+  // Handle media types without specialized handlers (video, video_note, audio, sticker).
+  // Note: animation is NOT listed here — Telegram includes a `document` field alongside
+  // `animation`, so the document handler above catches them first with proper animation metadata.
+  bot.on(["message:video", "message:video_note", "message:audio", "message:sticker"], async (ctx) => {
+    const chatId = ctx.chat.id;
+    const topicId = ctx.message?.message_thread_id;
+    setThread(chatId, ctx.message.message_id, topicId);
+
+    const { media, mediaType, typeLabel } = extractMediaInfo(ctx.msg);
+
+    recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), ctx.message.caption ?? `[${typeLabel.toLowerCase()}]`, "in");
+    const binding = resolveBinding(chatId, config.bindings, topicId);
+    if (!binding) return;
+
+    if (!shouldRespondInGroup(binding, bot.botInfo.id, bot.botInfo.username, ctx.message, config.sessionDefaults)) return;
+
+    if (isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale ${mediaType} message for chat ${chatId} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+
+    if (media.file_size !== undefined && media.file_size > TELEGRAM_FILE_SIZE_LIMIT) {
+      await ctx.reply("File is too large (max 20 MB for bot downloads).").catch(() => {});
+      return;
+    }
+
+    messagesReceived.inc({ type: mediaType });
+
+    const key = sessionKey(chatId, topicId);
+    let tempPath: string | null = null;
+
+    try {
+      const file = await ctx.api.getFile(media.file_id);
+      if (!file.file_path) throw new Error("Telegram did not return a file path");
+      const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+      const ext = extensionForMedia(media, mediaType);
+      tempPath = tempFilePath(mediaType, ext);
+      await downloadFile(url, tempPath);
+
+      const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
+      const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
+      const fwdCtx = buildForwardContext(ctx.message.forward_origin);
+      const context = prefix + replyCtx + fwdCtx;
+      const caption = ctx.msg.caption ?? "";
+      const meta = formatMediaMeta(typeLabel, media.file_name, media.mime_type, media.file_size);
+      const messageText = caption.trimEnd()
+        ? `${context}${caption.trimEnd()}\n\n${meta}\n${tempPath}`
+        : `${context}${meta}\n${tempPath}`;
+
+      const pathToClean = tempPath;
+      tempPath = null;
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults), () => {
+        cleanupTempFile(pathToClean);
+      });
+    } catch (err) {
+      log.error("telegram-bot", `${typeLabel} handling error for chat ${chatId}:`, err);
+      await ctx.reply(`Failed to process ${typeLabel.toLowerCase()}. Please try again.`).catch(() => {});
       if (tempPath) {
         cleanupTempFile(tempPath);
       }
