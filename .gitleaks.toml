@@ -52,7 +52,7 @@ tags = ["pii", "telegram"]
 [rules.allowlist]
 paths = ['''(__tests__|\.test\.|\.spec\.)''']
 regexTarget = "line"
-regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER|@redacted|@jest|@ts-|@eslint|@babel|@rollup|@vite|@swc|@vercel|@remix|@next|@alice|@mybot)''']
+regexes = ['''(@example|@placeholder|@username|@yourname|@your[_-]|@anthropic|@types|@param|@returns|@deprecated|@override|@import|@media|@keyframes|@charset|@font-face|@grammyjs|@anthropic-ai|@BotFather|@userinfobot|@mention|@mentions|@interface|@botId|@IDENTITY|@USER|@redacted|@jest|@ts-|@eslint|@babel|@rollup|@vite|@swc|@vercel|@remix|@next|@alice|@mybot|/plugin install|@scope\s|@plannotator)''']
 
 # --- Discord ---
 
