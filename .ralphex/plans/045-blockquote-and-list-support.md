@@ -7,7 +7,7 @@ Add two missing markdown features to `bot/src/markdown-html.ts`: blockquote conv
 ## Validation Commands
 
 ```bash
-cd /Users/ninja/src/claude-code-bot/bot && npx tsc --noEmit && node --import tsx --test src/__tests__/markdown-html.test.ts && [ "$(wc -l < src/markdown-html.ts)" -lt 300 ] && echo "Line count OK" || (echo "FAIL: markdown-html.ts exceeds 300 lines" && exit 1)
+cd bot && npx tsc --noEmit && node --import tsx --test src/__tests__/markdown-html.test.ts && [ "$(wc -l < src/markdown-html.ts)" -lt 300 ] && echo "Line count OK" || (echo "FAIL: markdown-html.ts exceeds 300 lines" && exit 1)
 ```
 
 ## Reference: Telegram HTML Supported Tags
