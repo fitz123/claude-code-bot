@@ -6,7 +6,7 @@ import { recordMessage } from "./message-content-index.js";
 
 /** Telegram platform constants. */
 const TELEGRAM_MAX_MSG_LENGTH = 4096;
-const TELEGRAM_TYPING_INTERVAL_MS = 4000;
+const TELEGRAM_TYPING_INTERVAL_MS = 5000;
 
 /** Bot username for outgoing message recording. Set at startup via setBotUsername(). */
 let _botUsername = "bot";
