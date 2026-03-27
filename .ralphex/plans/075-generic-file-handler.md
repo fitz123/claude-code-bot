@@ -7,7 +7,7 @@ Add a single fallback handler for Telegram media types that have no specialized 
 ## Validation Commands
 
 ```bash
-cd /Users/ninja/src/claude-code-bot && npx tsc --noEmit && npm test
+npx tsc --noEmit && npm test
 ```
 
 ## Reference: Current handler coverage
