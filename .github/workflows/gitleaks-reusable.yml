@@ -5,6 +5,8 @@ name: Gitleaks PII & Secrets Scan (Reusable)
 #   jobs:
 #     gitleaks:
 #       uses: fitz123/claude-code-bot/.github/workflows/gitleaks-reusable.yml@main
+#       secrets:
+#         CONFIG_PAT: ${{ secrets.GITLEAKS_CONFIG_PAT }}  # PAT with read access to gitleaks-config repo
 
 on:
   workflow_call:
@@ -13,12 +15,16 @@ on:
         description: "Repo containing .gitleaks.toml (owner/repo format)"
         required: false
         type: string
-        default: "fitz123/claude-code-bot"
+        default: "fitz123/gitleaks-config"
       config-ref:
         description: "Branch/tag of config repo to fetch .gitleaks.toml from"
         required: false
         type: string
         default: "main"
+    secrets:
+      CONFIG_PAT:
+        description: "PAT with read access to the private config repo"
+        required: false
 
 jobs:
   gitleaks:
@@ -31,10 +37,19 @@ jobs:
 
       - name: Fetch shared .gitleaks.toml (if not present locally)
         if: ${{ hashFiles('.gitleaks.toml') == '' }}
+        env:
+          CONFIG_PAT: ${{ secrets.CONFIG_PAT }}
         run: |
-          curl -fsSL "https://raw.githubusercontent.com/${{ inputs.config-repo }}/${{ inputs.config-ref }}/.gitleaks.toml" \
-            -o .gitleaks.toml
-          echo "Fetched .gitleaks.toml from ${{ inputs.config-repo }}@${{ inputs.config-ref }}"
+          if [[ -n "$CONFIG_PAT" ]]; then
+            curl -fsSL \
+              -H "Authorization: token $CONFIG_PAT" \
+              -H "Accept: application/vnd.github.v3.raw" \
+              "https://api.github.com/repos/${{ inputs.config-repo }}/contents/.gitleaks.toml?ref=${{ inputs.config-ref }}" \
+              -o .gitleaks.toml
+            echo "Fetched .gitleaks.toml from private ${{ inputs.config-repo }}@${{ inputs.config-ref }}"
+          else
+            echo "No CONFIG_PAT provided, using gitleaks defaults only"
+          fi
 
       - uses: gitleaks/gitleaks-action@v2
         env:

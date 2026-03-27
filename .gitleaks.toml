@@ -1,6 +1,6 @@
 # Gitleaks configuration — PII & secrets scanning
-# Extends default rules (API keys, tokens, etc.) with custom PII patterns.
-# Portable: copy this file + workflow to any repo.
+# Generic rules only. Corporate-specific patterns live in private fitz123/gitleaks-config.
+# The reusable workflow fetches the private config at runtime via CONFIG_PAT secret.
 
 [extend]
 useDefault = true
@@ -16,11 +16,7 @@ tags = ["pii", "email"]
 regexTarget = "line"
 regexes = ['''(noreply@anthropic\.com|you@example\.com|user@example\.com)''']
 
-[[rules]]
-id = "corporate-email-patterns"
-description = "Corporate email addresses"
-regex = '''[a-zA-Z0-9._%+-]+@(REDACTED_COMPANY\.com|gcore\.(lu|com))'''
-tags = ["pii", "email", "corporate"]
+# Corporate email patterns moved to private fitz123/gitleaks-config
 
 # --- Phone numbers ---
 
@@ -88,11 +84,7 @@ tags = ["pii", "address"]
 
 # --- Infrastructure ---
 
-[[rules]]
-id = "private-hostnames"
-description = "Internal infrastructure hostnames"
-regex = '''[a-zA-Z0-9-]+\.(REDACTED\.example\.net|REDACTED\.example\.net)'''
-tags = ["pii", "infrastructure"]
+# Private hostnames rule moved to private fitz123/gitleaks-config
 
 [[rules]]
 id = "home-directory-paths"
