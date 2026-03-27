@@ -74,7 +74,7 @@ describe("createTelegramAdapter", () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
       assert.strictEqual(adapter.maxMessageLength, 4096);
-      assert.strictEqual(adapter.typingIntervalMs, 4000);
+      assert.strictEqual(adapter.typingIntervalMs, 5000);
     });
   });
 
@@ -258,9 +258,11 @@ describe("createTelegramAdapter", () => {
   });
 
   describe("sendTyping", () => {
-    it("sends typing action with correct chat ID", async () => {
+    const groupBinding: TelegramBinding = { chatId: 12345, agentId: "main", kind: "group" };
+
+    it("sends typing action for group chats", async () => {
       const ctx = mockContext();
-      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      const adapter = createTelegramAdapter(ctx, groupBinding);
       await adapter.sendTyping();
       assert.strictEqual(ctx._chatActions.length, 1);
       assert.strictEqual(ctx._chatActions[0].chatId, 12345);
@@ -269,15 +271,22 @@ describe("createTelegramAdapter", () => {
 
     it("includes thread ID when present", async () => {
       const ctx = mockContext({ threadId: 42 });
-      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      const adapter = createTelegramAdapter(ctx, groupBinding);
       await adapter.sendTyping();
       assert.strictEqual(ctx._chatActions[0].opts.message_thread_id, 42);
+    });
+
+    it("is a no-op for DM chats (drafts show typing)", async () => {
+      const ctx = mockContext();
+      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      await adapter.sendTyping();
+      assert.strictEqual(ctx._chatActions.length, 0);
     });
 
     it("is a no-op when chatId is undefined", async () => {
       const ctx = mockContext();
       ctx.chat = undefined;
-      const adapter = createTelegramAdapter(ctx, defaultBinding);
+      const adapter = createTelegramAdapter(ctx, groupBinding);
       await adapter.sendTyping();
       assert.strictEqual(ctx._chatActions.length, 0);
     });
@@ -314,7 +323,8 @@ describe("createTelegramAdapter", () => {
 
     it("sendTyping uses threadIdOverride", async () => {
       const ctx = mockContext();
-      const adapter = createTelegramAdapter(ctx, defaultBinding, 55);
+      const groupBinding: TelegramBinding = { chatId: 12345, agentId: "main", kind: "group" };
+      const adapter = createTelegramAdapter(ctx, groupBinding, 55);
       await adapter.sendTyping();
       assert.strictEqual(ctx._chatActions[0].opts.message_thread_id, 55);
     });
