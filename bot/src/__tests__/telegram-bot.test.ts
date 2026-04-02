@@ -191,9 +191,9 @@ describe("isImageMimeType", () => {
 });
 
 describe("BOT_COMMANDS", () => {
-  it("contains start, reset, and status commands", () => {
+  it("contains start, reconnect, clean, and status commands", () => {
     const names = BOT_COMMANDS.map((c) => c.command);
-    assert.deepStrictEqual(names, ["start", "reset", "status"]);
+    assert.deepStrictEqual(names, ["start", "reconnect", "clean", "status"]);
   });
 
   it("each command has a non-empty description", () => {

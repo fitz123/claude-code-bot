@@ -54,9 +54,9 @@ bot.command("clean", async (ctx) => {
 });
 ```
 
-- [ ] Update command list: replace "reset" with "reconnect" and "clean"
-- [ ] Rename existing reset handler to "reconnect"
-- [ ] Add new "/clean" handler calling `destroySession()`
+- [x] Update command list: replace "reset" with "reconnect" and "clean"
+- [x] Rename existing reset handler to "reconnect"
+- [x] Add new "/clean" handler calling `destroySession()`
 
 ### 3. discord-bot.ts — same changes
 
