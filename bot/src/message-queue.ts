@@ -203,7 +203,7 @@ export class MessageQueue {
       log.error("message-queue", `Send error for ${chatId}:`, err);
       if (state.latestPlatform) {
         await state.latestPlatform
-          .replyError(`Something went wrong: ${err instanceof Error ? err.message : String(err)}\n\nTry again or /reset the session.`)
+          .replyError(`Something went wrong: ${err instanceof Error ? err.message : String(err)}\n\nTry again or /reconnect the session.`)
           .catch(() => {});
       }
     } finally {
@@ -211,7 +211,7 @@ export class MessageQueue {
       for (const fn of cleanups) fn();
     }
 
-    // If queue was cleared during processing (e.g., /reset), stop here
+    // If queue was cleared during processing (e.g., /reconnect), stop here
     if (this.queues.get(chatId) !== state) return;
 
     // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
@@ -279,7 +279,7 @@ export class MessageQueue {
         log.error("message-queue", `Collect drain error for ${chatId}:`, err);
         if (state.latestPlatform) {
           await state.latestPlatform
-            .replyError(`Something went wrong: ${err instanceof Error ? err.message : String(err)}\n\nTry again or /reset the session.`)
+            .replyError(`Something went wrong: ${err instanceof Error ? err.message : String(err)}\n\nTry again or /reconnect the session.`)
             .catch(() => {});
         }
       } finally {
@@ -313,7 +313,7 @@ export class MessageQueue {
     return this.queues.get(chatId)?.collectBuffer.length ?? 0;
   }
 
-  /** Clear a chat's queue state (e.g., on /reset). */
+  /** Clear a chat's queue state (e.g., on /reconnect). */
   clear(chatId: string): void {
     const state = this.queues.get(chatId);
     if (state) {

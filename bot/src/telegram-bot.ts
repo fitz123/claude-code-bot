@@ -26,7 +26,8 @@ function senderLabel(from?: { first_name: string; username?: string }): string {
 /** Commands to register with the Telegram Bot API via setMyCommands */
 export const BOT_COMMANDS = [
   { command: "start", description: "Start the bot" },
-  { command: "reset", description: "Reset current session" },
+  { command: "reconnect", description: "Reconnect session (keeps context)" },
+  { command: "clean", description: "Clean session (fresh start)" },
   { command: "status", description: "Show bot status" },
 ] as const;
 
@@ -579,25 +580,43 @@ export function createTelegramBot(
     );
   });
 
-  // /reset command — close current session.
-  // Session lifecycle: create → compact → reset → resume. The reset kills the
-  // Claude subprocess but the session file (with compacted conversation history)
-  // remains on disk. When the next message arrives, getOrCreateSession() finds
-  // the file and resumes with --resume, so prior context may be partially
+  // /reconnect command — close current session (keeps session file).
+  // Session lifecycle: create → compact → reconnect → resume. The reconnect
+  // kills the Claude subprocess but the session file (with compacted conversation
+  // history) remains on disk. When the next message arrives, getOrCreateSession()
+  // finds the file and resumes with --resume, so prior context may be partially
   // retained through the compaction summary.
-  bot.command("reset", async (ctx) => {
+  bot.command("reconnect", async (ctx) => {
     const topicId = ctx.message?.message_thread_id;
     if (ctx.message) setThread(ctx.chat.id, ctx.message.message_id, topicId);
     const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
     if (!binding) return;
     if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
-      log.debug("telegram-bot", `Discarding stale /reset for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      log.debug("telegram-bot", `Discarding stale /reconnect for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
       return;
     }
     const key = sessionKey(ctx.chat.id, topicId);
     messageQueue.clear(key);
     await sessionManager.closeSession(key);
     await ctx.reply("Session restarted. Prior context may be partially retained.");
+  });
+
+  // /clean command — destroy session completely (delete stored state).
+  // Unlike /reconnect, this deletes the session file so the next message
+  // starts a brand new session with no prior context.
+  bot.command("clean", async (ctx) => {
+    const topicId = ctx.message?.message_thread_id;
+    if (ctx.message) setThread(ctx.chat.id, ctx.message.message_id, topicId);
+    const binding = resolveBinding(ctx.chat.id, config.bindings, topicId);
+    if (!binding) return;
+    if (ctx.message && isStaleMessage(ctx.message.date * 1000, maxMessageAgeMs)) {
+      log.debug("telegram-bot", `Discarding stale /clean for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
+      return;
+    }
+    const key = sessionKey(ctx.chat.id, topicId);
+    messageQueue.clear(key);
+    await sessionManager.destroySession(key);
+    await ctx.reply("Session cleaned. Fresh start.");
   });
 
   // /status command — active sessions, memory, uptime, subprocess health

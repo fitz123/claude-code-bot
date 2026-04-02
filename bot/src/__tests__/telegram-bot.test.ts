@@ -1,8 +1,9 @@
 process.env.TZ = "UTC";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, extractMediaInfo, extensionForMedia, formatMediaMeta } from "../telegram-bot.js";
-import type { TelegramBinding } from "../types.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, extractMediaInfo, extensionForMedia, formatMediaMeta, createTelegramBot } from "../telegram-bot.js";
+import type { TelegramBinding, BotConfig } from "../types.js";
+import type { SessionManager } from "../session-manager.js";
 
 const testBindings: TelegramBinding[] = [
   { chatId: 111111111, agentId: "main", kind: "dm", label: "User1 DM" },
@@ -191,9 +192,9 @@ describe("isImageMimeType", () => {
 });
 
 describe("BOT_COMMANDS", () => {
-  it("contains start, reset, and status commands", () => {
+  it("contains start, reconnect, clean, and status commands", () => {
     const names = BOT_COMMANDS.map((c) => c.command);
-    assert.deepStrictEqual(names, ["start", "reset", "status"]);
+    assert.deepStrictEqual(names, ["start", "reconnect", "clean", "status"]);
   });
 
   it("each command has a non-empty description", () => {
@@ -1255,5 +1256,95 @@ describe("formatMediaMeta", () => {
       formatMediaMeta("Video", "clip.mp4", undefined, 2048),
       "[Video: clip.mp4 | Size: 2.0 KB]",
     );
+  });
+});
+
+describe("command handler wiring", () => {
+  const testChatId = 111111111;
+
+  const handlerConfig: BotConfig = {
+    telegramToken: "test:fake-token-for-handler-tests",
+    agents: {
+      main: { id: "main", workspaceCwd: "/tmp/test", model: "claude-opus-4-6" },
+    },
+    bindings: [
+      { chatId: testChatId, agentId: "main", kind: "dm" as const },
+    ],
+    sessionDefaults: {
+      idleTimeoutMs: 60000,
+      maxConcurrentSessions: 2,
+      maxMessageAgeMs: 300000,
+      requireMention: false,
+    },
+  };
+
+  function createMockSessionManager(): SessionManager & { calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      closeSession: async (_chatId: string) => { calls.push("closeSession"); },
+      destroySession: async (_chatId: string) => { calls.push("destroySession"); },
+      sendSessionMessage: () => { throw new Error("unexpected"); },
+      getOrCreateSession: async () => { throw new Error("unexpected"); },
+      closeAll: async () => {},
+      resolveStoredSession: () => ({ resume: false }),
+      activeCount: () => 0,
+      getActiveSession: () => undefined,
+      isActive: () => false,
+    } as unknown as SessionManager & { calls: string[] };
+  }
+
+  function makeCommandUpdate(command: string, updateId: number) {
+    const text = `/${command}`;
+    return {
+      update_id: updateId,
+      message: {
+        message_id: updateId,
+        from: { id: testChatId, is_bot: false, first_name: "Test" },
+        chat: { id: testChatId, type: "private" as const, first_name: "Test" },
+        date: Math.floor(Date.now() / 1000),
+        text,
+        entities: [{ offset: 0, length: text.length, type: "bot_command" as const }],
+      },
+    };
+  }
+
+  function initBot(mockSM: SessionManager) {
+    const { bot } = createTelegramBot(handlerConfig, mockSM);
+    // Intercept all API calls so nothing reaches Telegram
+    bot.api.config.use(async (_prev, _method, _payload) => ({ ok: true, result: true } as any));
+    // Provide bot info so handleUpdate works without calling getMe
+    bot.botInfo = {
+      id: 999,
+      is_bot: true,
+      first_name: "TestBot",
+      username: "test_bot",
+      can_join_groups: false,
+      can_read_all_group_messages: false,
+      supports_inline_queries: false,
+      can_connect_to_business: false,
+      has_main_web_app: false,
+      has_topics_enabled: false,
+      allows_users_to_create_topics: false,
+    };
+    return bot;
+  }
+
+  it("/reconnect calls closeSession (not destroySession)", async () => {
+    const mockSM = createMockSessionManager();
+    const bot = initBot(mockSM);
+
+    await bot.handleUpdate(makeCommandUpdate("reconnect", 1));
+    assert.ok(mockSM.calls.includes("closeSession"), "/reconnect should call closeSession");
+    assert.ok(!mockSM.calls.includes("destroySession"), "/reconnect should NOT call destroySession");
+  });
+
+  it("/clean calls destroySession (not closeSession directly)", async () => {
+    const mockSM = createMockSessionManager();
+    const bot = initBot(mockSM);
+
+    await bot.handleUpdate(makeCommandUpdate("clean", 2));
+    assert.ok(mockSM.calls.includes("destroySession"), "/clean should call destroySession");
+    assert.ok(!mockSM.calls.includes("closeSession"), "/clean handler calls destroySession, not closeSession directly");
   });
 });

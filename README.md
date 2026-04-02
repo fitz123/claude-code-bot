@@ -273,7 +273,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
 
    See [config.yaml](config.yaml) for per-channel overrides and guild-wide defaults.
 
-3. Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages. Slash commands (`/start`, `/reset`, `/status`) are registered per-guild on startup.
+3. Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages. Slash commands (`/start`, `/reconnect`, `/clean`, `/status`) are registered per-guild on startup.
 
 `telegramTokenService` is optional — the bot can run Discord-only.
 
