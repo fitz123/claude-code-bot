@@ -78,17 +78,17 @@ Files:
 
 ### 5. Tests
 
-- [ ] Update telegram-bot.test.ts command list assertion to include "reconnect" and "clean" instead of "reset"
-- [ ] Add test: `/reconnect` calls `closeSession()` (not `destroySession()`)
-- [ ] Add test: `/clean` calls `destroySession()`
-- [ ] Add test: `destroySession()` calls `closeSession()` then `deleteSession()` on store
-- [ ] Update any existing reset tests to use "reconnect"
-- [ ] Update Discord tests if they exist
+- [x] Update telegram-bot.test.ts command list assertion to include "reconnect" and "clean" instead of "reset"
+- [x] Add test: `/reconnect` calls `closeSession()` (not `destroySession()`)
+- [x] Add test: `/clean` calls `destroySession()`
+- [x] Add test: `destroySession()` calls `closeSession()` then `deleteSession()` on store
+- [x] Update any existing reset tests to use "reconnect"
+- [x] Update Discord tests if they exist
 
 ## Checklist
 
-- [ ] `destroySession()` in session-manager.ts
-- [ ] Telegram: rename to /reconnect, add /clean
-- [ ] Discord: rename to /reconnect, add /clean
+- [x] `destroySession()` in session-manager.ts
+- [x] Telegram: rename to /reconnect, add /clean
+- [x] Discord: rename to /reconnect, add /clean
 - [x] Error messages → /reconnect
-- [ ] Tests pass
+- [x] Tests pass

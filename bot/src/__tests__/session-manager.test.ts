@@ -133,6 +133,31 @@ describe("SessionManager", () => {
     await manager.destroySession("nonexistent");
   });
 
+  it("closeSession preserves stored state (reconnect can resume)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate store with a session
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-reconnect", {
+      sessionId: "reconnect-session-id",
+      chatId: "chat-reconnect",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    await manager.closeSession("chat-reconnect");
+
+    // Stored state should still exist — /reconnect preserves it for resume
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.ok(storeAfter.getSession("chat-reconnect"), "closeSession should preserve stored state");
+
+    // resolveStoredSession should find the stored session and allow resume
+    const result = manager.resolveStoredSession("chat-reconnect", "main");
+    assert.strictEqual(result.resume, true, "closed session should resume on next message");
+  });
+
   it("destroySession closes session and deletes stored state", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const { SessionStore } = await import("../session-store.js");
@@ -165,6 +190,40 @@ describe("SessionManager", () => {
     // Verify resolveStoredSession returns fresh (no resume)
     const result = manager.resolveStoredSession("chat-destroy", "main");
     assert.strictEqual(result.resume, false, "destroyed session should not resume");
+  });
+
+  it("destroySession deletes state that closeSession would preserve", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate store with two sessions
+    const store = new SessionStore(TEST_STORE_PATH);
+    const now = Date.now();
+    store.setSession("chat-close", {
+      sessionId: "close-sid",
+      chatId: "chat-close",
+      agentId: "main",
+      lastActivity: now,
+    });
+    store.setSession("chat-destroy", {
+      sessionId: "destroy-sid",
+      chatId: "chat-destroy",
+      agentId: "main",
+      lastActivity: now,
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    // closeSession (what /reconnect calls) — preserves store
+    await manager.closeSession("chat-close");
+    // destroySession (what /clean calls) — deletes from store
+    await manager.destroySession("chat-destroy");
+
+    const closeResult = manager.resolveStoredSession("chat-close", "main");
+    const destroyResult = manager.resolveStoredSession("chat-destroy", "main");
+
+    assert.strictEqual(closeResult.resume, true, "/reconnect: session resumes");
+    assert.strictEqual(destroyResult.resume, false, "/clean: session starts fresh");
   });
 
   it("throws for unknown agent", async () => {
