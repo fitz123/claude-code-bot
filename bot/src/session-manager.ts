@@ -513,6 +513,15 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Destroy a session: close it AND delete stored state.
+   * Next message will start a completely fresh session (no --resume).
+   */
+  async destroySession(chatId: string): Promise<void> {
+    await this.closeSession(chatId);
+    this.store.deleteSession(chatId);
+  }
+
   /** Close all sessions gracefully. For shutdown. */
   async closeAll(): Promise<void> {
     const chatIds = [...this.active.keys()];

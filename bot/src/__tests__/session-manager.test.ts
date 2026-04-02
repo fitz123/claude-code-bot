@@ -126,6 +126,47 @@ describe("SessionManager", () => {
     await manager.closeSession("nonexistent");
   });
 
+  it("destroySession is safe for unknown chatId", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    // Should not throw
+    await manager.destroySession("nonexistent");
+  });
+
+  it("destroySession closes session and deletes stored state", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    // Pre-populate store with a session
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-destroy", {
+      sessionId: "destroy-session-id",
+      chatId: "chat-destroy",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+    // Also store another session that should NOT be affected
+    store.setSession("chat-keep", {
+      sessionId: "keep-session-id",
+      chatId: "chat-keep",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+
+    await manager.destroySession("chat-destroy");
+
+    // Verify stored state was deleted
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("chat-destroy"), undefined, "destroyed session should be removed from store");
+    assert.ok(storeAfter.getSession("chat-keep"), "other sessions should be unaffected");
+
+    // Verify resolveStoredSession returns fresh (no resume)
+    const result = manager.resolveStoredSession("chat-destroy", "main");
+    assert.strictEqual(result.resume, false, "destroyed session should not resume");
+  });
+
   it("throws for unknown agent", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const manager = new SessionManager(testConfig, TEST_STORE_PATH);

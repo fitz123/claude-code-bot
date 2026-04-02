@@ -21,7 +21,7 @@ async destroySession(chatId: string): Promise<void> {
 
 `closeSession()` already handles: kill subprocess, clear idle timer, clean outbox/inject dirs, remove from active map. `destroySession()` adds: delete from store so no `--resume` happens.
 
-- [ ] Add `destroySession()` method to SessionManager
+- [x] Add `destroySession()` method to SessionManager
 
 ### 2. telegram-bot.ts — rename `/reset` to `/reconnect`, add `/clean`
 
