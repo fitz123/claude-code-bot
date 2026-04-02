@@ -177,7 +177,7 @@ export class SessionManager {
     // Crash backoff: prevent rapid crash→spawn→crash loops
     const prevCrashCount = this.restartCounts.get(chatId) ?? 0;
     if (prevCrashCount >= MAX_CRASH_RESTARTS) {
-      log.error("session-manager", `Session for chat ${chatId} blocked after ${prevCrashCount} consecutive crashes — use /reset to unblock`);
+      log.error("session-manager", `Session for chat ${chatId} blocked after ${prevCrashCount} consecutive crashes — use /reconnect to unblock`);
       throw new Error(`Session blocked: ${prevCrashCount} consecutive crashes for chat ${chatId}`);
     }
     if (prevCrashCount > 0) {
@@ -409,7 +409,7 @@ export class SessionManager {
 
   /** Close a session: persist state, SIGTERM child, clean up. */
   async closeSession(chatId: string): Promise<void> {
-    // Always clear crash count so /reset unblocks circuit-broken chats
+    // Always clear crash count so /reconnect unblocks circuit-broken chats
     this.restartCounts.delete(chatId);
 
     const session = this.active.get(chatId);

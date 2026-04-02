@@ -74,7 +74,7 @@ Files:
 - `bot/src/message-queue.ts` lines 206, 282 — change `/reset` to `/reconnect`
 - `bot/src/session-manager.ts` line 180 — change `/reset` to `/reconnect`
 
-- [ ] Update error messages to reference /reconnect
+- [x] Update error messages to reference /reconnect
 
 ### 5. Tests
 
@@ -90,5 +90,5 @@ Files:
 - [ ] `destroySession()` in session-manager.ts
 - [ ] Telegram: rename to /reconnect, add /clean
 - [ ] Discord: rename to /reconnect, add /clean
-- [ ] Error messages → /reconnect
+- [x] Error messages → /reconnect
 - [ ] Tests pass
