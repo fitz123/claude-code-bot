@@ -49,13 +49,13 @@ Initial public release of Minime — a multi-platform bot that routes messages t
 - Reaction event logging to JSONL
 - In-memory message-thread cache with disk persistence for reaction routing
 - Message content index for reaction context lookups
-- Bot commands: `/start`, `/reset`, `/status`
+- Bot commands: `/start`, `/reconnect`, `/clean`, `/status`
 
 ### Discord Features
 
 - Guild-wide bindings with per-channel overrides
 - Thread support with automatic parent channel binding inheritance
-- Slash commands (`/start`, `/reset`, `/status`) registered per-guild on startup
+- Slash commands (`/start`, `/reconnect`, `/clean`, `/status`) registered per-guild on startup
 - File attachment handling and voice transcription
 - Mention detection with configurable `requireMention`
 
