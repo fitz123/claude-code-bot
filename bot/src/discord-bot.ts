@@ -339,15 +339,23 @@ export async function createDiscordBot(
           );
           break;
         }
-        // Session lifecycle: create → compact → reset → resume. The reset
+        // Session lifecycle: create → compact → reconnect → resume. Reconnect
         // kills the Claude subprocess but the session file (with compacted
         // conversation history) remains on disk. When the next message arrives,
         // getOrCreateSession() finds the file and resumes with --resume, so
         // prior context may be partially retained through the compaction summary.
-        case "reset": {
+        case "reconnect": {
           messageQueue.clear(key);
           await sessionManager.closeSession(key);
           await interaction.reply("Session restarted. Prior context may be partially retained.");
+          break;
+        }
+        // Clean destroys the session entirely — subprocess killed AND stored
+        // state deleted. Next message starts a brand new session with no history.
+        case "clean": {
+          messageQueue.clear(key);
+          await sessionManager.destroySession(key);
+          await interaction.reply("Session cleaned. Fresh start.");
           break;
         }
         case "status": {
@@ -410,7 +418,8 @@ export async function createDiscordBot(
   // Register guild-scoped slash commands (instant, no 1-hour propagation delay)
   const commands = [
     new SlashCommandBuilder().setName("start").setDescription("Start the bot"),
-    new SlashCommandBuilder().setName("reset").setDescription("Reset current session"),
+    new SlashCommandBuilder().setName("reconnect").setDescription("Reconnect session (keeps context)"),
+    new SlashCommandBuilder().setName("clean").setDescription("Clean session (fresh start)"),
     new SlashCommandBuilder().setName("status").setDescription("Show bot status"),
   ];
   const rest = new REST().setToken(discordConfig.token);

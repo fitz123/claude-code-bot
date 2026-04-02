@@ -63,8 +63,8 @@ bot.command("clean", async (ctx) => {
 Rename slash command from "reset" to "reconnect", add new "clean" slash command.
 Update handlers accordingly.
 
-- [ ] Update Discord slash commands
-- [ ] Update Discord handlers
+- [x] Update Discord slash commands
+- [x] Update Discord handlers
 
 ### 4. Error messages — update references
 
