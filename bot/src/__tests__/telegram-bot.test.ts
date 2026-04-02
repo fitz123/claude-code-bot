@@ -1301,7 +1301,7 @@ describe("command handler wiring", () => {
       message: {
         message_id: updateId,
         from: { id: testChatId, is_bot: false, first_name: "Test" },
-        chat: { id: testChatId, type: "private" as const },
+        chat: { id: testChatId, type: "private" as const, first_name: "Test" },
         date: Math.floor(Date.now() / 1000),
         text,
         entities: [{ offset: 0, length: text.length, type: "bot_command" as const }],
@@ -1324,6 +1324,8 @@ describe("command handler wiring", () => {
       supports_inline_queries: false,
       can_connect_to_business: false,
       has_main_web_app: false,
+      has_topics_enabled: false,
+      allows_users_to_create_topics: false,
     };
     return bot;
   }
@@ -1343,6 +1345,6 @@ describe("command handler wiring", () => {
 
     await bot.handleUpdate(makeCommandUpdate("clean", 2));
     assert.ok(mockSM.calls.includes("destroySession"), "/clean should call destroySession");
-    assert.ok(!mockSM.calls.includes("closeSession"), "/clean should NOT call closeSession directly");
+    assert.ok(!mockSM.calls.includes("closeSession"), "/clean handler calls destroySession, not closeSession directly");
   });
 });
