@@ -3,7 +3,7 @@
 Multi-platform bot (Telegram + Discord) that routes messages to Claude Code CLI subprocesses. Each chat/channel gets its own persistent Claude Code session. Runs on Max subscription (no API keys).
 
 <p align="center">
-  <img src="assets/demo-cron.mp4" width="300" alt="Autonomous cron heartbeat demo">
+  <img src="assets/demo-cron.gif" width="300" alt="Autonomous cron heartbeat: system status, calendar, GitHub PRs, prioritized tasks">
   <img src="assets/screenshot-voice-youtube.jpg" width="300" alt="Voice message with YouTube recommendations and sidebar showing multiple topic sessions">
 </p>
 
