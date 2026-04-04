@@ -834,6 +834,7 @@ describe("relayStream NO_REPLY with drafts", () => {
     await relayStream(stream, platform);
 
     assert.strictEqual(sends.length, 1, "Should deliver when NO_REPLY is only a substring prefix");
+    assert.strictEqual(sends[0].text, "NO_REPLY_EXTRA some content");
   });
 
   it("delivers regular output normally", async () => {

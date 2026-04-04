@@ -30,8 +30,10 @@ if (cron.type === "llm" && output === "NO_REPLY") {
 ```
 to:
 ```ts
-if (cron.type === "llm" && output.trim().startsWith("NO_REPLY")) {
+if (cron.type === "llm" && /^NO_REPLY(\s|$)/.test(output.trim())) {
 ```
+
+Regex requires word boundary (`\s` or end-of-string) after `NO_REPLY` to avoid false matches on strings like `NO_REPLY_EXTRA`.
 
 Also check `bot/src/stream-relay.ts` and `bot/src/message-queue.ts` for similar NO_REPLY checks — apply the same pattern everywhere.
 
@@ -46,5 +48,5 @@ Also check `bot/src/stream-relay.ts` and `bot/src/message-queue.ts` for similar 
 - [x] `NO_REPLY` exact — should be swallowed
 - [x] `NO_REPLY\n\nSome text` — should be swallowed
 - [x] `  NO_REPLY  ` — should be swallowed
-- [x] `NO_REPLY_EXTRA` — should NOT be swallowed (startsWith matches, but this is fine — no real output starts with NO_REPLY)
+- [x] `NO_REPLY_EXTRA` — should NOT be swallowed (regex word boundary correctly rejects this)
 - [x] Regular output — should be delivered
