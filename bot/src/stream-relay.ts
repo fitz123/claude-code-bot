@@ -261,7 +261,7 @@ export async function relayStream(
     // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery.
     // Drafts auto-disappear when no sendMessage follows.
     const trimmed = accumulated?.trim() ?? "";
-    if (accumulated && trimmed === "NO_REPLY") {
+    if (accumulated && trimmed.startsWith("NO_REPLY")) {
       return;
     }
 

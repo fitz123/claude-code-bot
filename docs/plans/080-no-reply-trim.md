@@ -37,14 +37,14 @@ Also check `bot/src/stream-relay.ts` and `bot/src/message-queue.ts` for similar 
 
 ## Files to change
 
-- [ ] `bot/src/cron-runner.ts` — line 394, fix the check
-- [ ] Search all `NO_REPLY` checks in `bot/src/` — apply same fix if exact match found
-- [ ] Add/update tests for NO_REPLY with trailing text, whitespace, and clean NO_REPLY
+- [x] `bot/src/cron-runner.ts` — line 394, fix the check
+- [x] Search all `NO_REPLY` checks in `bot/src/` — apply same fix if exact match found
+- [x] Add/update tests for NO_REPLY with trailing text, whitespace, and clean NO_REPLY
 
 ## Tests
 
-- [ ] `NO_REPLY` exact — should be swallowed
-- [ ] `NO_REPLY\n\nSome text` — should be swallowed
-- [ ] `  NO_REPLY  ` — should be swallowed
-- [ ] `NO_REPLY_EXTRA` — should NOT be swallowed (startsWith matches, but this is fine — no real output starts with NO_REPLY)
-- [ ] Regular output — should be delivered
+- [x] `NO_REPLY` exact — should be swallowed
+- [x] `NO_REPLY\n\nSome text` — should be swallowed
+- [x] `  NO_REPLY  ` — should be swallowed
+- [x] `NO_REPLY_EXTRA` — should NOT be swallowed (startsWith matches, but this is fine — no real output starts with NO_REPLY)
+- [x] Regular output — should be delivered

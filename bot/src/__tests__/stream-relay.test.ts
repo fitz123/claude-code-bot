@@ -787,8 +787,35 @@ describe("relayStream sendMessage error handling", () => {
 });
 
 describe("relayStream NO_REPLY with drafts", () => {
-  it("suppresses delivery and does not call deleteMessage for NO_REPLY", async () => {
-    const { platform, sends, drafts } = mockPlatform();
+  it("suppresses delivery for exact NO_REPLY", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["NO_REPLY"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should not send any messages for NO_REPLY");
+  });
+
+  it("suppresses delivery for NO_REPLY with trailing text", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["NO_REPLY\n\nSome explanation text..."]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should not send messages when output starts with NO_REPLY");
+  });
+
+  it("suppresses delivery for NO_REPLY with surrounding whitespace", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["  NO_REPLY  "]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should not send messages for whitespace-padded NO_REPLY");
+  });
+
+  it("does not call deleteMessage for NO_REPLY — drafts auto-disappear", async () => {
+    const { platform, sends } = mockPlatform();
     let deleteCalled = false;
     platform.deleteMessage = async () => { deleteCalled = true; };
 
@@ -796,9 +823,18 @@ describe("relayStream NO_REPLY with drafts", () => {
 
     await relayStream(stream, platform);
 
-    // No sendMessage for NO_REPLY — drafts auto-disappear
     assert.strictEqual(sends.length, 0, "Should not send any messages for NO_REPLY");
     assert.strictEqual(deleteCalled, false, "Should not call deleteMessage — drafts auto-disappear");
+  });
+
+  it("delivers regular output normally", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["Hello, this is a normal response"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1, "Should deliver regular output");
+    assert.strictEqual(sends[0].text, "Hello, this is a normal response");
   });
 });
 
