@@ -827,6 +827,15 @@ describe("relayStream NO_REPLY with drafts", () => {
     assert.strictEqual(deleteCalled, false, "Should not call deleteMessage — drafts auto-disappear");
   });
 
+  it("delivers output that starts with NO_REPLY as a substring (e.g. NO_REPLY_EXTRA)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["NO_REPLY_EXTRA some content"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1, "Should deliver when NO_REPLY is only a substring prefix");
+  });
+
   it("delivers regular output normally", async () => {
     const { platform, sends } = mockPlatform();
     const stream = fakeStream(["Hello, this is a normal response"]);
