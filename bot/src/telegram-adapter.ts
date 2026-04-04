@@ -76,7 +76,7 @@ export function createTelegramAdapter(
     },
 
     async sendTyping(): Promise<void> {
-      if (!chatId) return;
+      if (!chatId || isDm) return;
       await ctx.api.sendChatAction(
         chatId,
         "typing",
