@@ -391,7 +391,7 @@ async function main(): Promise<void> {
     log(taskName, "DONE");
     return;
   }
-  if (cron.type === "llm" && /^NO_REPLY(\s|$)/.test(output.trim())) {
+  if (cron.type === "llm" && /^NO_REPLY\b/.test(output.trim())) {
     log(taskName, "NO_REPLY — skipping delivery");
     log(taskName, "DONE");
     return;

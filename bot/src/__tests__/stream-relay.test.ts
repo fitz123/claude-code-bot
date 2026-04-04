@@ -837,6 +837,15 @@ describe("relayStream NO_REPLY with drafts", () => {
     assert.strictEqual(sends[0].text, "NO_REPLY_EXTRA some content");
   });
 
+  it("suppresses delivery for NO_REPLY followed by punctuation (e.g. NO_REPLY: reason)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["NO_REPLY: The user didn't ask a question."]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should not send messages when output starts with NO_REPLY followed by punctuation");
+  });
+
   it("delivers regular output normally", async () => {
     const { platform, sends } = mockPlatform();
     const stream = fakeStream(["Hello, this is a normal response"]);
