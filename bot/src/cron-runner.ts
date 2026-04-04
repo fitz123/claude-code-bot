@@ -297,7 +297,6 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
   env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
   env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
   env.CLAUDE_CODE_DISABLE_CRON = "1";
-  env.CLAUDE_CODE_SIMPLE = "1";
 
   const output = execSync(args.map(shellEscape).join(" "), {
     encoding: "utf8",
