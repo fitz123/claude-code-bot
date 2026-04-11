@@ -255,15 +255,15 @@ ls -la /tmp/bot-echo/<chat-id>/
 
 ### Task 5: Verify acceptance criteria [HIGH]
 
-- [ ] **Verify criterion 1 (busy session):** deliver.sh sends a message -> echo file created in `/tmp/bot-echo/<chatId>/` -> echo watcher polls and processes it -> calls handler -> handler writes to inject dir `/tmp/bot-inject/<sessionKey>/pending-echo` with `[Bot echo]` framing -> PreToolUse hook fires on next tool call -> reads `pending-echo` -> agent sees "CONTEXT UPDATE" with the message
-- [ ] **Verify criterion 2 (idle session):** Same as criterion 1 — the echo-framed message is written to the inject dir's `pending-echo`. It sits there until the next user message triggers a turn and the hook fires. No new turn is spawned for the echo.
-- [ ] **Verify criterion 3 (no echo loops):** Trace the agent response path: agent responds -> stream-relay -> telegram-adapter -> ctx.reply (grammY) -> Telegram API. None of these steps write to `/tmp/bot-echo/`. Only `deliver.sh` writes echo files. Therefore, no loop can form.
-- [ ] **Verify criterion 4 (platform-agnostic):** `echo-watcher.ts` has no Telegram-specific imports. It exports a callback-based handler. The Telegram-specific routing (resolveBinding, sessionKey, parseInt) is in the callback registered in `telegram-bot.ts`.
-- [ ] **Verify criterion 5 (split messages):** In deliver.sh, split messages call `send_message` per chunk. Each `send_message` call writes its own echo file via `write_echo`. The watcher processes them individually, accumulates them per session key, and writes a single `pending-echo` file. Each chunk appears as a separate entry in the inject content.
-- [ ] **Verify criterion 6 (no file collision):** Echo watcher writes to `pending-echo`. MessageQueue writes to `pending`. The hook reads both independently. Verify by: writing to both files simultaneously, confirming both are consumed without data loss.
-- [ ] Run full test suite: `npm test`
-- [ ] Run linter: `npx eslint bot/src/`
-- [ ] Run type-check: `npx tsc --noEmit`
+- [x] **Verify criterion 1 (busy session):** deliver.sh sends a message -> echo file created in `/tmp/bot-echo/<chatId>/` -> echo watcher polls and processes it -> calls handler -> handler writes to inject dir `/tmp/bot-inject/<sessionKey>/pending-echo` with `[Bot echo]` framing -> PreToolUse hook fires on next tool call -> reads `pending-echo` -> agent sees "CONTEXT UPDATE" with the message
+- [x] **Verify criterion 2 (idle session):** Same as criterion 1 — the echo-framed message is written to the inject dir's `pending-echo`. It sits there until the next user message triggers a turn and the hook fires. No new turn is spawned for the echo.
+- [x] **Verify criterion 3 (no echo loops):** Trace the agent response path: agent responds -> stream-relay -> telegram-adapter -> ctx.reply (grammY) -> Telegram API. None of these steps write to `/tmp/bot-echo/`. Only `deliver.sh` writes echo files. Therefore, no loop can form.
+- [x] **Verify criterion 4 (platform-agnostic):** `echo-watcher.ts` has no Telegram-specific imports. It exports a callback-based handler. The Telegram-specific routing (resolveBinding, sessionKey, parseInt) is in the callback registered in `telegram-bot.ts`.
+- [x] **Verify criterion 5 (split messages):** In deliver.sh, split messages call `send_message` per chunk. Each `send_message` call writes its own echo file via `write_echo`. The watcher processes them individually, accumulates them per session key, and writes a single `pending-echo` file. Each chunk appears as a separate entry in the inject content.
+- [x] **Verify criterion 6 (no file collision):** Echo watcher writes to `pending-echo`. MessageQueue writes to `pending`. The hook reads both independently. Verify by: writing to both files simultaneously, confirming both are consumed without data loss.
+- [x] Run full test suite: 913 pass, 0 fail
+- [x] Run linter: no eslint config in project (not configured)
+- [x] Run type-check: `npx tsc --noEmit` — clean, no errors
 
 ### Task 6: Update documentation [MED]
 
