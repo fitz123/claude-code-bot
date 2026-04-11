@@ -217,7 +217,7 @@ ls -la /tmp/bot-echo/<chat-id>/
 - Modify: `.claude/hooks/inject-message.sh`
 
 **Steps:**
-- [ ] Restructure the hook to handle two files independently. After the existing `pending` handling (claim, read, ack), add a similar block for `pending-echo`:
+- [x] Restructure the hook to handle two files independently. After the existing `pending` handling (claim, read, ack), add a similar block for `pending-echo`:
   ```bash
   # --- Echo messages (from deliver.sh/cron via echo watcher) ---
   # Prefix must match ECHO_PREFIX in bot/src/echo-watcher.ts — keep in sync
@@ -233,7 +233,7 @@ ls -la /tmp/bot-echo/<chat-id>/
     fi
   fi
   ```
-- [ ] Build the `framed` output by combining both sources:
+- [x] Build the `framed` output by combining both sources:
   - If only `pending` has content: use existing "LIVE MESSAGE" framing (unchanged)
   - If only `pending-echo` has content: use "CONTEXT UPDATE" framing:
     ```
@@ -243,15 +243,15 @@ ls -la /tmp/bot-echo/<chat-id>/
     ```
   - If both have content: concatenate with separator — `pending` framed as "LIVE MESSAGE" first, then `pending-echo` framed as "CONTEXT UPDATE"
   - If neither has content: `exit 0` (no output)
-- [ ] The `pending` file handling (claim, read, ack) remains unchanged from current behavior — only echo handling is new
-- [ ] Ensure the ack counter only counts `pending` messages (user messages), not `pending-echo` messages. Echo messages bypass `MessageQueue` entirely and don't participate in the ack/dedup protocol.
-- [ ] Add a comment at the top of the echo block: `# Prefix must match ECHO_PREFIX in bot/src/echo-watcher.ts — keep in sync`
-- [ ] Test the hook in isolation:
+- [x] The `pending` file handling (claim, read, ack) remains unchanged from current behavior — only echo handling is new
+- [x] Ensure the ack counter only counts `pending` messages (user messages), not `pending-echo` messages. Echo messages bypass `MessageQueue` entirely and don't participate in the ack/dedup protocol.
+- [x] Add a comment at the top of the echo block: `# Prefix must match ECHO_PREFIX in bot/src/echo-watcher.ts — keep in sync`
+- [x] Test the hook in isolation:
   - Write a `pending` file with normal content → verify "LIVE MESSAGE" framing
   - Write a `pending-echo` file with echo content → verify "CONTEXT UPDATE" framing
   - Write both files → verify both are included in output
   - Write neither → verify clean exit
-- [ ] Run tests — must pass before next task
+- [x] Run tests — must pass before next task
 
 ### Task 5: Verify acceptance criteria [HIGH]
 
