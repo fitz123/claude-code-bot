@@ -74,7 +74,7 @@ write_echo() {
   local fname
   fname="$(date +%s)-$$-$RANDOM.json"
   local escaped_text
-  escaped_text=$(python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))" <<< "$text")
+  escaped_text=$(printf '%s' "$text" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))")
   local threadId_json
   if [ -z "$threadId" ]; then
     threadId_json="null"

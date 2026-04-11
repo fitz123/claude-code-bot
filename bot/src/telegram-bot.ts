@@ -15,7 +15,7 @@ import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
 import { EchoWatcher, ECHO_PREFIX } from "./echo-watcher.js";
 import { injectDirForChat, writeEchoInjectFile } from "./inject-file.js";
-import { mkdirSync } from "node:fs";
+
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
@@ -1027,7 +1027,7 @@ export function createTelegramBot(
 
   // Echo watcher: routes deliver.sh echo files to the correct session's inject dir.
   // Accumulation map: collects framed texts per inject dir within a single poll cycle,
-  // flushed after each chat directory is processed to prevent pending-echo overwrites.
+  // flushed once after all directories are processed to prevent pending-echo overwrites.
   const echoAccumulator = new Map<string, string[]>();
 
   const echoWatcher = new EchoWatcher({
@@ -1054,11 +1054,13 @@ export function createTelegramBot(
       }
     },
     onFlush: () => {
-      for (const [dir, messages] of echoAccumulator) {
-        mkdirSync(dir, { recursive: true });
-        writeEchoInjectFile(dir, messages);
+      try {
+        for (const [dir, messages] of echoAccumulator) {
+          writeEchoInjectFile(dir, messages);
+        }
+      } finally {
+        echoAccumulator.clear();
       }
-      echoAccumulator.clear();
     },
   });
 

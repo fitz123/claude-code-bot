@@ -64,7 +64,7 @@ export type EchoHandler = (
 /** Options for EchoWatcher constructor. */
 export interface EchoWatcherOptions {
   handler: EchoHandler;
-  /** Called after each chat directory is fully processed — use to flush accumulated writes. */
+  /** Called once per poll cycle after all chat directories are processed — use to flush accumulated writes. */
   onFlush?: () => void;
   pollIntervalMs?: number;
 }
@@ -78,8 +78,8 @@ export interface EchoWatcherOptions {
  * - {@link start}() — begin periodic polling via `setInterval`
  * - {@link stop}()  — clear the polling timer
  *
- * After each chat directory is fully processed, the optional `onFlush`
- * callback fires so the caller can batch-write accumulated inject files.
+ * After all chat directories are processed in a poll cycle, the optional
+ * `onFlush` callback fires so the caller can batch-write accumulated inject files.
  *
  * Uses polling (not `fs.watch`) to avoid macOS FSEvents edge cases with
  * nested directories.
@@ -98,8 +98,12 @@ export class EchoWatcher {
 
   /** Start polling. Creates the echo base directory if needed. */
   start(): void {
+    if (this.timer) return;
     mkdirSync(ECHO_DIR_BASE, { recursive: true });
     this.timer = setInterval(() => this.pollAll(), this.pollIntervalMs);
+    if (this.timer && typeof this.timer === "object" && "unref" in this.timer) {
+      (this.timer as NodeJS.Timeout).unref();
+    }
   }
 
   /** Process all existing echo files once (drain on startup). */
@@ -133,8 +137,8 @@ export class EchoWatcher {
         continue;
       }
       this.processDir(chatDir);
-      if (this.onFlush) this.onFlush();
     }
+    if (this.onFlush) this.onFlush();
   }
 
   /** Process all .json echo files in a single chat directory. */
@@ -150,10 +154,20 @@ export class EchoWatcher {
 
     for (const file of files) {
       const filePath = join(chatDir, file);
+
+      // Parse the echo file — skip and delete malformed files
+      let msg: EchoMessage;
       try {
         const raw = readFileSync(filePath, "utf-8");
-        const msg: EchoMessage = JSON.parse(raw);
+        msg = JSON.parse(raw);
+      } catch {
+        // Malformed or unreadable file — delete and continue
+        try { unlinkSync(filePath); } catch { /* ignore */ }
+        continue;
+      }
 
+      // Dispatch to handler — leave file on disk if handler fails (retry next cycle)
+      try {
         const threadId =
           msg.threadId === null || msg.threadId === undefined
             ? undefined
@@ -161,10 +175,11 @@ export class EchoWatcher {
 
         this.handler(String(msg.chatId), threadId, msg.text);
       } catch {
-        // Skip malformed files — log and continue
+        // Handler error — skip this file, retry next poll cycle
+        continue;
       }
 
-      // Clean up processed file
+      // Clean up successfully processed file
       try {
         unlinkSync(filePath);
       } catch {

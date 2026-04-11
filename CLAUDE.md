@@ -20,7 +20,7 @@ To activate one, copy it into `.claude/rules/custom/`.
 ## Hooks
 
 Six hooks are wired in `.claude/settings.json`:
-- `inject-message.sh` — delivers mid-turn user messages (PreToolUse, all tools)
+- `inject-message.sh` — delivers mid-turn user messages and echo context updates (PreToolUse, all tools)
 - `protect-files.sh` — blocks cron/autonomous agents from modifying skill files (PreToolUse, Edit|Write)
 - `guardian.sh` — blocks new files outside allowed workspace structure (PreToolUse, Edit|Write)
 - `auto-stage.sh` — stages files after Edit/Write (PostToolUse)

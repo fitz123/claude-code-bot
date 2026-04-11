@@ -291,7 +291,7 @@ describe("EchoWatcher.onFlush", () => {
     assert.strictEqual(flushCount, 1);
   });
 
-  it("calls onFlush once per chat directory", () => {
+  it("calls onFlush once per poll cycle (not per directory)", () => {
     const chatId2 = "__test_echo_chat_flush2__";
     const chatDir2 = join(ECHO_DIR_BASE, chatId2);
 
@@ -307,7 +307,7 @@ describe("EchoWatcher.onFlush", () => {
 
       watcher.drain();
 
-      assert.strictEqual(flushCount, 2);
+      assert.strictEqual(flushCount, 1);
     } finally {
       rmSync(chatDir2, { recursive: true, force: true });
     }
