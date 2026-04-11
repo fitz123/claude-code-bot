@@ -62,6 +62,27 @@ export function readAckCount(dir: string): number {
   }
 }
 
+/**
+ * Write echo messages to the echo inject file atomically.
+ *
+ * Identical to writeInjectFile() but writes to `pending-echo` instead of
+ * `pending`. This ensures echo writes (from EchoWatcher) never collide with
+ * user-message inject writes (from MessageQueue which owns `pending`).
+ */
+export function writeEchoInjectFile(dir: string, messages: string[]): void {
+  mkdirSync(dir, { recursive: true });
+
+  const separator = "\n\n---\n\n";
+  const body = messages.join(separator);
+  const content = `${messages.length}\n${body}`;
+
+  const pendingPath = join(dir, "pending-echo");
+  const tmpPath = join(dir, `.pending-echo.${randomBytes(4).toString("hex")}.tmp`);
+
+  writeFileSync(tmpPath, content, "utf-8");
+  renameSync(tmpPath, pendingPath);
+}
+
 /** Remove the inject directory and all files in it. */
 export function cleanupInjectDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });

@@ -152,32 +152,32 @@ ls -la /tmp/bot-echo/<chat-id>/
 - Modify: `bot/src/inject-file.ts` (add `writeEchoInjectFile()`)
 
 **Steps:**
-- [ ] In `inject-file.ts`: add a new exported function `writeEchoInjectFile(dir: string, messages: string[]): void` that writes to `pending-echo` instead of `pending`. Implementation is identical to `writeInjectFile()` except:
+- [x] In `inject-file.ts`: add a new exported function `writeEchoInjectFile(dir: string, messages: string[]): void` that writes to `pending-echo` instead of `pending`. Implementation is identical to `writeInjectFile()` except:
   - Uses `join(dir, "pending-echo")` instead of `join(dir, "pending")`
   - Uses a `.pending-echo.*.tmp` pattern for the temp file
   - This ensures echo writes never collide with user-message inject writes
-- [ ] In `echo-watcher.ts`: define and export `ECHO_DIR_BASE = "/tmp/bot-echo"` constant
-- [ ] Define and export `ECHO_PREFIX = "[Bot echo"` — the shared prefix constant used for detection in both TypeScript and bash. Add a comment: `// This prefix is also checked in .claude/hooks/inject-message.sh — keep in sync`
-- [ ] Define and export `EchoMessage` interface: `{ chatId: string; threadId?: string | null; text: string; origin: string; timestamp: number }`
-- [ ] Define `EchoHandler` callback type: `(chatId: string, threadId: string | undefined, text: string) => void`
-- [ ] Implement `EchoWatcher` class with constructor: `{ handler: EchoHandler; pollIntervalMs?: number }` (default pollIntervalMs = 2000)
-- [ ] Implement `start(): void`:
+- [x] In `echo-watcher.ts`: define and export `ECHO_DIR_BASE = "/tmp/bot-echo"` constant
+- [x] Define and export `ECHO_PREFIX = "[Bot echo"` — the shared prefix constant used for detection in both TypeScript and bash. Add a comment: `// This prefix is also checked in .claude/hooks/inject-message.sh — keep in sync`
+- [x] Define and export `EchoMessage` interface: `{ chatId: string; threadId?: string | null; text: string; origin: string; timestamp: number }`
+- [x] Define `EchoHandler` callback type: `(chatId: string, threadId: string | undefined, text: string) => void`
+- [x] Implement `EchoWatcher` class with constructor: `{ handler: EchoHandler; pollIntervalMs?: number }` (default pollIntervalMs = 2000)
+- [x] Implement `start(): void`:
   - Creates `ECHO_DIR_BASE` directory if it doesn't exist (`mkdirSync(ECHO_DIR_BASE, { recursive: true })`)
   - Starts `setInterval` polling timer that calls `pollAll()`
   - No `fs.watch` — polling only
-- [ ] Implement private `pollAll(): void`:
+- [x] Implement private `pollAll(): void`:
   - Lists subdirectories in `ECHO_DIR_BASE` (each is a chatId)
   - For each subdirectory, calls `processDir(subdirPath)`
-- [ ] Implement private `processDir(chatDir: string): void`:
+- [x] Implement private `processDir(chatDir: string): void`:
   - Lists `.json` files in the directory, sorted by name (timestamp-based, oldest first)
   - Groups messages by handler-resolved session key: for each file, reads and parses JSON as `EchoMessage` (skip on parse error), calls the `handler` callback. Note: the handler is called once per echo file — accumulation into a single `pending-echo` write happens in the handler callback (Task 3), not here.
   - Deletes each file after successful handler call (`unlinkSync`, ignore errors)
   - Log and continue on individual file errors — don't crash the watcher
-- [ ] Implement `drain(): void` — synchronously processes all existing echo files (calls `pollAll()` once). Called on startup to handle files accumulated while bot was down
-- [ ] Implement `stop(): void` — clears the polling interval
-- [ ] No Telegram-specific imports in this module — routing is handled by the callback
-- [ ] Write tests: mock handler, write echo files to temp dir, verify handler is called with correct args, verify files are cleaned up after processing
-- [ ] Run tests — must pass before next task
+- [x] Implement `drain(): void` — synchronously processes all existing echo files (calls `pollAll()` once). Called on startup to handle files accumulated while bot was down
+- [x] Implement `stop(): void` — clears the polling interval
+- [x] No Telegram-specific imports in this module — routing is handled by the callback
+- [x] Write tests: mock handler, write echo files to temp dir, verify handler is called with correct args, verify files are cleaned up after processing
+- [x] Run tests — must pass before next task
 
 ### Task 3: Integrate echo watcher with inject directory routing [HIGH] `[confidence: 0.85]`
 
