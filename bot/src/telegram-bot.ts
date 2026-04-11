@@ -1037,7 +1037,12 @@ export function createTelegramBot(
 
       const binding = resolveBinding(numericChatId, config.bindings, numericThreadId);
       if (!binding) return;
-      if (binding.requireMention !== false) return;
+      // Mirror shouldRespondInGroup logic: DMs always see all messages;
+      // groups check binding.requireMention with sessionDefaults fallback.
+      if (binding.kind === "group") {
+        const requireMention = binding.requireMention ?? config.sessionDefaults.requireMention;
+        if (requireMention) return;
+      }
 
       const key = sessionKey(numericChatId, numericThreadId);
       // injectDirForChat() accepts a session key string (output of sessionKey()),

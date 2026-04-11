@@ -362,9 +362,12 @@ import { injectDirForChat } from "../inject-file.js";
 import type { TelegramBinding } from "../types.js";
 
 describe("Echo handler integration (simulated telegram-bot handler)", () => {
+  const SESSION_DEFAULTS = { requireMention: true };
   const TEST_BINDINGS: TelegramBinding[] = [
     { chatId: 12345, agentId: "main", kind: "dm", requireMention: false },
     { chatId: 67890, agentId: "other", kind: "group", requireMention: true },
+    { chatId: 11111, agentId: "dm-default", kind: "dm" }, // DM without explicit requireMention
+    { chatId: 22222, agentId: "group-no-mention", kind: "group", requireMention: false },
   ];
   const TEST_CHAT_NUMERIC = "12345";
   const TEST_CHAT_REQUIRE_MENTION = "67890";
@@ -377,6 +380,8 @@ describe("Echo handler integration (simulated telegram-bot handler)", () => {
     INJECT_DIRS_TO_CLEAN.length = 0;
     rmSync(join(ECHO_DIR_BASE, TEST_CHAT_NUMERIC), { recursive: true, force: true });
     rmSync(join(ECHO_DIR_BASE, TEST_CHAT_REQUIRE_MENTION), { recursive: true, force: true });
+    rmSync(join(ECHO_DIR_BASE, "11111"), { recursive: true, force: true });
+    rmSync(join(ECHO_DIR_BASE, "22222"), { recursive: true, force: true });
   });
 
   function createHandlerAndWatcher(bindings: TelegramBinding[]) {
@@ -389,7 +394,12 @@ describe("Echo handler integration (simulated telegram-bot handler)", () => {
 
         const binding = resolveBinding(numericChatId, bindings, numericThreadId);
         if (!binding) return;
-        if (binding.requireMention !== false) return;
+        // Mirror shouldRespondInGroup: DMs always see all messages;
+        // groups check binding.requireMention with sessionDefaults fallback.
+        if (binding.kind === "group") {
+          const requireMention = binding.requireMention ?? SESSION_DEFAULTS.requireMention;
+          if (requireMention) return;
+        }
 
         const key = sessionKey(numericChatId, numericThreadId);
         const injectDir = injectDirForChat(key);
@@ -428,7 +438,7 @@ describe("Echo handler integration (simulated telegram-bot handler)", () => {
     assert.ok(content.includes("Hello from deliver.sh"));
   });
 
-  it("skips bindings with requireMention !== false", () => {
+  it("skips group bindings with requireMention: true", () => {
     writeEchoFile(TEST_CHAT_REQUIRE_MENTION, "Should be skipped");
     const watcher = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
@@ -436,6 +446,30 @@ describe("Echo handler integration (simulated telegram-bot handler)", () => {
     const key = sessionKey(67890);
     const injectDir = injectDirForChat(key);
     assert.ok(!existsSync(join(injectDir, "pending-echo")));
+  });
+
+  it("routes echo to DM binding without explicit requireMention", () => {
+    writeEchoFile("11111", "DM echo test");
+    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    watcher.drain();
+
+    const key = sessionKey(11111);
+    const injectDir = injectDirForChat(key);
+    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
+    assert.ok(content.includes("DM echo test"));
+    INJECT_DIRS_TO_CLEAN.push(injectDir);
+  });
+
+  it("routes echo to group binding with requireMention: false", () => {
+    writeEchoFile("22222", "Group no-mention echo");
+    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    watcher.drain();
+
+    const key = sessionKey(22222);
+    const injectDir = injectDirForChat(key);
+    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
+    assert.ok(content.includes("Group no-mention echo"));
+    INJECT_DIRS_TO_CLEAN.push(injectDir);
   });
 
   it("skips unknown chat IDs", () => {
