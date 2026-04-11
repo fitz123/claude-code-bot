@@ -25,18 +25,35 @@ export const ECHO_DIR_BASE = "/tmp/bot-echo";
  */
 export const ECHO_PREFIX = "[Bot echo";
 
-/** Shape of the JSON files written by deliver.sh. */
+/**
+ * Shape of the JSON echo files written by deliver.sh after each successful send.
+ *
+ * File location: `/tmp/bot-echo/<chatId>/<epoch>-<pid>-<random>.json`
+ */
 export interface EchoMessage {
+  /** Telegram chat ID (numeric string). */
   chatId: string;
+  /** Telegram message_thread_id, if the message was sent to a topic. `null` or absent for non-topic chats. */
   threadId?: string | null;
+  /** Original markdown text of the delivered message (pre-HTML conversion). */
   text: string;
+  /** Identifier of the sender (e.g. `"deliver.sh"`). */
   origin: string;
+  /** Unix epoch seconds when the message was sent. */
   timestamp: number;
 }
 
 /**
- * Callback invoked for each echo message.
- * The handler is responsible for routing to the correct session's inject dir.
+ * Callback invoked once per echo message during a poll cycle.
+ *
+ * The handler is responsible for resolving the target session and writing
+ * the framed text to the session's inject directory. Platform-specific
+ * routing (binding lookup, session key derivation) lives in the handler,
+ * keeping EchoWatcher platform-agnostic.
+ *
+ * @param chatId   - Telegram chat ID as a string
+ * @param threadId - Topic/thread ID if present, otherwise `undefined`
+ * @param text     - Original markdown text of the delivered message
  */
 export type EchoHandler = (
   chatId: string,
@@ -53,7 +70,19 @@ export interface EchoWatcherOptions {
 }
 
 /**
- * Polls the echo directory for new files and dispatches them via the handler.
+ * Polls `/tmp/bot-echo/` for echo JSON files written by `deliver.sh` and
+ * dispatches each message to the registered {@link EchoHandler}.
+ *
+ * Lifecycle:
+ * - {@link drain}() — process all existing files once (call on startup)
+ * - {@link start}() — begin periodic polling via `setInterval`
+ * - {@link stop}()  — clear the polling timer
+ *
+ * After each chat directory is fully processed, the optional `onFlush`
+ * callback fires so the caller can batch-write accumulated inject files.
+ *
+ * Uses polling (not `fs.watch`) to avoid macOS FSEvents edge cases with
+ * nested directories.
  */
 export class EchoWatcher {
   private readonly handler: EchoHandler;

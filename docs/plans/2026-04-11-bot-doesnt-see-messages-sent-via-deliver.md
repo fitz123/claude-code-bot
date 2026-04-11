@@ -267,11 +267,40 @@ ls -la /tmp/bot-echo/<chat-id>/
 
 ### Task 6: Update documentation [MED]
 
-- [ ] Add JSDoc comments to all public functions and types in `echo-watcher.ts`
-- [ ] Add JSDoc to `writeEchoInjectFile()` in `inject-file.ts` explaining its relationship to `writeInjectFile()` and why they use separate files
-- [ ] Update `bot/scripts/deliver.sh` header comment to mention echo file writing
-- [ ] Add a brief architecture note in the plan's completion section explaining the echo flow:
+- [x] Add JSDoc comments to all public functions and types in `echo-watcher.ts`
+- [x] Add JSDoc to `writeEchoInjectFile()` in `inject-file.ts` explaining its relationship to `writeInjectFile()` and why they use separate files
+- [x] Update `bot/scripts/deliver.sh` header comment to mention echo file writing
+- [x] Add a brief architecture note in the plan's completion section explaining the echo flow:
   `deliver.sh -> /tmp/bot-echo/<chatId>/ -> EchoWatcher (polling) -> writeEchoInjectFile() to /tmp/bot-inject/<sessionKey>/pending-echo -> PreToolUse hook (inject-message.sh) -> agent sees "CONTEXT UPDATE"`
+
+## Architecture — Echo Flow
+
+```
+deliver.sh (curl to Telegram API)
+  │  on success
+  ▼
+/tmp/bot-echo/<chatId>/<epoch>-<pid>-<random>.json   ← write_echo()
+  │
+  ▼  (EchoWatcher polls every 2 s)
+EchoWatcher.processDir()
+  │  parses JSON, calls handler per file
+  ▼
+handler callback (in telegram-bot.ts)
+  │  resolveBinding → sessionKey → injectDirForChat
+  ▼
+writeEchoInjectFile()  →  /tmp/bot-inject/<sessionKey>/pending-echo
+  │
+  ▼  (PreToolUse hook fires on next tool call)
+inject-message.sh
+  │  mv pending-echo → pending-echo.claimed, read content
+  ▼
+Agent sees "CONTEXT UPDATE" with the echoed message text
+```
+
+Key design points:
+- No echo loops: only `deliver.sh` writes echo files; agent responses flow through grammY (ctx.reply), which never writes echo files.
+- No file collisions: `pending-echo` (echo watcher) and `pending` (MessageQueue) are independent files claimed separately by the hook.
+- Platform-agnostic: `echo-watcher.ts` has zero Telegram imports; routing is in the handler callback.
 
 ## Revision Diff
 
