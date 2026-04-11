@@ -47,6 +47,8 @@ export type EchoHandler = (
 /** Options for EchoWatcher constructor. */
 export interface EchoWatcherOptions {
   handler: EchoHandler;
+  /** Called after each chat directory is fully processed — use to flush accumulated writes. */
+  onFlush?: () => void;
   pollIntervalMs?: number;
 }
 
@@ -55,11 +57,13 @@ export interface EchoWatcherOptions {
  */
 export class EchoWatcher {
   private readonly handler: EchoHandler;
+  private readonly onFlush?: () => void;
   private readonly pollIntervalMs: number;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: EchoWatcherOptions) {
     this.handler = opts.handler;
+    this.onFlush = opts.onFlush;
     this.pollIntervalMs = opts.pollIntervalMs ?? 2000;
   }
 
@@ -100,6 +104,7 @@ export class EchoWatcher {
         continue;
       }
       this.processDir(chatDir);
+      if (this.onFlush) this.onFlush();
     }
   }
 

@@ -271,3 +271,216 @@ describe("writeEchoInjectFile", () => {
     assert.ok(content.includes("new2"));
   });
 });
+
+// -------------------------------------------------------------------
+// onFlush callback (accumulation support)
+// -------------------------------------------------------------------
+
+describe("EchoWatcher.onFlush", () => {
+  it("calls onFlush after processing each chat directory", () => {
+    writeEchoFile(TEST_CHAT_ID, "msg1");
+
+    let flushCount = 0;
+    const watcher = new EchoWatcher({
+      handler: () => {},
+      onFlush: () => flushCount++,
+    });
+
+    watcher.drain();
+
+    assert.strictEqual(flushCount, 1);
+  });
+
+  it("calls onFlush once per chat directory", () => {
+    const chatId2 = "__test_echo_chat_flush2__";
+    const chatDir2 = join(ECHO_DIR_BASE, chatId2);
+
+    try {
+      writeEchoFile(TEST_CHAT_ID, "msg from chat 1");
+      writeEchoFile(chatId2, "msg from chat 2");
+
+      let flushCount = 0;
+      const watcher = new EchoWatcher({
+        handler: () => {},
+        onFlush: () => flushCount++,
+      });
+
+      watcher.drain();
+
+      assert.strictEqual(flushCount, 2);
+    } finally {
+      rmSync(chatDir2, { recursive: true, force: true });
+    }
+  });
+
+  it("enables accumulation pattern: handler collects, onFlush writes", () => {
+    // Simulate 3 split message chunks for the same chat
+    writeEchoFile(TEST_CHAT_ID, "chunk 1", { filename: "1-1-1.json" });
+    writeEchoFile(TEST_CHAT_ID, "chunk 2", { filename: "2-1-1.json" });
+    writeEchoFile(TEST_CHAT_ID, "chunk 3", { filename: "3-1-1.json" });
+
+    const accumulated = new Map<string, string[]>();
+
+    const watcher = new EchoWatcher({
+      handler: (chatId, _threadId, text) => {
+        const existing = accumulated.get(chatId);
+        if (existing) {
+          existing.push(text);
+        } else {
+          accumulated.set(chatId, [text]);
+        }
+      },
+      onFlush: () => {
+        for (const [dir, messages] of accumulated) {
+          mkdirSync(join(TEST_INJECT_DIR, dir), { recursive: true });
+          writeEchoInjectFile(join(TEST_INJECT_DIR, dir), messages);
+        }
+        accumulated.clear();
+      },
+    });
+
+    watcher.drain();
+
+    // All 3 chunks should be in a single pending-echo file
+    const outputDir = join(TEST_INJECT_DIR, TEST_CHAT_ID);
+    const content = readFileSync(join(outputDir, "pending-echo"), "utf-8");
+    assert.strictEqual(content.split("\n")[0], "3");
+    assert.ok(content.includes("chunk 1"));
+    assert.ok(content.includes("chunk 2"));
+    assert.ok(content.includes("chunk 3"));
+
+    rmSync(outputDir, { recursive: true, force: true });
+  });
+});
+
+// -------------------------------------------------------------------
+// Integration: handler + accumulation simulating telegram-bot.ts flow
+// -------------------------------------------------------------------
+
+import { resolveBinding, sessionKey } from "../telegram-bot.js";
+import { injectDirForChat } from "../inject-file.js";
+import type { TelegramBinding } from "../types.js";
+
+describe("Echo handler integration (simulated telegram-bot handler)", () => {
+  const TEST_BINDINGS: TelegramBinding[] = [
+    { chatId: 12345, agentId: "main", kind: "dm", requireMention: false },
+    { chatId: 67890, agentId: "other", kind: "group", requireMention: true },
+  ];
+  const TEST_CHAT_NUMERIC = "12345";
+  const TEST_CHAT_REQUIRE_MENTION = "67890";
+  const INJECT_DIRS_TO_CLEAN: string[] = [];
+
+  afterEach(() => {
+    for (const dir of INJECT_DIRS_TO_CLEAN) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    INJECT_DIRS_TO_CLEAN.length = 0;
+    rmSync(join(ECHO_DIR_BASE, TEST_CHAT_NUMERIC), { recursive: true, force: true });
+    rmSync(join(ECHO_DIR_BASE, TEST_CHAT_REQUIRE_MENTION), { recursive: true, force: true });
+  });
+
+  function createHandlerAndWatcher(bindings: TelegramBinding[]) {
+    const echoAccumulator = new Map<string, string[]>();
+
+    const watcher = new EchoWatcher({
+      handler: (chatId, threadId, text) => {
+        const numericChatId = parseInt(chatId, 10);
+        const numericThreadId = threadId ? parseInt(threadId, 10) : undefined;
+
+        const binding = resolveBinding(numericChatId, bindings, numericThreadId);
+        if (!binding) return;
+        if (binding.requireMention !== false) return;
+
+        const key = sessionKey(numericChatId, numericThreadId);
+        const injectDir = injectDirForChat(key);
+
+        const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
+
+        const existing = echoAccumulator.get(injectDir);
+        if (existing) {
+          existing.push(framedText);
+        } else {
+          echoAccumulator.set(injectDir, [framedText]);
+        }
+      },
+      onFlush: () => {
+        for (const [dir, messages] of echoAccumulator) {
+          mkdirSync(dir, { recursive: true });
+          writeEchoInjectFile(dir, messages);
+          INJECT_DIRS_TO_CLEAN.push(dir);
+        }
+        echoAccumulator.clear();
+      },
+    });
+
+    return watcher;
+  }
+
+  it("writes framed echo to correct inject dir for requireMention:false binding", () => {
+    writeEchoFile(TEST_CHAT_NUMERIC, "Hello from deliver.sh");
+    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    watcher.drain();
+
+    const key = sessionKey(12345);
+    const injectDir = injectDirForChat(key);
+    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
+    assert.ok(content.includes("[Bot echo"));
+    assert.ok(content.includes("Hello from deliver.sh"));
+  });
+
+  it("skips bindings with requireMention !== false", () => {
+    writeEchoFile(TEST_CHAT_REQUIRE_MENTION, "Should be skipped");
+    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    watcher.drain();
+
+    const key = sessionKey(67890);
+    const injectDir = injectDirForChat(key);
+    assert.ok(!existsSync(join(injectDir, "pending-echo")));
+  });
+
+  it("skips unknown chat IDs", () => {
+    const unknownChatId = "99999";
+    const unknownDir = join(ECHO_DIR_BASE, unknownChatId);
+    try {
+      writeEchoFile(unknownChatId, "Should be skipped");
+      const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+      watcher.drain();
+
+      const key = sessionKey(99999);
+      const injectDir = injectDirForChat(key);
+      assert.ok(!existsSync(join(injectDir, "pending-echo")));
+    } finally {
+      rmSync(unknownDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accumulates split messages into single pending-echo write", () => {
+    writeEchoFile(TEST_CHAT_NUMERIC, "part 1", { filename: "1-1-1.json" });
+    writeEchoFile(TEST_CHAT_NUMERIC, "part 2", { filename: "2-1-1.json" });
+    writeEchoFile(TEST_CHAT_NUMERIC, "part 3", { filename: "3-1-1.json" });
+
+    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    watcher.drain();
+
+    const key = sessionKey(12345);
+    const injectDir = injectDirForChat(key);
+    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
+    // Should have 3 messages in a single file
+    assert.strictEqual(content.split("\n")[0], "3");
+    assert.ok(content.includes("part 1"));
+    assert.ok(content.includes("part 2"));
+    assert.ok(content.includes("part 3"));
+  });
+
+  it("frames text with ECHO_PREFIX", () => {
+    writeEchoFile(TEST_CHAT_NUMERIC, "test message");
+    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    watcher.drain();
+
+    const key = sessionKey(12345);
+    const injectDir = injectDirForChat(key);
+    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
+    assert.ok(content.includes("[Bot echo — context only, no reply needed]"));
+    assert.ok(content.includes("test message"));
+  });
+});

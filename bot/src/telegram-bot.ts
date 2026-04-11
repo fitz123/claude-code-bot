@@ -13,6 +13,9 @@ import { setThread, getThread } from "./message-thread-cache.js";
 import { recordMessage, lookupMessage } from "./message-content-index.js";
 import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
+import { EchoWatcher, ECHO_PREFIX } from "./echo-watcher.js";
+import { injectDirForChat, writeEchoInjectFile } from "./inject-file.js";
+import { mkdirSync } from "node:fs";
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
@@ -486,6 +489,7 @@ export function isAuthorized(chatId: number, bindings: TelegramBinding[]): boole
 export interface TelegramBotResult {
   bot: Bot;
   messageQueue: MessageQueue;
+  echoWatcher: EchoWatcher;
 }
 
 /** autoRetry options — exported so tests can assert the rethrowHttpErrors value. */
@@ -1021,5 +1025,42 @@ export function createTelegramBot(
     log.error("telegram-bot", `Update that caused the error: ${JSON.stringify(err.ctx.update)}`);
   });
 
-  return { bot, messageQueue };
+  // Echo watcher: routes deliver.sh echo files to the correct session's inject dir.
+  // Accumulation map: collects framed texts per inject dir within a single poll cycle,
+  // flushed after each chat directory is processed to prevent pending-echo overwrites.
+  const echoAccumulator = new Map<string, string[]>();
+
+  const echoWatcher = new EchoWatcher({
+    handler: (chatId, threadId, text) => {
+      const numericChatId = parseInt(chatId, 10);
+      const numericThreadId = threadId ? parseInt(threadId, 10) : undefined;
+
+      const binding = resolveBinding(numericChatId, config.bindings, numericThreadId);
+      if (!binding) return;
+      if (binding.requireMention !== false) return;
+
+      const key = sessionKey(numericChatId, numericThreadId);
+      // injectDirForChat() accepts a session key string (output of sessionKey()),
+      // not a raw numeric chatId. The parameter name "chatId" is misleading.
+      const injectDir = injectDirForChat(key);
+
+      const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
+
+      const existing = echoAccumulator.get(injectDir);
+      if (existing) {
+        existing.push(framedText);
+      } else {
+        echoAccumulator.set(injectDir, [framedText]);
+      }
+    },
+    onFlush: () => {
+      for (const [dir, messages] of echoAccumulator) {
+        mkdirSync(dir, { recursive: true });
+        writeEchoInjectFile(dir, messages);
+      }
+      echoAccumulator.clear();
+    },
+  });
+
+  return { bot, messageQueue, echoWatcher };
 }

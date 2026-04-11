@@ -188,8 +188,8 @@ ls -la /tmp/bot-echo/<chat-id>/
 - Modify: `bot/src/main.ts`
 
 **Steps:**
-- [ ] In `telegram-bot.ts`: import `EchoWatcher` from `./echo-watcher.js` and import `injectDirForChat`, `writeEchoInjectFile` from `./inject-file.js`
-- [ ] In `createTelegramBot()`: after creating the `messageQueue`, create an `EchoWatcher` instance. The handler callback is a closure inside `createTelegramBot()` and has access to `config`, `resolveBinding`, `sessionKey`, and other imports in scope. The handler does the following:
+- [x] In `telegram-bot.ts`: import `EchoWatcher` from `./echo-watcher.js` and import `injectDirForChat`, `writeEchoInjectFile` from `./inject-file.js`
+- [x] In `createTelegramBot()`: after creating the `messageQueue`, create an `EchoWatcher` instance. The handler callback is a closure inside `createTelegramBot()` and has access to `config`, `resolveBinding`, `sessionKey`, and other imports in scope. The handler does the following:
   - (a) Converts `chatId` to number: `const numericChatId = parseInt(chatId, 10)` — echo files have string chatId, but `resolveBinding()` expects numeric chatId
   - (b) Converts `threadId` to number if present: `const numericThreadId = threadId ? parseInt(threadId, 10) : undefined` — `threadId` in deliver.sh maps 1:1 to `topicId` (both are Telegram's `message_thread_id`). Note: JSON `null` becomes JS `null`, which is falsy, so `null ? parseInt(...) : undefined` correctly yields `undefined`.
   - (c) Looks up binding: `const binding = resolveBinding(numericChatId, config.bindings, numericThreadId)`
@@ -200,14 +200,14 @@ ls -la /tmp/bot-echo/<chat-id>/
   - (h) Creates inject dir if needed: `mkdirSync(injectDir, { recursive: true })`
   - (i) Frames the text: `const framedText = "[Bot echo — context only, no reply needed]\n\n" + text`
   - (j) Writes to echo inject file: `writeEchoInjectFile(injectDir, [framedText])` — writes to `pending-echo`, not `pending`
-- [ ] **Accumulation for multiple echoes per session key:** To prevent serial `writeEchoInjectFile()` calls from overwriting each other within a single poll cycle, the handler should accumulate messages per session key. Implementation approach: instead of calling `writeEchoInjectFile()` immediately per handler call, the EchoWatcher's `processDir()` should be refactored: after processing all files in a chatDir, group the resolved `(injectDir, framedText)` pairs by injectDir. Then call `writeEchoInjectFile(injectDir, allFramedTexts)` once per unique injectDir. This ensures split messages and rapid-fire deliveries are written as a single `pending-echo` file.
+- [x] **Accumulation for multiple echoes per session key:** To prevent serial `writeEchoInjectFile()` calls from overwriting each other within a single poll cycle, the handler should accumulate messages per session key. Implementation approach: instead of calling `writeEchoInjectFile()` immediately per handler call, the EchoWatcher's `processDir()` should be refactored: after processing all files in a chatDir, group the resolved `(injectDir, framedText)` pairs by injectDir. Then call `writeEchoInjectFile(injectDir, allFramedTexts)` once per unique injectDir. This ensures split messages and rapid-fire deliveries are written as a single `pending-echo` file.
   - Alternative simpler approach: since the handler callback is called once per file, the handler can maintain a `Map<string, string[]>` accumulator that the watcher flushes after processing each chatDir. The watcher calls a `flushAccumulated()` method after `processDir()` returns, which calls `writeEchoInjectFile()` once per accumulated session key.
-- [ ] Add `echoWatcher` to the return value of `createTelegramBot()` so `main.ts` can manage its lifecycle
-- [ ] Update the `TelegramBotResult` type to include `echoWatcher: EchoWatcher`
-- [ ] In `main.ts`: after creating the Telegram bot, call `echoWatcher.drain()` to process any accumulated echo files, then call `echoWatcher.start()` to begin polling
-- [ ] In `main.ts` shutdown handler: call `echoWatcher.stop()` before closing sessions (add to the `shutdown()` function)
-- [ ] Write tests: write an echo file, verify the handler resolves the correct binding, converts types, derives the correct inject dir, and calls `writeEchoInjectFile` with proper framing to `pending-echo`
-- [ ] Run tests — must pass before next task
+- [x] Add `echoWatcher` to the return value of `createTelegramBot()` so `main.ts` can manage its lifecycle
+- [x] Update the `TelegramBotResult` type to include `echoWatcher: EchoWatcher`
+- [x] In `main.ts`: after creating the Telegram bot, call `echoWatcher.drain()` to process any accumulated echo files, then call `echoWatcher.start()` to begin polling
+- [x] In `main.ts` shutdown handler: call `echoWatcher.stop()` before closing sessions (add to the `shutdown()` function)
+- [x] Write tests: write an echo file, verify the handler resolves the correct binding, converts types, derives the correct inject dir, and calls `writeEchoInjectFile` with proper framing to `pending-echo`
+- [x] Run tests — must pass before next task
 
 ### Task 4: Update inject-message.sh hook for `pending-echo` support [HIGH] `[confidence: 0.90]`
 
