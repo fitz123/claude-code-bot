@@ -1,6 +1,8 @@
 import { describe, it, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { tempFilePath, downloadFile, cleanupTempFile, transcribeAudio, convertToWav, FFMPEG_BIN, WHISPER_BIN, WHISPER_MODEL } from "../voice.js";
 
 describe("tempFilePath", () => {
@@ -140,7 +142,7 @@ describe("convertToWav", () => {
 describe("transcribeAudio", () => {
   it("exports correct whisper-cli paths", () => {
     assert.strictEqual(WHISPER_BIN, "/opt/homebrew/bin/whisper-cli");
-    assert.strictEqual(WHISPER_MODEL, "/opt/homebrew/share/whisper-cpp/ggml-medium.bin");
+    assert.strictEqual(WHISPER_MODEL, join(homedir(), ".minime/models/ggml-medium.bin"));
   });
 
   it("rejects when given a nonexistent audio file", async () => {

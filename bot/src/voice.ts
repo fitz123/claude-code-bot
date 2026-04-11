@@ -1,4 +1,5 @@
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
+import { join } from "node:path";
 import { writeFile, unlink, chmod } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { execFile as execFileCb } from "node:child_process";
@@ -8,7 +9,7 @@ const execFileAsync = promisify(execFileCb);
 
 export const FFMPEG_BIN = process.env.FFMPEG_BIN ?? "/opt/homebrew/bin/ffmpeg";
 export const WHISPER_BIN = process.env.WHISPER_BIN ?? "/opt/homebrew/bin/whisper-cli";
-export const WHISPER_MODEL = process.env.WHISPER_MODEL ?? "/opt/homebrew/share/whisper-cpp/ggml-medium.bin";
+export const WHISPER_MODEL = process.env.WHISPER_MODEL ?? join(homedir(), ".minime/models/ggml-medium.bin");
 
 /**
  * Generate a unique temp file path with given prefix and extension.
