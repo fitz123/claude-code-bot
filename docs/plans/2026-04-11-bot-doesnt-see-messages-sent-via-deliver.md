@@ -126,22 +126,22 @@ ls -la /tmp/bot-echo/<chat-id>/
 - Modify: `bot/scripts/deliver.sh`
 
 **Steps:**
-- [ ] After the `LOG_DIR` setup block (line ~64), add `ECHO_DIR_BASE="/tmp/bot-echo"` constant
-- [ ] Create a `write_echo()` function that takes three arguments: `chatId`, `threadId`, `text`. Implementation:
+- [x] After the `LOG_DIR` setup block (line ~64), add `ECHO_DIR_BASE="/tmp/bot-echo"` constant
+- [x] Create a `write_echo()` function that takes three arguments: `chatId`, `threadId`, `text`. Implementation:
   - (a) Derives echo dir: `echo_dir="$ECHO_DIR_BASE/$chatId"` (no sanitization needed — chatId is already validated as numeric on line 21, and threadId is validated as numeric on line 31)
   - (b) Creates directory: `mkdir -p "$echo_dir"`
   - (c) Generates unique filename: `fname="$(date +%s)-$$-$RANDOM.json"` (macOS-compatible — no `%N` nanoseconds)
   - (d) Builds JSON using `printf` for the structure and `python3` only for safe text escaping: `python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))" <<< "$text"` to get the escaped text, then assemble the JSON with `printf '{"chatId":"%s","threadId":%s,"text":%s,"origin":"deliver.sh","timestamp":%s}' "$chatId" "${threadId_json}" "${escaped_text}" "$(date +%s)"`. For `threadId_json`: if `$threadId` is empty, use `null`; otherwise use `"$threadId"`. Note: `python3` is already a dependency of deliver.sh (used at lines 85, 89, 99, 103 for JSON operations).
   - (e) Writes atomically: write to `"$echo_dir/.$fname.tmp"`, then `mv` to `"$echo_dir/$fname"`
   - (f) The `text` field contains the original pre-conversion markdown text (not HTML)
-- [ ] Call `write_echo "$CHAT_ID" "$THREAD_ID" "$1"` **inside** `send_message()`. Two locations:
+- [x] Call `write_echo "$CHAT_ID" "$THREAD_ID" "$1"` **inside** `send_message()`. Two locations:
   - After the success log on line 91, before `return 0` on line 92 (HTML-conversion success path)
   - After the success log on line 110, before the implicit function end (fallback success path). Add an explicit `return 0` after the `write_echo` call for clarity.
   - Note: exact line numbers may shift after edits — reference the pattern: after the `echo "[deliver] ... OK ..."` log line and before `return 0` in each success branch.
-- [ ] For split messages: `send_message` is called per chunk, so each chunk naturally writes its own echo file (no additional logic needed)
-- [ ] Wrap `write_echo` calls with `|| true` so echo write failures are non-fatal and don't break message delivery
-- [ ] Update the `deliver.sh` header comment to mention echo file writing
-- [ ] Verify macOS compatibility: test that `date +%s`, `$$`, `$RANDOM` produce unique filenames
+- [x] For split messages: `send_message` is called per chunk, so each chunk naturally writes its own echo file (no additional logic needed)
+- [x] Wrap `write_echo` calls with `|| true` so echo write failures are non-fatal and don't break message delivery
+- [x] Update the `deliver.sh` header comment to mention echo file writing
+- [x] Verify macOS compatibility: test that `date +%s`, `$$`, `$RANDOM` produce unique filenames
 
 ### Task 2: Create echo watcher module (`bot/src/echo-watcher.ts`) [HIGH] `[confidence: 0.90]`
 
