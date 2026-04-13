@@ -105,9 +105,7 @@ export class EchoWatcher {
     if (this.timer) return;
     mkdirSync(this.echoDir, { recursive: true });
     this.timer = setInterval(() => this.pollAll(), this.pollIntervalMs);
-    if (this.timer && typeof this.timer === "object" && "unref" in this.timer) {
-      (this.timer as NodeJS.Timeout).unref();
-    }
+    (this.timer as NodeJS.Timeout).unref();
   }
 
   /** Process all existing echo files once (drain on startup). */
@@ -142,7 +140,11 @@ export class EchoWatcher {
       }
       this.processDir(chatDir);
     }
-    if (this.onFlush) this.onFlush();
+    if (this.onFlush) {
+      try {
+        this.onFlush();
+      } catch { /* swallow — onFlush errors must not crash the poll timer */ }
+    }
   }
 
   /** Process all .json echo files in a single chat directory. */
@@ -166,6 +168,16 @@ export class EchoWatcher {
         msg = JSON.parse(raw);
       } catch {
         // Malformed or unreadable file — delete and continue
+        try { unlinkSync(filePath); } catch { /* ignore */ }
+        continue;
+      }
+
+      // Validate required fields — skip and delete files with unexpected shape
+      if (
+        (typeof msg.chatId !== "string" && typeof msg.chatId !== "number") ||
+        typeof msg.text !== "string" ||
+        !msg.text
+      ) {
         try { unlinkSync(filePath); } catch { /* ignore */ }
         continue;
       }

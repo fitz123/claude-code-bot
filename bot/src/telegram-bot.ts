@@ -1037,8 +1037,10 @@ export function createTelegramBot(
 
       const binding = resolveBinding(numericChatId, config.bindings, numericThreadId);
       if (!binding) return;
-      // Mirror shouldRespondInGroup logic: DMs always see all messages;
+      // Simplified subset of shouldRespondInGroup: DMs always see all messages;
       // groups check binding.requireMention with sessionDefaults fallback.
+      // Reply-to-bot and @mention checks are intentionally omitted — echo files
+      // lack message metadata (no entities, no reply context).
       if (binding.kind === "group") {
         const requireMention = binding.requireMention ?? config.sessionDefaults?.requireMention ?? true;
         if (requireMention) return;
@@ -1059,14 +1061,17 @@ export function createTelegramBot(
       }
     },
     onFlush: () => {
-      for (const [dir, messages] of echoAccumulator) {
-        try {
-          writeEchoInjectFile(dir, messages);
-        } catch (error) {
-          log.error("telegram-bot", `Failed to write echo inject file for ${dir}:`, error);
+      try {
+        for (const [dir, messages] of echoAccumulator) {
+          try {
+            writeEchoInjectFile(dir, messages);
+          } catch (error) {
+            log.error("telegram-bot", `Failed to write echo inject file for ${dir}:`, error);
+          }
         }
+      } finally {
+        echoAccumulator.clear();
       }
-      echoAccumulator.clear();
     },
   });
 
