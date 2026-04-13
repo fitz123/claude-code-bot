@@ -67,6 +67,8 @@ export interface EchoWatcherOptions {
   /** Called once per poll cycle after all chat directories are processed — use to flush accumulated writes. */
   onFlush?: () => void;
   pollIntervalMs?: number;
+  /** Override the base directory to scan (defaults to ECHO_DIR_BASE). Useful for tests. */
+  echoDir?: string;
 }
 
 /**
@@ -88,18 +90,20 @@ export class EchoWatcher {
   private readonly handler: EchoHandler;
   private readonly onFlush?: () => void;
   private readonly pollIntervalMs: number;
+  private readonly echoDir: string;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: EchoWatcherOptions) {
     this.handler = opts.handler;
     this.onFlush = opts.onFlush;
     this.pollIntervalMs = opts.pollIntervalMs ?? 2000;
+    this.echoDir = opts.echoDir ?? ECHO_DIR_BASE;
   }
 
   /** Start polling. Creates the echo base directory if needed. */
   start(): void {
     if (this.timer) return;
-    mkdirSync(ECHO_DIR_BASE, { recursive: true });
+    mkdirSync(this.echoDir, { recursive: true });
     this.timer = setInterval(() => this.pollAll(), this.pollIntervalMs);
     if (this.timer && typeof this.timer === "object" && "unref" in this.timer) {
       (this.timer as NodeJS.Timeout).unref();
@@ -108,7 +112,7 @@ export class EchoWatcher {
 
   /** Process all existing echo files once (drain on startup). */
   drain(): void {
-    mkdirSync(ECHO_DIR_BASE, { recursive: true });
+    mkdirSync(this.echoDir, { recursive: true });
     this.pollAll();
   }
 
@@ -120,17 +124,17 @@ export class EchoWatcher {
     }
   }
 
-  /** Scan all chat subdirectories under ECHO_DIR_BASE. */
+  /** Scan all chat subdirectories under the echo base directory. */
   private pollAll(): void {
     let entries: string[];
     try {
-      entries = readdirSync(ECHO_DIR_BASE);
+      entries = readdirSync(this.echoDir);
     } catch {
       return;
     }
 
     for (const entry of entries) {
-      const chatDir = join(ECHO_DIR_BASE, entry);
+      const chatDir = join(this.echoDir, entry);
       try {
         if (!statSync(chatDir).isDirectory()) continue;
       } catch {

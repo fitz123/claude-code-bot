@@ -70,11 +70,11 @@ ECHO_DIR_BASE="/tmp/bot-echo"
 write_echo() {
   local chatId="$1" threadId="$2" text="$3"
   local echo_dir="$ECHO_DIR_BASE/$chatId"
-  mkdir -p "$echo_dir"
+  mkdir -p "$echo_dir" || return 0
   local fname
   fname="$(date +%s)-$$-$RANDOM.json"
   local escaped_text
-  escaped_text=$(printf '%s' "$text" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))")
+  escaped_text=$(printf '%s' "$text" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))") || return 0
   local threadId_json
   if [ -z "$threadId" ]; then
     threadId_json="null"
@@ -85,7 +85,7 @@ write_echo() {
   json=$(printf '{"chatId":"%s","threadId":%s,"text":%s,"origin":"deliver.sh","timestamp":%s}' \
     "$chatId" "$threadId_json" "$escaped_text" "$(date +%s)")
   printf '%s' "$json" > "$echo_dir/.$fname.tmp"
-  mv "$echo_dir/.$fname.tmp" "$echo_dir/$fname"
+  mv "$echo_dir/.$fname.tmp" "$echo_dir/$fname" || return 0
 }
 
 build_payload() {

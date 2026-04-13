@@ -1040,7 +1040,7 @@ export function createTelegramBot(
       // Mirror shouldRespondInGroup logic: DMs always see all messages;
       // groups check binding.requireMention with sessionDefaults fallback.
       if (binding.kind === "group") {
-        const requireMention = binding.requireMention ?? config.sessionDefaults.requireMention;
+        const requireMention = binding.requireMention ?? config.sessionDefaults?.requireMention ?? true;
         if (requireMention) return;
       }
 
@@ -1059,13 +1059,14 @@ export function createTelegramBot(
       }
     },
     onFlush: () => {
-      try {
-        for (const [dir, messages] of echoAccumulator) {
+      for (const [dir, messages] of echoAccumulator) {
+        try {
           writeEchoInjectFile(dir, messages);
+        } catch (error) {
+          log.error("telegram-bot", `Failed to write echo inject file for ${dir}:`, error);
         }
-      } finally {
-        echoAccumulator.clear();
       }
+      echoAccumulator.clear();
     },
   });
 
