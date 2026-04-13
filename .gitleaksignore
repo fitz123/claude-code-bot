@@ -3,3 +3,14 @@
 
 # Plan file contains local path used in validation commands (not user-facing)
 plans/045-blockquote-and-list-support.md:home-directory-paths:10
+
+# Echo plan: local paths and test chat ID in validation commands (cleaned in 624a7f3)
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:49
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:52
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:55
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:58
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:61
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:264
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:265
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:home-directory-paths:266
+docs/plans/2026-04-11-bot-doesnt-see-messages-sent-via-deliver.md:telegram-user-ids:62

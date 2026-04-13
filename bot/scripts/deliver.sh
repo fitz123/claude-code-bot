@@ -4,6 +4,8 @@
 # Or:    deliver.sh <chat_id> --thread <thread_id> [message]
 # Or:    echo "message" | deliver.sh <chat_id> [--thread <thread_id>]
 # Handles >4096 char messages by splitting at paragraph boundaries.
+# After each successful send, writes an echo JSON file to /tmp/bot-echo/<chatId>/
+# so the bot can route the message to active agent sessions as context.
 
 set -euo pipefail
 
@@ -63,6 +65,29 @@ LOG_DIR="${LOG_DIR:-$HOME/.minime/logs}"
 LOG_FILE="${LOG_DIR}/cron-delivery.log"
 mkdir -p "$LOG_DIR"
 
+ECHO_DIR_BASE="/tmp/bot-echo"
+
+write_echo() {
+  local chatId="$1" threadId="$2" text="$3"
+  local echo_dir="$ECHO_DIR_BASE/$chatId"
+  mkdir -p "$echo_dir" || return 0
+  local fname
+  fname="$(date +%s)-$$-$RANDOM.json"
+  local escaped_text
+  escaped_text=$(printf '%s' "$text" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))") || return 0
+  local threadId_json
+  if [ -z "$threadId" ]; then
+    threadId_json="null"
+  else
+    threadId_json="\"$threadId\""
+  fi
+  local json
+  json=$(printf '{"chatId":"%s","threadId":%s,"text":%s,"origin":"deliver.sh","timestamp":%s}' \
+    "$chatId" "$threadId_json" "$escaped_text" "$(date +%s)")
+  printf '%s' "$json" > "$echo_dir/.$fname.tmp"
+  mv "$echo_dir/.$fname.tmp" "$echo_dir/$fname" || return 0
+}
+
 build_payload() {
   local text_json="$1" parse_mode="${2:-}"
   local payload
@@ -89,6 +114,7 @@ send_message() {
       ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok', False))" 2>/dev/null)
       if [ "$ok" = "True" ]; then
         echo "[deliver] $(date -Iseconds) OK chat=$CHAT_ID len=${#text}" >> "$LOG_FILE"
+        write_echo "$CHAT_ID" "$THREAD_ID" "$text" || true
         return 0
       fi
     fi
@@ -108,6 +134,8 @@ send_message() {
   fi
 
   echo "[deliver] $(date -Iseconds) OK chat=$CHAT_ID len=${#text}" >> "$LOG_FILE"
+  write_echo "$CHAT_ID" "$THREAD_ID" "$text" || true
+  return 0
 }
 
 MAX_LEN=4096

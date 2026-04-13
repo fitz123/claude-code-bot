@@ -12,6 +12,7 @@ import { setBotUsername } from "./telegram-adapter.js";
 import { getVersion } from "./version.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
+import type { EchoWatcher } from "./echo-watcher.js";
 
 async function main(): Promise<void> {
   log.info("main", `Bot version: ${getVersion()}`);
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
   // Track resources for shutdown
   let telegramBot: TelegramBotResult["bot"] | undefined;
   const messageQueues: MessageQueue[] = [];
+  let echoWatcher: EchoWatcher | undefined;
   let discordClient: Client | undefined;
   let watchdog: Watchdog | undefined;
 
@@ -49,6 +51,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     log.info("main", `Received ${signal}, shutting down...`);
+    if (echoWatcher) echoWatcher.stop();
     if (watchdog) watchdog.stop();
     if (telegramBot) telegramBot.stop();
     if (discordClient) discordClient.destroy();
@@ -91,11 +94,16 @@ async function main(): Promise<void> {
     // Mutable reference so onUpdate callback can reach the watchdog
     // (watchdog needs bot.api, which doesn't exist until after createTelegramBot)
     let onUpdateFn: (() => void) | undefined;
-    const { bot, messageQueue } = createTelegramBot(config, sessionManager, {
+    const { bot, messageQueue, echoWatcher: ew } = createTelegramBot(config, sessionManager, {
       onUpdate: () => onUpdateFn?.(),
     });
     telegramBot = bot;
     messageQueues.push(messageQueue);
+
+    // Echo watcher: drain accumulated files from when bot was down, then start polling
+    echoWatcher = ew;
+    echoWatcher.drain();
+    echoWatcher.start();
 
     // Polling liveness watchdog: exits the process if no updates arrive
     // within the threshold AND the Telegram API heartbeat also fails.

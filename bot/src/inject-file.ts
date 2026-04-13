@@ -25,7 +25,7 @@ export function injectDirForChat(chatId: string): string {
 }
 
 /**
- * Write messages to the inject file atomically.
+ * Write messages atomically to a named file in the inject directory.
  *
  * File format:
  *   Line 1: message count (integer)
@@ -34,18 +34,31 @@ export function injectDirForChat(chatId: string): string {
  * Atomic write: write to a temp file, then rename. This prevents the hook
  * from reading a partially-written file.
  */
-export function writeInjectFile(dir: string, messages: string[]): void {
+function writeAtomicInjectFile(dir: string, filename: string, messages: string[]): void {
   mkdirSync(dir, { recursive: true });
 
   const separator = "\n\n---\n\n";
   const body = messages.join(separator);
   const content = `${messages.length}\n${body}`;
 
-  const pendingPath = join(dir, "pending");
-  const tmpPath = join(dir, `.pending.${randomBytes(4).toString("hex")}.tmp`);
+  const pendingPath = join(dir, filename);
+  const tmpPath = join(dir, `.${filename}.${randomBytes(4).toString("hex")}.tmp`);
 
   writeFileSync(tmpPath, content, "utf-8");
   renameSync(tmpPath, pendingPath);
+}
+
+/** Write user messages to `pending` (owned by MessageQueue). */
+export function writeInjectFile(dir: string, messages: string[]): void {
+  writeAtomicInjectFile(dir, "pending", messages);
+}
+
+/**
+ * Write echo messages to `pending-echo` (owned by EchoWatcher).
+ * Separate from `pending` so echo writes never collide with user-message writes.
+ */
+export function writeEchoInjectFile(dir: string, messages: string[]): void {
+  writeAtomicInjectFile(dir, "pending-echo", messages);
 }
 
 /**

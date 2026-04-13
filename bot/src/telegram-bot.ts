@@ -13,6 +13,9 @@ import { setThread, getThread } from "./message-thread-cache.js";
 import { recordMessage, lookupMessage } from "./message-content-index.js";
 import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
+import { EchoWatcher, ECHO_PREFIX } from "./echo-watcher.js";
+import { injectDirForChat, writeEchoInjectFile } from "./inject-file.js";
+
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
@@ -486,6 +489,7 @@ export function isAuthorized(chatId: number, bindings: TelegramBinding[]): boole
 export interface TelegramBotResult {
   bot: Bot;
   messageQueue: MessageQueue;
+  echoWatcher: EchoWatcher;
 }
 
 /** autoRetry options — exported so tests can assert the rethrowHttpErrors value. */
@@ -1021,5 +1025,55 @@ export function createTelegramBot(
     log.error("telegram-bot", `Update that caused the error: ${JSON.stringify(err.ctx.update)}`);
   });
 
-  return { bot, messageQueue };
+  // Echo watcher: routes deliver.sh echo files to the correct session's inject dir.
+  // Accumulation map: collects framed texts per inject dir within a single poll cycle,
+  // flushed once after all directories are processed to prevent pending-echo overwrites.
+  const echoAccumulator = new Map<string, string[]>();
+
+  const echoWatcher = new EchoWatcher({
+    handler: (chatId, threadId, text) => {
+      const numericChatId = parseInt(chatId, 10);
+      const numericThreadId = threadId ? parseInt(threadId, 10) : undefined;
+
+      const binding = resolveBinding(numericChatId, config.bindings, numericThreadId);
+      if (!binding) return;
+      // Simplified subset of shouldRespondInGroup: DMs always see all messages;
+      // groups check binding.requireMention with sessionDefaults fallback.
+      // Reply-to-bot and @mention checks are intentionally omitted — echo files
+      // lack message metadata (no entities, no reply context).
+      if (binding.kind === "group") {
+        const requireMention = binding.requireMention ?? config.sessionDefaults?.requireMention ?? true;
+        if (requireMention) return;
+      }
+
+      const key = sessionKey(numericChatId, numericThreadId);
+      // injectDirForChat() accepts a session key string (output of sessionKey()),
+      // not a raw numeric chatId. The parameter name "chatId" is misleading.
+      const injectDir = injectDirForChat(key);
+
+      const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
+
+      const existing = echoAccumulator.get(injectDir);
+      if (existing) {
+        existing.push(framedText);
+      } else {
+        echoAccumulator.set(injectDir, [framedText]);
+      }
+    },
+    onFlush: () => {
+      try {
+        for (const [dir, messages] of echoAccumulator) {
+          try {
+            writeEchoInjectFile(dir, messages);
+          } catch (error) {
+            log.error("telegram-bot", `Failed to write echo inject file for ${dir}:`, error);
+          }
+        }
+      } finally {
+        echoAccumulator.clear();
+      }
+    },
+  });
+
+  return { bot, messageQueue, echoWatcher };
 }
