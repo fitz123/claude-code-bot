@@ -276,11 +276,12 @@ describe("createTelegramAdapter", () => {
       assert.strictEqual(ctx._chatActions[0].opts.message_thread_id, 42);
     });
 
-    it("is a no-op for DM chats (drafts show typing)", async () => {
+    it("sends typing action for DM chats", async () => {
       const ctx = mockContext();
       const adapter = createTelegramAdapter(ctx, defaultBinding);
       await adapter.sendTyping();
-      assert.strictEqual(ctx._chatActions.length, 0);
+      assert.strictEqual(ctx._chatActions.length, 1);
+      assert.strictEqual(ctx._chatActions[0].action, "typing");
     });
 
     it("is a no-op when chatId is undefined", async () => {
