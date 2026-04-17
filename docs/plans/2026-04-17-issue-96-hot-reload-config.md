@@ -70,8 +70,8 @@ Changes to `config.yaml` / `config.local.yaml` (e.g. swapping `claude-opus-4-6` 
 
 ### Task 3: Documentation
 
-- [ ] Update `bot/README.md` if it documents restart-for-config
-- [ ] Update `.claude/rules/platform/bot-operations.md`: agents/sessionDefaults hot-reload, bindings/tokens still need restart
+- [x] Update `bot/README.md` if it documents restart-for-config
+- [x] Update `.claude/rules/platform/bot-operations.md`: agents/sessionDefaults hot-reload, bindings/tokens still need restart
 
 ## Risks & Mitigations
 
