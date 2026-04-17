@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import PQueue from "p-queue";
-import type { AgentConfig, SessionState, StreamLine, BotConfig } from "./types.js";
+import type { SessionState, StreamLine, BotConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
@@ -36,6 +36,8 @@ export interface ActiveSession {
   agentId: string;
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /** Idle timeout baked at spawn time from config. */
+  idleTimeoutMs: number;
   lastActivity: number;
   /** Timestamp when current turn started processing, null if idle. */
   processingStartedAt: number | null;
@@ -107,17 +109,30 @@ export class SessionManager {
   /** Restart counts survive crash recovery (active.delete) so they accumulate. */
   private restartCounts: Map<string, number> = new Map();
   private store: SessionStore;
-  private agents: Record<string, AgentConfig>;
-  private idleTimeoutMs: number;
-  private maxConcurrentSessions: number;
+  private loadConfig: () => BotConfig;
   private logDir: string;
 
-  constructor(config: BotConfig, storePath?: string, logDir?: string) {
-    this.agents = config.agents;
-    this.idleTimeoutMs = config.sessionDefaults.idleTimeoutMs;
-    this.maxConcurrentSessions = config.sessionDefaults.maxConcurrentSessions;
+  constructor(loadConfig: () => BotConfig, storePath?: string, logDir?: string) {
+    this.loadConfig = loadConfig;
+    // Validate config at boot — fail fast if config is broken
+    loadConfig();
     this.store = new SessionStore(storePath);
     this.logDir = logDir ?? LOG_DIR;
+  }
+
+  /**
+   * Load fresh config for use at each decision point (spawn, eviction, idle timer).
+   * On failure, propagates the error — no cache fallback.
+   */
+  private getFreshConfig(): BotConfig {
+    try {
+      const config = this.loadConfig();
+      log.debug("session-manager", "config: reload ok");
+      return config;
+    } catch (err) {
+      log.error("session-manager", `config: reload failed: ${(err as Error).message}`);
+      throw err;
+    }
   }
 
   /** Build a SessionState snapshot for persisting to the store. */
@@ -163,16 +178,18 @@ export class SessionManager {
       sessionsActive.dec();
     }
 
-    const agent = this.agents[agentId];
+    // Reload config fresh — pick up any changes to agents/sessionDefaults
+    const freshConfig = this.getFreshConfig();
+    const agent = freshConfig.agents[agentId];
     if (!agent) {
       throw new Error(`Unknown agent: ${agentId}`);
     }
 
     // Check if we need to evict
-    await this.evictIfNeeded();
+    await this.evictIfNeeded(freshConfig);
 
     // Check if we have a stored session to resume (discards stale sessions)
-    const { resume, sessionId } = this.resolveStoredSession(chatId, agentId);
+    const { resume, sessionId } = this.resolveStoredSession(chatId, agentId, freshConfig);
 
     // Crash backoff: prevent rapid crash→spawn→crash loops
     const prevCrashCount = this.restartCounts.get(chatId) ?? 0;
@@ -243,6 +260,7 @@ export class SessionManager {
       agentId,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
+      idleTimeoutMs: freshConfig.sessionDefaults.idleTimeoutMs,
       lastActivity: Date.now(),
       processingStartedAt: null,
       lastSuccessAt: null,
@@ -402,9 +420,10 @@ export class SessionManager {
     if (session.idleTimer) {
       clearTimeout(session.idleTimer);
     }
+
     session.idleTimer = setTimeout(() => {
       this.closeSession(chatId).catch(() => {});
-    }, this.idleTimeoutMs);
+    }, session.idleTimeoutMs);
   }
 
   /** Close a session: persist state, SIGTERM child, clean up. */
@@ -562,13 +581,14 @@ export class SessionManager {
    * Determine if a stored session should be resumed or discarded.
    * Discards and logs if the agentId changed or the stored agent was deleted.
    */
-  resolveStoredSession(chatId: string, agentId: string): { resume: boolean; sessionId: string } {
+  resolveStoredSession(chatId: string, agentId: string, config?: BotConfig): { resume: boolean; sessionId: string } {
     const stored = this.store.getSession(chatId);
     if (!stored || stored.sessionId === "") {
       return { resume: false, sessionId: randomUUID() };
     }
 
-    const agentDeleted = !(stored.agentId in this.agents);
+    const agents = config ? config.agents : this.getFreshConfig().agents;
+    const agentDeleted = !(stored.agentId in agents);
     const agentMismatch = stored.agentId !== agentId;
 
     if (agentMismatch || agentDeleted) {
@@ -584,8 +604,9 @@ export class SessionManager {
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */
-  private async evictIfNeeded(): Promise<void> {
-    if (this.active.size < this.maxConcurrentSessions) return;
+  private async evictIfNeeded(config: BotConfig): Promise<void> {
+    const maxConcurrentSessions = config.sessionDefaults.maxConcurrentSessions;
+    if (this.active.size < maxConcurrentSessions) return;
 
     // Find session with oldest lastActivity
     let oldest: { chatId: string; lastActivity: number } | null = null;
