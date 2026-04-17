@@ -21,7 +21,8 @@ Bot injects shutdown message into active sessions, waits up to 60s for turns to 
 
 ## Config Changes
 
-- `config.yaml` (workspace root) — edit directly, validate after, restart with confirmation
+- **Hot-reloaded (no restart):** Agent fields (`model`, `fallbackModel`, `maxTurns`, `systemPrompt`, `effort`, `workspaceCwd`) and session defaults (`idleTimeoutMs`, `maxConcurrentSessions`). Edit `config.yaml` or `config.local.yaml` — next new session picks it up.
+- **Boot-level (restart required):** `telegramToken`, `discord.token`, `bindings`, `metricsPort`, `sessionDefaults.maxMessageAgeMs`, `sessionDefaults.requireMention`. Validate before restart: `npx tsx bot/src/config.ts --validate`
 - `crons.yaml` (workspace root) — edit, then regenerate plists (see Cron System below)
 
 ## Cron System

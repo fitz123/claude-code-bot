@@ -36,6 +36,8 @@ export interface ActiveSession {
   agentId: string;
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /** Idle timeout baked at spawn time from config. */
+  idleTimeoutMs: number;
   lastActivity: number;
   /** Timestamp when current turn started processing, null if idle. */
   processingStartedAt: number | null;
@@ -125,7 +127,7 @@ export class SessionManager {
   private getFreshConfig(): BotConfig {
     try {
       const config = this.loadConfig();
-      log.info("session-manager", "config: reload ok");
+      log.debug("session-manager", "config: reload ok");
       return config;
     } catch (err) {
       log.error("session-manager", `config: reload failed: ${(err as Error).message}`);
@@ -258,6 +260,7 @@ export class SessionManager {
       agentId,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
+      idleTimeoutMs: freshConfig.sessionDefaults.idleTimeoutMs,
       lastActivity: Date.now(),
       processingStartedAt: null,
       lastSuccessAt: null,
@@ -418,17 +421,9 @@ export class SessionManager {
       clearTimeout(session.idleTimer);
     }
 
-    let idleTimeoutMs: number;
-    try {
-      idleTimeoutMs = this.getFreshConfig().sessionDefaults.idleTimeoutMs;
-    } catch {
-      // Config reload failed — use a safe default (30 min)
-      idleTimeoutMs = 1_800_000;
-    }
-
     session.idleTimer = setTimeout(() => {
       this.closeSession(chatId).catch(() => {});
-    }, idleTimeoutMs);
+    }, session.idleTimeoutMs);
   }
 
   /** Close a session: persist state, SIGTERM child, clean up. */
@@ -609,10 +604,8 @@ export class SessionManager {
   }
 
   /** LRU eviction: close the session with oldest lastActivity. */
-  private async evictIfNeeded(config?: BotConfig): Promise<void> {
-    const maxConcurrentSessions = config
-      ? config.sessionDefaults.maxConcurrentSessions
-      : this.getFreshConfig().sessionDefaults.maxConcurrentSessions;
+  private async evictIfNeeded(config: BotConfig): Promise<void> {
+    const maxConcurrentSessions = config.sessionDefaults.maxConcurrentSessions;
     if (this.active.size < maxConcurrentSessions) return;
 
     // Find session with oldest lastActivity
