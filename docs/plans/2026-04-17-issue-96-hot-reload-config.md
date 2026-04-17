@@ -63,10 +63,10 @@ Changes to `config.yaml` / `config.local.yaml` (e.g. swapping `claude-opus-4-6` 
 
 ### Task 2: Hot-reload tests
 
-- [ ] Create two BotConfig fixtures (claude-opus-4-6 vs claude-opus-4-7)
-- [ ] Mutable loader closure test: swap config between sessions, assert new model in spawn args
-- [ ] Error propagation test: loader throws -> getOrCreateSession throws
-- [ ] Mock spawnClaudeSession to capture argv
+- [x] Create two BotConfig fixtures (claude-opus-4-6 vs claude-opus-4-7)
+- [x] Mutable loader closure test: swap config between sessions, assert new model in spawn args
+- [x] Error propagation test: loader throws -> getOrCreateSession throws
+- [x] Mock spawnClaudeSession to capture argv
 
 ### Task 3: Documentation
 
