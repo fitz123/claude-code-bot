@@ -102,33 +102,33 @@ describe("SessionManager", () => {
 
   it("constructs with config", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     assert.strictEqual(manager.getActiveCount(), 0);
   });
 
   it("closeAll works on empty manager", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     await manager.closeAll();
     assert.strictEqual(manager.getActiveCount(), 0);
   });
 
   it("getActive returns undefined for unknown chatId", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     assert.strictEqual(manager.getActive("unknown"), undefined);
   });
 
   it("closeSession is safe for unknown chatId", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     // Should not throw
     await manager.closeSession("nonexistent");
   });
 
   it("destroySession is safe for unknown chatId", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     // Should not throw
     await manager.destroySession("nonexistent");
   });
@@ -146,7 +146,7 @@ describe("SessionManager", () => {
       lastActivity: Date.now(),
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     await manager.closeSession("chat-reconnect");
 
     // Stored state should still exist — /reconnect preserves it for resume
@@ -178,7 +178,7 @@ describe("SessionManager", () => {
       lastActivity: Date.now(),
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     await manager.destroySession("chat-destroy");
 
@@ -212,7 +212,7 @@ describe("SessionManager", () => {
       lastActivity: now,
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // closeSession (what /reconnect calls) — preserves store
     await manager.closeSession("chat-close");
@@ -228,7 +228,7 @@ describe("SessionManager", () => {
 
   it("throws for unknown agent", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     await assert.rejects(
       () => manager.getOrCreateSession("123", "nonexistent-agent"),
       /Unknown agent/
@@ -259,7 +259,7 @@ describe("SessionManager agentId mismatch detection", () => {
       lastActivity: Date.now(),
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     const result = manager.resolveStoredSession("chat-1", "main");
     assert.strictEqual(result.resume, true);
     assert.strictEqual(result.sessionId, "existing-session-id");
@@ -285,7 +285,7 @@ describe("SessionManager agentId mismatch detection", () => {
       lastActivity: Date.now(),
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     const result = manager.resolveStoredSession("chat-1", "agent-b");
 
     assert.strictEqual(result.resume, false, "should not resume mismatched session");
@@ -310,7 +310,7 @@ describe("SessionManager agentId mismatch detection", () => {
       lastActivity: Date.now(),
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     const result = manager.resolveStoredSession("chat-1", "main");
 
     assert.strictEqual(result.resume, false, "should not resume session with deleted agent");
@@ -323,7 +323,7 @@ describe("SessionManager agentId mismatch detection", () => {
 
   it("creates fresh session when no stored session exists", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const result = manager.resolveStoredSession("new-chat", "main");
     assert.strictEqual(result.resume, false, "should not resume non-existent session");
@@ -342,7 +342,7 @@ describe("SessionManager agentId mismatch detection", () => {
       lastActivity: Date.now(),
     });
 
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     const result = manager.resolveStoredSession("chat-1", "main");
     assert.strictEqual(result.resume, false, "should not resume empty sessionId");
   });
@@ -351,7 +351,7 @@ describe("SessionManager agentId mismatch detection", () => {
 describe("SessionManager idle timer logic", () => {
   it("resetIdleTimer is safe for unknown chatId", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     // Should not throw
     manager.resetIdleTimer("unknown");
   });
@@ -366,7 +366,7 @@ describe("SessionManager LRU eviction logic", () => {
       ...testConfig,
       sessionDefaults: { ...testConfig.sessionDefaults, maxConcurrentSessions: 1 },
     };
-    const manager = new SessionManager(restrictedConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => restrictedConfig, TEST_STORE_PATH);
     // Just verify construction works with the limit
     assert.strictEqual(manager.getActiveCount(), 0);
   });
@@ -410,7 +410,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
   it("yields lines in real-time before response completes", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // Create a mock child process (no auto-init emission)
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -490,7 +490,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
   it("propagates errors from the queue task", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // Create a child with a destroyed stdin to trigger an error in sendMessage
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -543,7 +543,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
   it("throws when subprocess dies before sending result", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // Create a mock child that will die mid-stream (stdout closes without result)
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -607,7 +607,7 @@ describe("SessionManager sendSessionMessage streaming", () => {
   it("catches EPIPE on stdin without crashing the process", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // Create a child that looks alive but whose stdin emits EPIPE on write
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -771,7 +771,7 @@ describe("setupStderrLogging", () => {
 
   it("captures stderr data that arrives after exit event", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
 
     // Create mock child with a PassThrough as stderr
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -808,7 +808,7 @@ describe("setupStderrLogging", () => {
   it("creates log directory if it does not exist", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const nestedDir = `${TEST_DIR}/nested/deep/logs`;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH, nestedDir);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH, nestedDir);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     const stderr = new PassThrough();
@@ -829,7 +829,7 @@ describe("setupStderrLogging", () => {
 
   it("appends to existing log file", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
     mkdirSync(STDERR_LOG_DIR, { recursive: true });
 
     // First child writes some output
@@ -863,7 +863,7 @@ describe("setupStderrLogging", () => {
 
   it("skips logging when child has no stderr", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
 
     // Create a mock child with null stderr
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -880,7 +880,7 @@ describe("setupStderrLogging", () => {
   it("crash recovery does not interfere with stderr capture", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
 
     // Create a mock child that simulates a crash
     const child = new EventEmitter() as unknown as ChildProcess;
@@ -955,7 +955,7 @@ describe("setupStderrLogging", () => {
 
   it("captures large stderr output without truncation", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH, STDERR_LOG_DIR);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     const stderr = new PassThrough();
@@ -995,14 +995,14 @@ describe("SessionManager.getSessionHealth", () => {
 
   it("returns undefined for unknown chatId", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     assert.strictEqual(manager.getSessionHealth("unknown"), undefined);
   });
 
   it("returns health info for an alive session", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1046,7 +1046,7 @@ describe("SessionManager.getSessionHealth", () => {
   it("returns processing duration when session is processing", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1083,7 +1083,7 @@ describe("SessionManager.getSessionHealth", () => {
   it("reports dead when child has exited", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1118,7 +1118,7 @@ describe("SessionManager.getSessionHealth", () => {
   it("reports dead when child was killed", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1153,7 +1153,7 @@ describe("SessionManager.getSessionHealth", () => {
   it("handles null PID gracefully", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1200,7 +1200,7 @@ describe("ActiveSession health fields tracked in sendSessionMessage", () => {
   it("sets processingStartedAt during processing and clears after result", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     const stdout = new Readable({ read() {} });
@@ -1273,7 +1273,7 @@ describe("SessionManager crash backoff", () => {
 
   it("blocks session after MAX_CRASH_RESTARTS consecutive crashes", async () => {
     const { SessionManager, MAX_CRASH_RESTARTS } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // Simulate crash count reaching the limit by injecting restartCounts directly
     const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
@@ -1287,7 +1287,7 @@ describe("SessionManager crash backoff", () => {
 
   it("does not block session below MAX_CRASH_RESTARTS", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
     // Use crash count 1 (not MAX-1) to keep backoff delay short (5s vs 40s)
@@ -1309,7 +1309,7 @@ describe("SessionManager crash backoff", () => {
   it("crash count increments in setupCrashRecovery on abnormal exit", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1373,7 +1373,7 @@ describe("SessionManager crash backoff", () => {
   it("does not increment crash count for SIGTERM exits", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const child = new EventEmitter() as unknown as ChildProcess;
     Object.assign(child, {
@@ -1413,7 +1413,7 @@ describe("SessionManager crash backoff", () => {
   it("resets crash count on successful result", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const PQueue = (await import("p-queue")).default;
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     // Set up a session with accumulated crash count
     const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
@@ -1478,7 +1478,7 @@ describe("SessionManager crash backoff", () => {
 
   it("closeSession clears crash count", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
     restartCounts.set("close-chat", 4);
@@ -1532,14 +1532,14 @@ describe("SessionManager gracefulShutdown", () => {
 
   it("returns immediately with no active sessions", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     await manager.gracefulShutdown(5000);
     assert.strictEqual(manager.getActiveCount(), 0);
   });
 
   it("returns immediately when active sessions are idle (not processing)", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const injectDir = `${TEST_DIR}/inject-idle`;
     mkdirSync(injectDir, { recursive: true });
@@ -1552,7 +1552,7 @@ describe("SessionManager gracefulShutdown", () => {
 
   it("writes shutdown inject file for busy sessions", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const injectDir = `${TEST_DIR}/inject-busy`;
     mkdirSync(injectDir, { recursive: true });
@@ -1577,7 +1577,7 @@ describe("SessionManager gracefulShutdown", () => {
 
   it("waits for busy session to finish within timeout", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const injectDir = `${TEST_DIR}/inject-wait`;
     mkdirSync(injectDir, { recursive: true });
@@ -1607,7 +1607,7 @@ describe("SessionManager gracefulShutdown", () => {
 
   it("times out for sessions that exceed the deadline", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const injectDir = `${TEST_DIR}/inject-timeout`;
     mkdirSync(injectDir, { recursive: true });
@@ -1636,7 +1636,7 @@ describe("SessionManager gracefulShutdown", () => {
 
   it("handles mix of idle and busy sessions", async () => {
     const { SessionManager } = await import("../session-manager.js");
-    const manager = new SessionManager(testConfig, TEST_STORE_PATH);
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
 
     const idleInjectDir = `${TEST_DIR}/inject-mix-idle`;
     const busyInjectDir = `${TEST_DIR}/inject-mix-busy`;
