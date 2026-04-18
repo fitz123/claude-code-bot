@@ -6,6 +6,7 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
+import { allocateMediaPath, enforceMediaCap } from "./media-store.js";
 import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
@@ -795,8 +796,9 @@ export function createTelegramBot(
       const file = await ctx.api.getFile(largest.file_id);
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
-      tempPath = tempFilePath("photo", ".jpg");
+      tempPath = allocateMediaPath(key, "photo", ".jpg");
       await downloadFile(url, tempPath);
+      enforceMediaCap(config.sessionDefaults.maxMediaBytes);
 
       // Build message: caption (if any) + image file path
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
@@ -808,12 +810,9 @@ export function createTelegramBot(
         ? `${context}${caption.trimEnd()}\n\n${tempPath}`
         : `${context}${tempPath}`;
 
-      // Cleanup callback runs after the queue finishes processing this message
-      const pathToClean = tempPath;
+      // File persists for the session lifetime so follow-up turns can reference it.
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults), () => {
-        cleanupTempFile(pathToClean);
-      });
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
     } catch (err) {
       log.error("telegram-bot", `Photo handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
@@ -871,8 +870,9 @@ export function createTelegramBot(
       } else {
         ext = extensionForDocument(doc.file_name, doc.mime_type);
       }
-      tempPath = tempFilePath(anim ? "animation" : "doc", ext);
+      tempPath = allocateMediaPath(key, anim ? "animation" : "doc", ext);
       await downloadFile(url, tempPath);
+      enforceMediaCap(config.sessionDefaults.maxMediaBytes);
 
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
@@ -894,11 +894,9 @@ export function createTelegramBot(
           : `${context}${meta}\n${tempPath}`;
       }
 
-      const pathToClean = tempPath;
+      // File persists for the session lifetime so follow-up turns can reference it.
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults), () => {
-        cleanupTempFile(pathToClean);
-      });
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
     } catch (err) {
       log.error("telegram-bot", `${anim ? "Animation" : "Document"} handling error for chat ${chatId}:`, err);
       await ctx.reply(`Failed to process ${anim ? "animation" : "document"}. Please try again.`).catch(() => {});
@@ -944,8 +942,9 @@ export function createTelegramBot(
       if (!file.file_path) throw new Error("Telegram did not return a file path");
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       const ext = extensionForMedia(media, mediaType);
-      tempPath = tempFilePath(mediaType, ext);
+      tempPath = allocateMediaPath(key, mediaType, ext);
       await downloadFile(url, tempPath);
+      enforceMediaCap(config.sessionDefaults.maxMediaBytes);
 
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
@@ -957,11 +956,9 @@ export function createTelegramBot(
         ? `${context}${caption.trimEnd()}\n\n${meta}\n${tempPath}`
         : `${context}${meta}\n${tempPath}`;
 
-      const pathToClean = tempPath;
+      // File persists for the session lifetime so follow-up turns can reference it.
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults), () => {
-        cleanupTempFile(pathToClean);
-      });
+      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
     } catch (err) {
       log.error("telegram-bot", `${typeLabel} handling error for chat ${chatId}:`, err);
       await ctx.reply(`Failed to process ${typeLabel.toLowerCase()}. Please try again.`).catch(() => {});

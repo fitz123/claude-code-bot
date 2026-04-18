@@ -1275,6 +1275,7 @@ describe("command handler wiring", () => {
       maxConcurrentSessions: 2,
       maxMessageAgeMs: 300000,
       requireMention: false,
+      maxMediaBytes: 209715200,
     },
   };
 

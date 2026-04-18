@@ -60,6 +60,11 @@ sessionDefaults:
   maxConcurrentSessions: 12           # default
   maxMessageAgeMs: 600000             # 10 min — discard stale messages on restart (default)
   # requireMention: true              # global default for @mention gating in groups (default: true; per-binding overrides)
+  # maxMediaBytes: 209715200          # 200 MB global cap for downloaded photos/docs retained across turns
+                                      # (default: 209715200 = 10× the 20 MB Telegram per-file limit).
+                                      # Files persist under /tmp/bot-media/<chatId>/ until session close;
+                                      # when this cap is exceeded, oldest files across all sessions are evicted first.
+                                      # Bump this if agents in long-lived sessions frequently reference old media.
 
 metricsPort: 9091
 

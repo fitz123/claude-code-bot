@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults, DiscordBinding, DiscordChannelOverride, DiscordConfig } from "./types.js";
 import { log, parseLogLevel } from "./logger.js";
+import { DEFAULT_MAX_MEDIA_BYTES } from "./media-store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
@@ -268,7 +269,7 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
 
 export function validateSessionDefaults(raw: unknown): SessionDefaults {
   if (typeof raw !== "object" || raw === null) {
-    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, requireMention: true };
+    return { idleTimeoutMs: 3600000, maxConcurrentSessions: 12, maxMessageAgeMs: 600000, requireMention: true, maxMediaBytes: DEFAULT_MAX_MEDIA_BYTES };
   }
   const obj = raw as Record<string, unknown>;
 
@@ -304,7 +305,15 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
     requireMention = obj.requireMention;
   }
 
-  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, requireMention };
+  let maxMediaBytes = DEFAULT_MAX_MEDIA_BYTES;
+  if (obj.maxMediaBytes !== undefined) {
+    if (typeof obj.maxMediaBytes !== "number" || !Number.isFinite(obj.maxMediaBytes) || obj.maxMediaBytes <= 0) {
+      throw new Error(`Invalid maxMediaBytes: ${obj.maxMediaBytes} (must be a finite positive number)`);
+    }
+    maxMediaBytes = obj.maxMediaBytes;
+  }
+
+  return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, requireMention, maxMediaBytes };
 }
 
 export function loadConfig(configPath?: string): BotConfig {

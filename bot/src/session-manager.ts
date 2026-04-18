@@ -10,6 +10,7 @@ import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
+import { ensureSessionMediaDir, cleanupSessionMediaDir } from "./media-store.js";
 
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const OUTBOX_BASE = "/tmp/bot-outbox";
@@ -49,6 +50,8 @@ export interface ActiveSession {
   outboxPath: string;
   /** Per-session inject directory for mid-turn message delivery. */
   injectDir: string;
+  /** Per-session media directory: downloaded photos/documents persist here until session close. */
+  mediaPath: string;
 }
 
 export interface SessionHealth {
@@ -214,6 +217,11 @@ export class SessionManager {
     cleanupInjectDir(injectPath);
     mkdirSync(injectPath, { recursive: true });
 
+    // Ensure media directory exists (do NOT wipe: a photo may have been
+    // downloaded into it moments before this spawn was triggered).
+    // Cleanup happens on session close, crash recovery, and via the global cap.
+    const mediaPath = ensureSessionMediaDir(chatId);
+
     // Spawn the claude subprocess
     const child = spawnClaudeSession({
       agent,
@@ -267,6 +275,7 @@ export class SessionManager {
       restartCount,
       outboxPath,
       injectDir: injectPath,
+      mediaPath,
     };
 
     this.active.set(chatId, session);
@@ -447,7 +456,7 @@ export class SessionManager {
     this.active.delete(chatId);
     sessionsActive.dec();
 
-    // Clean up outbox and inject directories
+    // Clean up outbox, inject, and media directories
     try {
       rmSync(session.outboxPath, { recursive: true, force: true });
     } catch {
@@ -455,6 +464,11 @@ export class SessionManager {
     }
     try {
       cleanupInjectDir(session.injectDir);
+    } catch {
+      // Ignore cleanup errors
+    }
+    try {
+      cleanupSessionMediaDir(chatId);
     } catch {
       // Ignore cleanup errors
     }
@@ -638,6 +652,8 @@ export class SessionManager {
 
       // Clean up inject directory (stale files would confuse next spawn)
       try { cleanupInjectDir(session.injectDir); } catch { /* ignore */ }
+      // Clean up media directory — files are scoped to this session's lifetime
+      try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
 
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
         sessionCrashes.inc({ agent_id: session.agentId });

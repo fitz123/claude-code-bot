@@ -40,6 +40,7 @@ const testConfig: BotConfig = {
     maxConcurrentSessions: 2,
     maxMessageAgeMs: 300000,
     requireMention: false,
+    maxMediaBytes: 209715200,
   },
 };
 
@@ -1540,6 +1541,7 @@ describe("SessionManager gracefulShutdown", () => {
       restartCount: 0,
       outboxPath: `${TEST_DIR}/outbox-${chatId}`,
       injectDir: opts.injectDir,
+      mediaPath: `${TEST_DIR}/media-${chatId}`,
     });
 
     return { queue, child };

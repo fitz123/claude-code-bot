@@ -107,13 +107,13 @@ cleanupInjectDir(session.injectDir);
 
 **What we want.** Within a single agent session, downloaded media stays readable for follow-up questions referencing the path. When the session ends (idle close, restart), media for that session is reclaimed. A global safety cap prevents unbounded disk growth if many large files arrive in a long-lived session. Voice files keep their current immediate-cleanup behavior — the audio file is never referenced after transcription, only the transcript text enters context.
 
-- [ ] Photos referenced by a previous turn in the same session can still be read by the agent in a later turn (no missing-file error on follow-up)
-- [ ] Documents and animations behave the same: re-readable across turns within the session
-- [ ] Voice messages continue to be cleaned up immediately after transcription (no behavior change for voice)
-- [ ] When the session closes (idle timeout, explicit close, restart, crash), all media files belonging to that session are removed from disk
-- [ ] A configurable global cap on total media bytes across all sessions is enforced; when exceeded, oldest files are evicted first
-- [ ] The default cap is at least 200 MB (10× the 20 MB Telegram per-file limit) and is documented in the public config example with a comment explaining how to tune it
-- [ ] Files written for one chat/session are never readable by another session (no cross-session leakage of paths)
-- [ ] Photo and document download error paths still clean up partial files (today's `if (tempPath) cleanupTempFile(tempPath)` behavior is preserved)
-- [ ] Add tests covering: file persists across turns within a session, file is removed on session close, eviction kicks in when the global cap is exceeded, voice files are still removed immediately
-- [ ] Verify existing tests pass
+- [x] Photos referenced by a previous turn in the same session can still be read by the agent in a later turn (no missing-file error on follow-up)
+- [x] Documents and animations behave the same: re-readable across turns within the session
+- [x] Voice messages continue to be cleaned up immediately after transcription (no behavior change for voice)
+- [x] When the session closes (idle timeout, explicit close, restart, crash), all media files belonging to that session are removed from disk
+- [x] A configurable global cap on total media bytes across all sessions is enforced; when exceeded, oldest files are evicted first
+- [x] The default cap is at least 200 MB (10× the 20 MB Telegram per-file limit) and is documented in the public config example with a comment explaining how to tune it
+- [x] Files written for one chat/session are never readable by another session (no cross-session leakage of paths)
+- [x] Photo and document download error paths still clean up partial files (today's `if (tempPath) cleanupTempFile(tempPath)` behavior is preserved)
+- [x] Add tests covering: file persists across turns within a session, file is removed on session close, eviction kicks in when the global cap is exceeded, voice files are still removed immediately
+- [x] Verify existing tests pass (949/950 pass; the 1 failure is a pre-existing WHISPER_MODEL env-var mismatch unrelated to this change)
