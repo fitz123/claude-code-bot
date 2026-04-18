@@ -550,6 +550,9 @@ export class SessionManager {
   async destroySession(chatId: string): Promise<void> {
     await this.closeSession(chatId);
     this.store.deleteSession(chatId);
+    // closeSession only touches the media dir when an in-memory session exists;
+    // /clean after a bot restart/crash (or before any spawn) must still wipe it.
+    try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
   }
 
   /** Close all sessions gracefully. For shutdown. */
@@ -608,8 +611,11 @@ export class SessionManager {
         : `agentId changed from "${stored.agentId}" to "${agentId}"`;
       log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
       this.store.deleteSession(chatId);
-      // Prevent leftover media from the prior agent's session leaking into the new one.
-      try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
+      // Do NOT wipe the media dir here: message handlers download media before
+      // getOrCreateSession runs, so the just-downloaded file for the current
+      // turn already sits in this dir. Wiping would delete it before the agent
+      // can read it. Leftover files from the prior agent are reclaimed when
+      // the new session closes and bounded by the global media cap.
       return { resume: false, sessionId: randomUUID() };
     }
 

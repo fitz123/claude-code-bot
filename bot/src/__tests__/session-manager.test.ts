@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { Readable, Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
@@ -132,6 +132,49 @@ describe("SessionManager", () => {
     const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
     // Should not throw
     await manager.destroySession("nonexistent");
+  });
+
+  it("destroySession wipes media dir even when no active session exists", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { sessionMediaDir, ensureSessionMediaDir } = await import("../media-store.js");
+
+    // Simulate post-crash state: media dir populated but no in-memory session
+    const dir = ensureSessionMediaDir("chat-orphan-media");
+    const filePath = `${dir}/leftover.jpg`;
+    writeFileSync(filePath, "stale");
+    assert.ok(existsSync(filePath), "precondition: leftover file exists");
+
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
+    await manager.destroySession("chat-orphan-media");
+
+    assert.ok(!existsSync(filePath), "destroySession must remove leftover media");
+    assert.ok(!existsSync(sessionMediaDir("chat-orphan-media")), "media dir should be gone");
+  });
+
+  it("resolveStoredSession does NOT wipe media dir on agent mismatch (preserves current-turn download)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+    const { ensureSessionMediaDir } = await import("../media-store.js");
+
+    // Pre-populate store with a session using "main" agent
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-race", {
+      sessionId: "old-session-id",
+      chatId: "chat-race",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    // Simulate handler having already downloaded media for the current turn
+    const dir = ensureSessionMediaDir("chat-race");
+    const justDownloaded = `${dir}/photo-current-turn.jpg`;
+    writeFileSync(justDownloaded, "current");
+
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
+    const result = manager.resolveStoredSession("chat-race", "agent-b");
+
+    assert.strictEqual(result.resume, false, "mismatched agent should not resume");
+    assert.ok(existsSync(justDownloaded), "current-turn download must survive mismatch resolution");
   });
 
   it("closeSession preserves stored state (reconnect can resume)", async () => {
