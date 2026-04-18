@@ -94,18 +94,18 @@ Case 2 is where operators get hurt: the naive `bootout` + `bootstrap` sequence h
 
 **What we want.** A single supported, scripted entry point that an operator (or automation) can invoke to restart the bot safely, covering both cases. After the restart, the bot is running and — in case 2 — actually reflects the on-disk plist.
 
-- [ ] There is an executable script in `bot/scripts/` that operators invoke to restart the bot. Exact name and CLI are the implementer's choice, but the name and usage MUST be referenced verbatim from the updated rule in Task 2 (one contract, one source of truth).
-- [ ] Default / zero-argument invocation performs a graceful restart suitable for case 1 (code/config changes only); it sends SIGTERM, waits for the old process to exit, and returns successfully once a new PID is running.
-- [ ] There is a clearly named mode (flag, subcommand, or separate script — implementer's choice) that performs case 2: after the script finishes successfully, the running bot process reflects the current on-disk plist (verifiable via `sudo launchctl procinfo <pid>` showing any new `EnvironmentVariables` from the plist).
-- [ ] The script tolerates variable session-drain time — including the full 60-second shutdown window — without racing launchd's teardown and without relying on a fixed `sleep`. Simulating a slow shutdown (e.g. a stub that delays exit) must not cause false-positive or false-negative exits.
-- [ ] The script never sends SIGKILL and never invokes `launchctl kickstart -k` or equivalent; graceful shutdown is not bypassable.
-- [ ] On success the script prints the new PID and exits 0; on any failure to shut down or to bring the service back up, it prints a clear diagnostic and exits non-zero.
-- [ ] Invoking with `-h` / `--help` or an unknown argument prints usage and exits with an appropriate status.
-- [ ] Style is consistent with other shell scripts in `bot/scripts/` (see `deliver.sh`, `run-cron.sh`).
-- [ ] `shellcheck` produces no errors on the new script (warnings acceptable if justified inline).
-- [ ] Before any restart action the script runs config validation (`npx tsx bot/src/config.ts --validate` or equivalent for the case being applied) and aborts with a non-zero exit and a clear diagnostic if validation fails — the bot is never restarted with a broken config
-- [ ] Automated test harness covers: (a) graceful path returns the new PID and exits 0; (b) plist-change mode results in the on-disk plist being reflected after success; (c) a slow-shutdown stub that delays exit up to the full 60-second drain window does not cause the script to race launchd's teardown or exit early; (d) a deliberately broken config aborts the restart before any SIGTERM is sent
-- [ ] Verify existing tests pass
+- [x] There is an executable script in `bot/scripts/` that operators invoke to restart the bot. Exact name and CLI are the implementer's choice, but the name and usage MUST be referenced verbatim from the updated rule in Task 2 (one contract, one source of truth).
+- [x] Default / zero-argument invocation performs a graceful restart suitable for case 1 (code/config changes only); it sends SIGTERM, waits for the old process to exit, and returns successfully once a new PID is running.
+- [x] There is a clearly named mode (flag, subcommand, or separate script — implementer's choice) that performs case 2: after the script finishes successfully, the running bot process reflects the current on-disk plist (verifiable via `sudo launchctl procinfo <pid>` showing any new `EnvironmentVariables` from the plist).
+- [x] The script tolerates variable session-drain time — including the full 60-second shutdown window — without racing launchd's teardown and without relying on a fixed `sleep`. Simulating a slow shutdown (e.g. a stub that delays exit) must not cause false-positive or false-negative exits.
+- [x] The script never sends SIGKILL and never invokes `launchctl kickstart -k` or equivalent; graceful shutdown is not bypassable.
+- [x] On success the script prints the new PID and exits 0; on any failure to shut down or to bring the service back up, it prints a clear diagnostic and exits non-zero.
+- [x] Invoking with `-h` / `--help` or an unknown argument prints usage and exits with an appropriate status.
+- [x] Style is consistent with other shell scripts in `bot/scripts/` (see `deliver.sh`, `run-cron.sh`).
+- [x] `shellcheck` produces no errors on the new script (warnings acceptable if justified inline).
+- [x] Before any restart action the script runs config validation (`npx tsx bot/src/config.ts --validate` or equivalent for the case being applied) and aborts with a non-zero exit and a clear diagnostic if validation fails — the bot is never restarted with a broken config
+- [x] Automated test harness covers: (a) graceful path returns the new PID and exits 0; (b) plist-change mode results in the on-disk plist being reflected after success; (c) a slow-shutdown stub that delays exit up to the full 60-second drain window does not cause the script to race launchd's teardown or exit early; (d) a deliberately broken config aborts the restart before any SIGTERM is sent
+- [x] Verify existing tests pass
 
 ### Task 2: Recommend the script in `.claude/rules/platform/bot-operations.md` (#100, P1)
 
