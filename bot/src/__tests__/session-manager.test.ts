@@ -1541,7 +1541,6 @@ describe("SessionManager gracefulShutdown", () => {
       restartCount: 0,
       outboxPath: `${TEST_DIR}/outbox-${chatId}`,
       injectDir: opts.injectDir,
-      mediaPath: `${TEST_DIR}/media-${chatId}`,
     });
 
     return { queue, child };

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { validateSessionDefaults, validateAgent, loadConfig } from "../config.js";
+import { DEFAULT_MAX_MEDIA_BYTES } from "../media-store.js";
 
 const TEST_DIR = join("/tmp", "config-defaults-test-" + Date.now());
 
@@ -13,6 +14,7 @@ describe("validateSessionDefaults", () => {
     assert.strictEqual(defaults.maxConcurrentSessions, 12);
     assert.strictEqual(defaults.maxMessageAgeMs, 600000);
     assert.strictEqual(defaults.requireMention, true);
+    assert.strictEqual(defaults.maxMediaBytes, DEFAULT_MAX_MEDIA_BYTES);
   });
 
   it("returns production defaults when input is undefined", () => {
@@ -117,6 +119,30 @@ describe("validateSessionDefaults", () => {
       () => validateSessionDefaults({ requireMention: 1 }),
       /Invalid requireMention/,
     );
+  });
+
+  it("throws on invalid maxMediaBytes", () => {
+    assert.throws(
+      () => validateSessionDefaults({ maxMediaBytes: 0 }),
+      /Invalid maxMediaBytes/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ maxMediaBytes: -1 }),
+      /Invalid maxMediaBytes/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ maxMediaBytes: Infinity }),
+      /Invalid maxMediaBytes/,
+    );
+    assert.throws(
+      () => validateSessionDefaults({ maxMediaBytes: "big" }),
+      /Invalid maxMediaBytes/,
+    );
+  });
+
+  it("allows overriding maxMediaBytes", () => {
+    const defaults = validateSessionDefaults({ maxMediaBytes: 1024 });
+    assert.strictEqual(defaults.maxMediaBytes, 1024);
   });
 });
 

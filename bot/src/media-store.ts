@@ -33,21 +33,40 @@ export function allocateMediaPath(chatId: string, prefix: string, extension: str
  * Evict oldest files (by mtime) across all session media dirs until total bytes ≤ maxBytes.
  * Empty session dirs are left in place; they're reclaimed on session close.
  */
+function isMissingErr(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "ENOENT";
+}
+
 export function enforceMediaCap(maxBytes: number): void {
   if (!existsSync(MEDIA_BASE)) return;
 
   const files: { path: string; size: number; mtime: number }[] = [];
-  for (const chatEntry of readdirSync(MEDIA_BASE, { withFileTypes: true })) {
+  let chatEntries;
+  try {
+    chatEntries = readdirSync(MEDIA_BASE, { withFileTypes: true });
+  } catch (err) {
+    if (isMissingErr(err)) return;
+    throw err;
+  }
+  for (const chatEntry of chatEntries) {
     if (!chatEntry.isDirectory()) continue;
     const dir = join(MEDIA_BASE, chatEntry.name);
-    for (const fileEntry of readdirSync(dir, { withFileTypes: true })) {
+    let fileEntries;
+    try {
+      fileEntries = readdirSync(dir, { withFileTypes: true });
+    } catch (err) {
+      // Session dir may have been removed concurrently (cleanup on close).
+      if (isMissingErr(err)) continue;
+      throw err;
+    }
+    for (const fileEntry of fileEntries) {
       if (!fileEntry.isFile()) continue;
       const path = join(dir, fileEntry.name);
       try {
         const stat = statSync(path);
         files.push({ path, size: stat.size, mtime: stat.mtimeMs });
-      } catch {
-        // File vanished mid-scan — ignore
+      } catch (err) {
+        if (!isMissingErr(err)) throw err;
       }
     }
   }
@@ -63,8 +82,8 @@ export function enforceMediaCap(maxBytes: number): void {
       unlinkSync(f.path);
       total -= f.size;
       log.debug("media-store", `Evicted ${f.path} (${f.size} bytes) to stay under cap`);
-    } catch {
-      // File already gone — ignore
+    } catch (err) {
+      if (!isMissingErr(err)) throw err;
     }
   }
 }

@@ -50,8 +50,6 @@ export interface ActiveSession {
   outboxPath: string;
   /** Per-session inject directory for mid-turn message delivery. */
   injectDir: string;
-  /** Per-session media directory: downloaded photos/documents persist here until session close. */
-  mediaPath: string;
 }
 
 export interface SessionHealth {
@@ -220,7 +218,7 @@ export class SessionManager {
     // Ensure media directory exists (do NOT wipe: a photo may have been
     // downloaded into it moments before this spawn was triggered).
     // Cleanup happens on session close, crash recovery, and via the global cap.
-    const mediaPath = ensureSessionMediaDir(chatId);
+    ensureSessionMediaDir(chatId);
 
     // Spawn the claude subprocess
     const child = spawnClaudeSession({
@@ -275,7 +273,6 @@ export class SessionManager {
       restartCount,
       outboxPath,
       injectDir: injectPath,
-      mediaPath,
     };
 
     this.active.set(chatId, session);
@@ -611,6 +608,8 @@ export class SessionManager {
         : `agentId changed from "${stored.agentId}" to "${agentId}"`;
       log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
       this.store.deleteSession(chatId);
+      // Prevent leftover media from the prior agent's session leaking into the new one.
+      try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
       return { resume: false, sessionId: randomUUID() };
     }
 
