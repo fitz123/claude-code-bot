@@ -33,13 +33,6 @@ async function main(): Promise<void> {
   restoreThreadCache();
   restoreMessageIndex();
 
-  // Wipe media dir from prior process: session-scoped lifetime means files from
-  // a previous run must not leak into new sessions (e.g. after agent binding
-  // change, or orphaned debounce-pending downloads from a crashed instance).
-  try { cleanupAllMedia(); } catch (err) {
-    log.warn("main", `Failed to clean prior media dir: ${(err as Error).message}`);
-  }
-
   const sessionManager = new SessionManager(loadConfig);
   log.info("main", "Session manager initialized");
 
@@ -150,6 +143,13 @@ async function main(): Promise<void> {
             clearTimeout(startupTimeout);
             setBotUsername(botInfo.username);
             log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
+            // Wipe media dir only after polling ownership is confirmed. Doing this
+            // before bot.start() would clobber an overlapping live instance's files
+            // during the 409-retry window; grammY awaits onStart before dispatching
+            // handlers, so no in-flight handler can race the wipe here.
+            try { cleanupAllMedia(); } catch (err) {
+              log.warn("main", `Failed to clean prior media dir: ${(err as Error).message}`);
+            }
             if (watchdog) watchdog.start();
             try {
               await bot.api.setMyCommands(BOT_COMMANDS);
