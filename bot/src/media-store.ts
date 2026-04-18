@@ -16,7 +16,10 @@ export function sessionMediaDir(chatId: string): string {
 
 export function ensureSessionMediaDir(chatId: string): string {
   const dir = sessionMediaDir(chatId);
-  mkdirSync(dir, { recursive: true });
+  // mode 0o700: only the bot user can traverse/list. On shared hosts this
+  // prevents other local users from enumerating filenames of downloaded media.
+  mkdirSync(MEDIA_BASE, { recursive: true, mode: 0o700 });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }
 
@@ -38,6 +41,8 @@ function isMissingErr(err: unknown): boolean {
 }
 
 export function enforceMediaCap(maxBytes: number): void {
+  // Best-effort housekeeping: never throw. An unrelated permission/IO error
+  // in another chat's dir must not fail the current download-enqueue path.
   if (!existsSync(MEDIA_BASE)) return;
 
   const files: { path: string; size: number; mtime: number }[] = [];
@@ -45,8 +50,10 @@ export function enforceMediaCap(maxBytes: number): void {
   try {
     chatEntries = readdirSync(MEDIA_BASE, { withFileTypes: true });
   } catch (err) {
-    if (isMissingErr(err)) return;
-    throw err;
+    if (!isMissingErr(err)) {
+      log.warn("media-store", `Failed to scan ${MEDIA_BASE}: ${(err as Error).message}`);
+    }
+    return;
   }
   for (const chatEntry of chatEntries) {
     if (!chatEntry.isDirectory()) continue;
@@ -56,8 +63,10 @@ export function enforceMediaCap(maxBytes: number): void {
       fileEntries = readdirSync(dir, { withFileTypes: true });
     } catch (err) {
       // Session dir may have been removed concurrently (cleanup on close).
-      if (isMissingErr(err)) continue;
-      throw err;
+      if (!isMissingErr(err)) {
+        log.warn("media-store", `Failed to scan ${dir}: ${(err as Error).message}`);
+      }
+      continue;
     }
     for (const fileEntry of fileEntries) {
       if (!fileEntry.isFile()) continue;
@@ -66,7 +75,9 @@ export function enforceMediaCap(maxBytes: number): void {
         const stat = statSync(path);
         files.push({ path, size: stat.size, mtime: stat.mtimeMs });
       } catch (err) {
-        if (!isMissingErr(err)) throw err;
+        if (!isMissingErr(err)) {
+          log.warn("media-store", `Failed to stat ${path}: ${(err as Error).message}`);
+        }
       }
     }
   }
@@ -83,7 +94,13 @@ export function enforceMediaCap(maxBytes: number): void {
       total -= f.size;
       log.debug("media-store", `Evicted ${f.path} (${f.size} bytes) to stay under cap`);
     } catch (err) {
-      if (!isMissingErr(err)) throw err;
+      if (!isMissingErr(err)) {
+        log.warn("media-store", `Failed to evict ${f.path}: ${(err as Error).message}`);
+      }
     }
+  }
+
+  if (total > maxBytes) {
+    log.warn("media-store", `Media cap ${maxBytes} exceeded: ${total} bytes remain after eviction sweep`);
   }
 }

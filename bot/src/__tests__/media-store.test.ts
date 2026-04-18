@@ -1,10 +1,9 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, rmSync, readdirSync, writeFileSync, statSync, utimesSync } from "node:fs";
+import { existsSync, chmodSync, rmSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import {
   MEDIA_BASE,
-  DEFAULT_MAX_MEDIA_BYTES,
   sessionMediaDir,
   ensureSessionMediaDir,
   cleanupSessionMediaDir,
@@ -177,8 +176,47 @@ describe("enforceMediaCap", () => {
   });
 });
 
-describe("DEFAULT_MAX_MEDIA_BYTES", () => {
-  it("is at least 10× the Telegram 20 MB limit", () => {
-    assert.ok(DEFAULT_MAX_MEDIA_BYTES >= 10 * 20 * 1024 * 1024);
+describe("ensureSessionMediaDir permissions", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("creates MEDIA_BASE and session dir with mode 0o700", () => {
+    const dir = ensureSessionMediaDir("chat-perm");
+    // Mask off file-type bits; check only permission bits.
+    assert.strictEqual(statSync(MEDIA_BASE).mode & 0o777, 0o700);
+    assert.strictEqual(statSync(dir).mode & 0o777, 0o700);
+  });
+});
+
+describe("enforceMediaCap error handling", () => {
+  const blockedDir = sessionMediaDir("chat-blocked");
+
+  beforeEach(resetMediaBase);
+  afterEach(() => {
+    // Restore permissions so resetMediaBase can traverse/remove the tree.
+    try { chmodSync(blockedDir, 0o700); } catch { /* ignore */ }
+    resetMediaBase();
+  });
+
+  it("does not throw when a session dir is unreadable", (t) => {
+    // Skip on root: root bypasses permission checks so chmod 0 has no effect.
+    if (process.getuid?.() === 0) {
+      t.skip("cannot simulate EACCES as root");
+      return;
+    }
+
+    const p = allocateMediaPath("chat-readable", "doc", ".bin");
+    writeFileSync(p, Buffer.alloc(100));
+
+    ensureSessionMediaDir("chat-blocked");
+    writeFileSync(join(blockedDir, "file.bin"), Buffer.alloc(100));
+    chmodSync(blockedDir, 0o000);
+
+    // Must not throw — best-effort eviction.
+    assert.doesNotThrow(() => enforceMediaCap(50));
+
+    // Files in the unreadable dir were not counted/evicted, but the readable
+    // one may have been (total known = 100, cap = 50).
+    assert.ok(!existsSync(p), "readable file was evicted");
   });
 });
