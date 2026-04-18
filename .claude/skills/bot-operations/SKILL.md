@@ -4,20 +4,20 @@ Reference for Telegram bot and cron system management.
 
 ## Bot Restart
 
-1. Validate config: `cd ~/.minime/workspace/bot && npx tsx src/config.ts --validate`
-2. Report result and reason to Ninja
-3. Wait for explicit confirmation
-4. Graceful restart: `launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot`
-5. Wait for drain: check logs for `All sessions closed. Exiting.` (up to 60s)
-6. Verify: `launchctl list | grep ai.minime.telegram-bot` — new PID, exit 0 (note: stale exit code during drain window is normal, wait for step 5 first)
+1. Report intent and reason to Ninja
+2. Wait for explicit confirmation
+3. Restart via the canonical script (it validates config, sends SIGTERM, polls launchd teardown, returns the new PID):
+   - Code or `config.yaml` / `config.local.yaml` changes: `bot/scripts/restart-bot.sh`
+   - Plist-on-disk changes (`~/Library/LaunchAgents/ai.minime.telegram-bot.plist`): `bot/scripts/restart-bot.sh --plist`
+   - Usage: `bot/scripts/restart-bot.sh -h`
 
-Bot injects shutdown message into active sessions, waits up to 60s for turns to complete, then launchd auto-restarts (KeepAlive=true).
+Bot injects shutdown message into active sessions, waits up to 60s for turns to complete, then launchd auto-restarts (KeepAlive=true). The script polls until the old PID is gone and a new PID is running — do not conclude failure from `launchctl list` output mid-drain.
 
 **Never use:**
 - `launchctl kickstart -k` — sends SIGKILL, kills sessions mid-turn
-- `launchctl bootout` after SIGTERM — removes service definition, prevents auto-restart
+- Raw `launchctl bootout` paired with immediate `bootstrap` — async teardown races bootstrap and can leave the service unregistered (2026-04-18 incident, 17 min outage). Use `--plist` mode instead.
 
-**If auto-restart fails** (>90s, no new PID): `launchctl load ~/Library/LaunchAgents/ai.minime.telegram-bot.plist`
+**If the script fails** or auto-restart doesn't happen (>90s, no new PID), rerun `bot/scripts/restart-bot.sh --plist`. If that still fails, fall back to `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.plist`. If that doesn't work — ask Ninja.
 
 ## Config Changes
 
