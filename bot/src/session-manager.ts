@@ -10,7 +10,7 @@ import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
-import { ensureSessionMediaDir, cleanupSessionMediaDir } from "./media-store.js";
+import { ensureSessionMediaDir, cleanupSessionMediaDir, cleanupStaleSessionMedia } from "./media-store.js";
 
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const OUTBOX_BASE = "/tmp/bot-outbox";
@@ -19,6 +19,9 @@ const RESPONSE_ACTIVITY_TIMEOUT_MS = 1_800_000; // 30 minutes with no events = h
 const CRASH_BACKOFF_BASE_MS = 5_000; // Base delay for crash backoff
 const MAX_CRASH_BACKOFF_MS = 60_000; // Maximum backoff delay (1 minute)
 export const MAX_CRASH_RESTARTS = 5; // Block session after this many consecutive crashes
+// Files newer than this on stored-session rotation are assumed to belong to the
+// in-flight turn (download -> debounce -> spawn) and are preserved.
+const STALE_MEDIA_FRESH_MS = 60_000;
 
 /** Deterministic outbox directory path for a given chat. */
 export function outboxDir(chatId: string): string {
@@ -418,6 +421,19 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Extend the idle window for an active session without creating one.
+   * Called by message handlers while staging incoming payloads (e.g. media
+   * downloads) so the idle timer cannot fire mid-download and wipe the
+   * session media dir before the queued message is consumed.
+   */
+  touchActivity(chatId: string): void {
+    const session = this.active.get(chatId);
+    if (!session) return;
+    session.lastActivity = Date.now();
+    this.resetIdleTimer(chatId);
+  }
+
   /** Reset the idle timer for a session. After timeout, session is closed. */
   resetIdleTimer(chatId: string): void {
     const session = this.active.get(chatId);
@@ -611,11 +627,11 @@ export class SessionManager {
         : `agentId changed from "${stored.agentId}" to "${agentId}"`;
       log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
       this.store.deleteSession(chatId);
-      // Do NOT wipe the media dir here: message handlers download media before
-      // getOrCreateSession runs, so the just-downloaded file for the current
-      // turn already sits in this dir. Wiping would delete it before the agent
-      // can read it. Leftover files from the prior agent are reclaimed when
-      // the new session closes and bounded by the global media cap.
+      // Purge leftover media belonging to the discarded session so the new
+      // agent cannot read the prior agent's files. Files newer than the
+      // freshness window are preserved: they belong to the in-flight turn
+      // the current handler just downloaded and enqueued.
+      try { cleanupStaleSessionMedia(chatId, STALE_MEDIA_FRESH_MS); } catch { /* ignore */ }
       return { resume: false, sessionId: randomUUID() };
     }
 

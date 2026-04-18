@@ -789,6 +789,10 @@ export function createTelegramBot(
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
 
+    // Keep any active session alive across the download+debounce window so the
+    // idle timer cannot fire and wipe the media dir before the agent reads it.
+    sessionManager.touchActivity(key);
+
     try {
       // Get largest photo size (last element in array)
       const photos = ctx.msg.photo;
@@ -857,6 +861,9 @@ export function createTelegramBot(
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
+
+    // Keep any active session alive across the download+debounce window.
+    sessionManager.touchActivity(key);
 
     try {
       const file = await ctx.api.getFile(anim ? anim.file_id : doc.file_id);
@@ -936,6 +943,9 @@ export function createTelegramBot(
 
     const key = sessionKey(chatId, topicId);
     let tempPath: string | null = null;
+
+    // Keep any active session alive across the download+debounce window.
+    sessionManager.touchActivity(key);
 
     try {
       const file = await ctx.api.getFile(media.file_id);

@@ -151,10 +151,11 @@ describe("SessionManager", () => {
     assert.ok(!existsSync(sessionMediaDir("chat-orphan-media")), "media dir should be gone");
   });
 
-  it("resolveStoredSession does NOT wipe media dir on agent mismatch (preserves current-turn download)", async () => {
+  it("resolveStoredSession purges stale media on agent mismatch but preserves current-turn download", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const { SessionStore } = await import("../session-store.js");
     const { ensureSessionMediaDir } = await import("../media-store.js");
+    const { utimesSync } = await import("node:fs");
 
     // Pre-populate store with a session using "main" agent
     const store = new SessionStore(TEST_STORE_PATH);
@@ -165,8 +166,14 @@ describe("SessionManager", () => {
       lastActivity: Date.now(),
     });
 
-    // Simulate handler having already downloaded media for the current turn
+    // Stale leftover from the prior agent — aged well past the freshness window
     const dir = ensureSessionMediaDir("chat-race");
+    const stale = `${dir}/photo-prior-session.jpg`;
+    writeFileSync(stale, "stale");
+    const twoMinutesAgo = (Date.now() - 120_000) / 1000;
+    utimesSync(stale, twoMinutesAgo, twoMinutesAgo);
+
+    // Current-turn download — still fresh
     const justDownloaded = `${dir}/photo-current-turn.jpg`;
     writeFileSync(justDownloaded, "current");
 
@@ -175,6 +182,7 @@ describe("SessionManager", () => {
 
     assert.strictEqual(result.resume, false, "mismatched agent should not resume");
     assert.ok(existsSync(justDownloaded), "current-turn download must survive mismatch resolution");
+    assert.ok(!existsSync(stale), "prior-agent leftover must be purged on rotation");
   });
 
   it("closeSession preserves stored state (reconnect can resume)", async () => {

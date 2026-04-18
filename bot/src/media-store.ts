@@ -27,19 +27,55 @@ export function cleanupSessionMediaDir(chatId: string): void {
   rmSync(sessionMediaDir(chatId), { recursive: true, force: true });
 }
 
+/**
+ * Remove files in this session's media dir whose mtime is older than
+ * `now - freshMs`. Used when a stored session is discarded (agent changed or
+ * deleted) to wipe leftovers from the prior logical session without deleting
+ * the file the current handler just downloaded for the next session's turn.
+ */
+export function cleanupStaleSessionMedia(chatId: string, freshMs: number): void {
+  const dir = sessionMediaDir(chatId);
+  if (!existsSync(dir)) return;
+  const cutoff = Date.now() - freshMs;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    if (!isMissingErr(err)) {
+      log.warn("media-store", `Failed to scan ${dir} for stale cleanup: ${(err as Error).message}`);
+    }
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const path = join(dir, entry.name);
+    try {
+      const stat = statSync(path);
+      if (stat.mtimeMs < cutoff) {
+        unlinkSync(path);
+        log.debug("media-store", `Removed stale media ${path} on session rotation`);
+      }
+    } catch (err) {
+      if (!isMissingErr(err)) {
+        log.warn("media-store", `Failed to clean ${path}: ${(err as Error).message}`);
+      }
+    }
+  }
+}
+
 export function allocateMediaPath(chatId: string, prefix: string, extension: string): string {
   const dir = ensureSessionMediaDir(chatId);
   return join(dir, `${prefix}-${randomUUID()}${extension}`);
+}
+
+function isMissingErr(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "ENOENT";
 }
 
 /**
  * Evict oldest files (by mtime) across all session media dirs until total bytes ≤ maxBytes.
  * Empty session dirs are left in place; they're reclaimed on session close.
  */
-function isMissingErr(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: string }).code === "ENOENT";
-}
-
 export function enforceMediaCap(maxBytes: number): void {
   // Best-effort housekeeping: never throw. An unrelated permission/IO error
   // in another chat's dir must not fail the current download-enqueue path.
