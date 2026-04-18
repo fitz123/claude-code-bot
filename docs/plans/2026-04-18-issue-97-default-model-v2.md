@@ -83,15 +83,15 @@ export function loadConfig(configPath?: string): BotConfig {
 
 **What we want.** The config supports an optional top-level `defaultModel` (and symmetric `defaultFallbackModel`) that agents inherit when they do not declare their own. Per-agent `model` / `fallbackModel` still wins when present. Validation still fails if an agent ends up with no resolved model at all.
 
-- [ ] Top-level `defaultModel` (string) is accepted in `config.yaml` / `config.local.yaml`
-- [ ] Top-level `defaultFallbackModel` (string) is accepted in the same way
-- [ ] Agents without a `model` field resolve to `defaultModel` in the loaded `AgentConfig`
-- [ ] Agents without a `fallbackModel` field resolve to `defaultFallbackModel` in the loaded `AgentConfig`
-- [ ] Agent-level `model` / `fallbackModel` still overrides the top-level default
-- [ ] Config validation fails with a clear error if an agent has no `model` and no `defaultModel` is set
-- [ ] Top-level `defaultModel` / `defaultFallbackModel` values that are present but not strings fail validation with a clear error
-- [ ] `config.yaml` (public template) demonstrates inheritance: `defaultModel` is set at the config root and at least one agent omits `model` and inherits it
-- [ ] `config.local.yaml.example` demonstrates the same inheritance pattern
-- [ ] Existing configs that specify `model` on every agent and no `defaultModel` continue to load without changes (backward compat)
-- [ ] Add tests in `bot/src/__tests__/config-defaults.test.ts` covering: inheritance, per-agent override wins, missing-model error when no default set, non-string default rejected, backward-compat for fully explicit configs
-- [ ] Verify existing tests pass
+- [x] Top-level `defaultModel` (string) is accepted in `config.yaml` / `config.local.yaml`
+- [x] Top-level `defaultFallbackModel` (string) is accepted in the same way
+- [x] Agents without a `model` field resolve to `defaultModel` in the loaded `AgentConfig`
+- [x] Agents without a `fallbackModel` field resolve to `defaultFallbackModel` in the loaded `AgentConfig`
+- [x] Agent-level `model` / `fallbackModel` still overrides the top-level default
+- [x] Config validation fails with a clear error if an agent has no `model` and no `defaultModel` is set
+- [x] Top-level `defaultModel` / `defaultFallbackModel` values that are present but not strings fail validation with a clear error
+- [x] `config.yaml` (public template) demonstrates inheritance: `defaultModel` is set at the config root and at least one agent omits `model` and inherits it
+- [x] `config.local.yaml.example` demonstrates the same inheritance pattern
+- [x] Existing configs that specify `model` on every agent and no `defaultModel` continue to load without changes (backward compat)
+- [x] Add tests in `bot/src/__tests__/config-defaults.test.ts` covering: inheritance, per-agent override wins, missing-model error when no default set, non-string default rejected, backward-compat for fully explicit configs
+- [x] Verify existing tests pass (pre-existing unrelated failure in voice.test.ts whisper model path — not touched by this change)

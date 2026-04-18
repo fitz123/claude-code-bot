@@ -73,6 +73,8 @@ interface RawConfig {
   adminChatId?: number;
   defaultDeliveryChatId?: number;
   defaultDeliveryThreadId?: number;
+  defaultModel?: unknown;
+  defaultFallbackModel?: unknown;
 }
 
 function resolveKeychainSecret(service: string): string {
@@ -87,7 +89,12 @@ function resolveKeychainSecret(service: string): string {
   }
 }
 
-function validateAgent(raw: unknown, id: string): AgentConfig {
+export function validateAgent(
+  raw: unknown,
+  id: string,
+  defaultModel?: string,
+  defaultFallbackModel?: string,
+): AgentConfig {
   if (typeof raw !== "object" || raw === null) {
     throw new Error(`Agent "${id}" must be an object`);
   }
@@ -95,14 +102,16 @@ function validateAgent(raw: unknown, id: string): AgentConfig {
   if (typeof obj.workspaceCwd !== "string") {
     throw new Error(`Agent "${id}" missing workspaceCwd`);
   }
-  if (typeof obj.model !== "string") {
-    throw new Error(`Agent "${id}" missing model`);
+  const model = typeof obj.model === "string" ? obj.model : defaultModel;
+  if (typeof model !== "string") {
+    throw new Error(`Agent "${id}" missing model (and no top-level defaultModel set)`);
   }
+  const fallbackModel = typeof obj.fallbackModel === "string" ? obj.fallbackModel : defaultFallbackModel;
   return {
     id: String(obj.id ?? id),
     workspaceCwd: obj.workspaceCwd,
-    model: obj.model,
-    fallbackModel: typeof obj.fallbackModel === "string" ? obj.fallbackModel : undefined,
+    model,
+    fallbackModel,
     systemPrompt: typeof obj.systemPrompt === "string" ? obj.systemPrompt : undefined,
     allowedTools: Array.isArray(obj.allowedTools) ? obj.allowedTools.map(String) : undefined,
     maxTurns: typeof obj.maxTurns === "number" ? obj.maxTurns : undefined,
@@ -299,13 +308,23 @@ export function loadConfig(configPath?: string): BotConfig {
     throw new Error("Config file is empty or invalid");
   }
 
+  // Validate top-level defaults (optional — inherited by agents without their own model/fallbackModel)
+  if (raw.defaultModel !== undefined && typeof raw.defaultModel !== "string") {
+    throw new Error(`Invalid defaultModel: must be a string`);
+  }
+  if (raw.defaultFallbackModel !== undefined && typeof raw.defaultFallbackModel !== "string") {
+    throw new Error(`Invalid defaultFallbackModel: must be a string`);
+  }
+  const defaultModel = raw.defaultModel as string | undefined;
+  const defaultFallbackModel = raw.defaultFallbackModel as string | undefined;
+
   // Validate agents (needed before validating bindings)
   if (!raw.agents || typeof raw.agents !== "object") {
     throw new Error("Missing agents in config");
   }
   const agents: Record<string, AgentConfig> = {};
   for (const [id, agentRaw] of Object.entries(raw.agents)) {
-    agents[id] = validateAgent(agentRaw, id);
+    agents[id] = validateAgent(agentRaw, id, defaultModel, defaultFallbackModel);
   }
 
   // Resolve Telegram token from Keychain (optional — not needed for Discord-only setups)

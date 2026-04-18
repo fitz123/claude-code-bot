@@ -4,9 +4,17 @@
 # Only specify what differs from the defaults.
 # Nested objects are merged field-by-field; arrays replace entirely.
 
+# Optional: override the fleet-wide model in one place.
+# Any agent without its own `model` inherits this value; bump it to upgrade
+# every inheriting agent at once. Per-agent `model` still wins when declared.
+# defaultModel: claude-opus-4-7
+# defaultFallbackModel: claude-sonnet-4-6
+
 agents:
   main:
     workspaceCwd: /Users/you/.minime/workspace   # absolute path to your Claude workspace (~ not expanded)
+    # model omitted — inherits defaultModel. Uncomment to pin this agent to a specific model:
+    # model: claude-haiku-4-5-20251001
 
 bindings:
   - chatId: 123456789           # your Telegram user ID (get it from @userinfobot)

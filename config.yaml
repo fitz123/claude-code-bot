@@ -10,12 +10,17 @@
 telegramTokenService: telegram-bot-token
 logLevel: info
 
+# Fleet-wide defaults: any agent without its own `model` / `fallbackModel`
+# inherits these. Bump here to upgrade every inheriting agent at once.
+# Per-agent `model` / `fallbackModel` still wins when declared.
+defaultModel: claude-opus-4-6
+defaultFallbackModel: claude-sonnet-4-6
+
 agents:
   main:
     id: main
     workspaceCwd: /tmp/minime-workspace   # override in config.local.yaml with your actual workspace path
-    model: claude-opus-4-6
-    fallbackModel: claude-sonnet-4-6
+    # model / fallbackModel omitted — inherited from defaultModel / defaultFallbackModel
     maxTurns: 250     # safety limit for agentic loops per message (omit for unlimited)
     effort: high      # Claude reasoning effort: low, medium, high (omit for default)
 
@@ -23,7 +28,8 @@ agents:
   # coder:
   #   id: coder
   #   workspaceCwd: /tmp/minime-workspace-coder
-  #   model: claude-opus-4-6
+  #   # inherits defaultModel; override here if this agent needs a different model:
+  #   # model: claude-haiku-4-5-20251001
   #   maxTurns: 250
 
 bindings:

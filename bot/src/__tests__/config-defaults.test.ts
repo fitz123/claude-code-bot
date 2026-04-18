@@ -1,6 +1,10 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { validateSessionDefaults } from "../config.js";
+import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { validateSessionDefaults, validateAgent, loadConfig } from "../config.js";
+
+const TEST_DIR = join("/tmp", "config-defaults-test-" + Date.now());
 
 describe("validateSessionDefaults", () => {
   it("returns production defaults when input is null", () => {
@@ -113,5 +117,127 @@ describe("validateSessionDefaults", () => {
       () => validateSessionDefaults({ requireMention: 1 }),
       /Invalid requireMention/,
     );
+  });
+});
+
+describe("validateAgent defaultModel inheritance", () => {
+  it("inherits defaultModel when agent has no model", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x" },
+      "main",
+      "claude-opus-4-7",
+    );
+    assert.strictEqual(agent.model, "claude-opus-4-7");
+    assert.strictEqual(agent.fallbackModel, undefined);
+  });
+
+  it("inherits defaultFallbackModel when agent has no fallbackModel", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x" },
+      "main",
+      "claude-opus-4-7",
+      "claude-sonnet-4-6",
+    );
+    assert.strictEqual(agent.model, "claude-opus-4-7");
+    assert.strictEqual(agent.fallbackModel, "claude-sonnet-4-6");
+  });
+
+  it("per-agent model overrides defaultModel", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x", model: "claude-haiku-4-5-20251001" },
+      "main",
+      "claude-opus-4-7",
+    );
+    assert.strictEqual(agent.model, "claude-haiku-4-5-20251001");
+  });
+
+  it("per-agent fallbackModel overrides defaultFallbackModel", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", fallbackModel: "claude-haiku-4-5-20251001" },
+      "main",
+      undefined,
+      "claude-sonnet-4-6",
+    );
+    assert.strictEqual(agent.fallbackModel, "claude-haiku-4-5-20251001");
+  });
+
+  it("throws when agent has no model and no defaultModel is set", () => {
+    assert.throws(
+      () => validateAgent({ workspaceCwd: "/tmp/x" }, "main"),
+      /Agent "main" missing model/,
+    );
+  });
+
+  it("throws when agent has no model and defaultModel is not a string", () => {
+    assert.throws(
+      () => validateAgent({ workspaceCwd: "/tmp/x" }, "main", undefined),
+      /Agent "main" missing model/,
+    );
+  });
+
+  it("backward compat: explicit model with no defaults still works", () => {
+    const agent = validateAgent(
+      {
+        workspaceCwd: "/tmp/x",
+        model: "claude-opus-4-7",
+        fallbackModel: "claude-sonnet-4-6",
+      },
+      "main",
+    );
+    assert.strictEqual(agent.model, "claude-opus-4-7");
+    assert.strictEqual(agent.fallbackModel, "claude-sonnet-4-6");
+  });
+});
+
+describe("loadConfig top-level defaultModel validation", () => {
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  it("rejects non-string defaultModel with clear error", () => {
+    const configPath = join(TEST_DIR, "config.yaml");
+    writeFileSync(
+      configPath,
+      `
+defaultModel: 42
+agents:
+  main:
+    workspaceCwd: /tmp/x
+`,
+    );
+    assert.throws(() => loadConfig(configPath), /Invalid defaultModel/);
+  });
+
+  it("rejects non-string defaultFallbackModel with clear error", () => {
+    const configPath = join(TEST_DIR, "config.yaml");
+    writeFileSync(
+      configPath,
+      `
+defaultFallbackModel:
+  not: a string
+agents:
+  main:
+    workspaceCwd: /tmp/x
+    model: claude-opus-4-7
+`,
+    );
+    assert.throws(() => loadConfig(configPath), /Invalid defaultFallbackModel/);
+  });
+
+  it("fails when agent has no model and no defaultModel is set", () => {
+    const configPath = join(TEST_DIR, "config.yaml");
+    writeFileSync(
+      configPath,
+      `
+agents:
+  main:
+    workspaceCwd: /tmp/x
+`,
+    );
+    assert.throws(() => loadConfig(configPath), /Agent "main" missing model/);
   });
 });
