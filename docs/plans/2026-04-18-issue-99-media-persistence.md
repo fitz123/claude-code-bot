@@ -117,3 +117,32 @@ cleanupInjectDir(session.injectDir);
 - [x] Photo and document download error paths still clean up partial files (today's `if (tempPath) cleanupTempFile(tempPath)` behavior is preserved)
 - [x] Add tests covering: file persists across turns within a session, file is removed on session close, eviction kicks in when the global cap is exceeded, voice files are still removed immediately
 - [x] Verify existing tests pass (949/950 pass; the 1 failure is a pre-existing WHISPER_MODEL env-var mismatch unrelated to this change)
+
+### Task 2: Address PR #102 Copilot review findings — Round 2 (P1)
+
+GitHub Copilot raised 5 concrete findings on PR #102, each citing a real file:line and representing a real risk (drop-cleanup leaks under error/clear paths, in-flight eviction, symlink attack vector, misleading docstring). Address them.
+
+#### Finding 1 — `bot/src/message-queue.ts:223`
+> `pendingDropCleanups` are spliced/discarded at the start of `flush()`, before `processFn` completes. If `processFn` throws (send failure) or the queue is cleared during processing (/reconnect, /clean), the drop cleanups will never run, so persistent media will leak on disk (and the in-flight tracking may be released). Keep drop cleanups until delivery succeeds; on send error or clear-while-busy paths, run them as part of the cleanup.
+
+#### Finding 2 — `bot/src/message-queue.ts:303`
+> In `drainCollectBuffer()`, `collectDropCleanups` are spliced/discarded before calling `processFn`. If `processFn` fails or the queue is cleared mid-drain, the drop cleanups won't run, so persistent-media files can become orphaned. Consider holding drop cleanups until after a successful drain, and running them on error/clear paths.
+
+#### Finding 3 — `bot/src/media-store.ts:192`
+> `enforceMediaCap()` can evict files that are still tracked as in-flight (including the file that was just downloaded and is about to be enqueued). This can lead to the agent receiving a path that no longer exists. When collecting/evicting candidates, skip paths in `inflightMediaPaths` (or accept a protected-path set) so cap enforcement never deletes files that haven't been delivered/owned yet.
+
+#### Finding 4 — `bot/src/media-store.ts:13`
+> The `inflightMediaPaths` docstring says it includes files "delivered and owned by an active session", but `releaseMediaPath()` removes paths from the set on successful delivery. This makes the comment misleading about what the set actually represents (it's more like "downloaded/queued but not yet released"). Update the comment to match the actual lifecycle so future changes don't rely on the wrong invariant.
+
+#### Finding 5 — `bot/src/media-store.ts:56`
+> `cleanupSessionMediaDir()` (and other cleanup paths) remove directories under `MEDIA_BASE` without verifying that `MEDIA_BASE` itself is not a symlink. Because `SessionManager.closeSession()` calls this even for sessions that never downloaded media, a pre-squatted symlink at `/tmp/bot-media` could redirect deletions outside the intended tree. Consider reusing the `ensureSecureDir`/`lstatSync` symlink check before recursive removal.
+
+#### Outcomes
+- [ ] Finding 1: `pendingDropCleanups` are no longer lost when `processFn` throws or when the queue is cleared during processing. Drop cleanups run on success AND on every error/clear path that abandons the in-flight message
+- [ ] Finding 2: `collectDropCleanups` in `drainCollectBuffer()` get the same treatment — never lost on processFn failure or mid-drain clear
+- [ ] Finding 3: `enforceMediaCap()` never evicts a path that is currently in `inflightMediaPaths`. Add a regression test that downloads a file, forces cap pressure, and verifies the in-flight file is preserved while older non-in-flight files get evicted
+- [ ] Finding 4: `inflightMediaPaths` docstring accurately describes the set's actual lifecycle ("downloaded/queued but not yet released to a session" or equivalent — match the real semantics)
+- [ ] Finding 5: `cleanupSessionMediaDir()` (and any other cleanup path that removes under `MEDIA_BASE`) refuses to act when `MEDIA_BASE` itself is a symlink. Reuse the existing `ensureSecureDir` / `lstatSync` pattern. Add a regression test that pre-squats a symlink at `MEDIA_BASE` and verifies cleanup refuses to follow it
+- [ ] Existing media-store and message-queue tests still pass
+- [ ] `cd bot && npx tsc --noEmit` clean
+- [ ] `cd bot && npm test` — only the pre-existing WHISPER_MODEL voice test failure is acceptable; everything else passes
