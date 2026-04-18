@@ -321,8 +321,9 @@ export function loadConfig(configPath?: string): BotConfig {
   if (raw.defaultFallbackModel !== undefined && typeof raw.defaultFallbackModel !== "string") {
     throw new Error(`Invalid defaultFallbackModel: must be a string`);
   }
-  const defaultModel = raw.defaultModel;
-  const defaultFallbackModel = raw.defaultFallbackModel;
+  const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
+  const defaultFallbackModel =
+    typeof raw.defaultFallbackModel === "string" ? raw.defaultFallbackModel : undefined;
 
   // Validate agents (needed before validating bindings)
   if (!raw.agents || typeof raw.agents !== "object") {

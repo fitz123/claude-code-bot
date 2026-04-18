@@ -170,7 +170,7 @@ describe("validateAgent defaultModel inheritance", () => {
 
   it("throws when agent has no model and defaultModel is not a string", () => {
     assert.throws(
-      () => validateAgent({ workspaceCwd: "/tmp/x" }, "main", undefined),
+      () => validateAgent({ workspaceCwd: "/tmp/x" }, "main", 42 as unknown as string),
       /Agent "main" missing model/,
     );
   });
