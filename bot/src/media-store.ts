@@ -89,9 +89,12 @@ export function cleanupSessionMediaDir(chatId: string): void {
 }
 
 /**
- * Wipe the entire media root. Called on bot startup so prior-run downloads
- * (including orphaned pending-debounce files and files that survived agent
- * rotation via the freshness heuristic) cannot leak into a new process.
+ * Wipe the entire media root. Not invoked automatically — see the startup
+ * comment in main.ts for why a blanket wipe at boot is unsafe (polling
+ * ownership isn't proven yet, could clobber an overlapping old instance's
+ * files). Kept as a manual escape hatch; per-session `cleanupSessionMediaDir`
+ * on close and `enforceMediaCap` eviction reclaim orphans during normal
+ * operation.
  */
 export function cleanupAllMedia(): void {
   if (!existsSync(MEDIA_BASE)) return;

@@ -185,6 +185,31 @@ describe("SessionManager", () => {
     releaseMediaPath(justDownloaded);
   });
 
+  it("resolveStoredSession preserves session media when agent matches (same-session resume)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+    const { ensureSessionMediaDir } = await import("../media-store.js");
+
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-resume", {
+      sessionId: "resume-session-id",
+      chatId: "chat-resume",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    // A file from the prior turn of the SAME logical session — legitimate context.
+    const dir = ensureSessionMediaDir("chat-resume");
+    const priorTurn = `${dir}/photo-prior-turn.jpg`;
+    writeFileSync(priorTurn, "prior");
+
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
+    const result = manager.resolveStoredSession("chat-resume", "main");
+
+    assert.strictEqual(result.resume, true, "matching agent must allow resume");
+    assert.ok(existsSync(priorTurn), "prior-turn media must survive resume of same session");
+  });
+
   it("closeSession preserves stored state (reconnect can resume)", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const { SessionStore } = await import("../session-store.js");
