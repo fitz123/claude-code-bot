@@ -126,6 +126,27 @@ export function cleanupStaleSessionMedia(chatId: string): void {
   if (!mediaBaseSafeToTouch()) return;
   const dir = sessionMediaDir(chatId);
   if (!existsSync(dir)) return;
+  // Verify the per-session dir is a real dir, not a symlink. A pre-squatted
+  // symlink at /tmp/bot-media/<chat> would otherwise let unlinkSync resolve
+  // through it and delete files in the target tree. MEDIA_BASE is normally
+  // 0o700 once `ensureSecureDir` has run, but this can fire on session
+  // rotation before any download has tightened perms.
+  try {
+    const stat = lstatSync(dir);
+    if (stat.isSymbolicLink()) {
+      log.warn("media-store", `Refusing to clean ${dir}: it is a symlink`);
+      return;
+    }
+    if (!stat.isDirectory()) {
+      log.warn("media-store", `Refusing to clean ${dir}: not a directory`);
+      return;
+    }
+  } catch (err) {
+    if (!isMissingErr(err)) {
+      log.warn("media-store", `Failed to stat ${dir}: ${(err as Error).message}`);
+    }
+    return;
+  }
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });

@@ -290,6 +290,27 @@ describe("cleanupStaleSessionMedia symlink protection", () => {
       rmSync(decoy, { recursive: true, force: true });
     }
   });
+
+  it("refuses to follow a per-session dir that is a symlink", () => {
+    const decoy = "/tmp/bot-media-victim-child";
+    rmSync(decoy, { recursive: true, force: true });
+    mkdirSync(decoy, { recursive: true, mode: 0o700 });
+    const decoyFile = join(decoy, "important.txt");
+    writeFileSync(decoyFile, "must survive");
+
+    mkdirSync(MEDIA_BASE, { recursive: true, mode: 0o700 });
+    const childDir = join(MEDIA_BASE, "attacker-child");
+    rmSync(childDir, { recursive: true, force: true });
+    symlinkSync(decoy, childDir);
+
+    try {
+      assert.doesNotThrow(() => cleanupStaleSessionMedia("attacker-child"));
+      assert.ok(existsSync(decoyFile), "decoy target file must survive");
+    } finally {
+      rmSync(childDir, { force: true });
+      rmSync(decoy, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("cleanupAllMedia symlink protection", () => {
