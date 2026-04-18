@@ -131,9 +131,14 @@ graceful_restart() {
     return 1
   fi
 
+  if [ -z "$old_pid" ]; then
+    err "service $BOT_LABEL is registered but has no running process (PID=-); run: restart-bot.sh --plist"
+    return 1
+  fi
+
   validate_config || return 1
 
-  log "Sending SIGTERM to $SERVICE (old PID: ${old_pid:-none})"
+  log "Sending SIGTERM to $SERVICE (old PID: $old_pid)"
   if ! "$LAUNCHCTL_BIN" kill SIGTERM "$SERVICE"; then
     err "launchctl kill SIGTERM failed"
     return 1
@@ -155,8 +160,8 @@ graceful_restart() {
   fi
 
   local new_pid
-  new_pid=$(get_pid)
-  log "Restart complete. New PID: $new_pid"
+  new_pid=$(get_pid 2>/dev/null || true)
+  log "Restart complete. New PID: ${new_pid:-unknown}"
   echo "$new_pid"
 }
 
@@ -197,8 +202,8 @@ plist_restart() {
   fi
 
   local new_pid
-  new_pid=$(get_pid)
-  log "Restart complete. New PID: $new_pid"
+  new_pid=$(get_pid 2>/dev/null || true)
+  log "Restart complete. New PID: ${new_pid:-unknown}"
   echo "$new_pid"
 }
 
