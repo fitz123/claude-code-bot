@@ -6,7 +6,7 @@ import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
-import { allocateMediaPath, enforceMediaCap } from "./media-store.js";
+import { allocateMediaPath, enforceMediaCap, releaseMediaPath, discardMediaPath } from "./media-store.js";
 import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
 import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
@@ -815,24 +815,24 @@ export function createTelegramBot(
         : `${context}${tempPath}`;
 
       // File persists for the session lifetime so follow-up turns can reference it.
-      // Drop cleanup reclaims the file if the message never reaches an agent
-      // (queue cap exceeded, /reconnect, /clean). Session-close handles the
-      // happy-path reclaim for delivered messages.
-      const pathToDropClean = tempPath;
+      // `cleanup` releases in-flight tracking when the message is delivered; the
+      // active session then owns the file. `dropCleanup` reclaims the file if
+      // the message never reaches an agent (cap exceeded, /reconnect, /clean).
+      const trackedPath = tempPath;
       tempPath = null;
       messageQueue.enqueue(
         key,
         binding.agentId,
         messageText,
         createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults),
-        undefined,
-        () => { cleanupTempFile(pathToDropClean); },
+        () => { releaseMediaPath(trackedPath); },
+        () => { discardMediaPath(trackedPath); },
       );
     } catch (err) {
       log.error("telegram-bot", `Photo handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
       if (tempPath) {
-        cleanupTempFile(tempPath);
+        discardMediaPath(tempPath);
       }
     }
   });
@@ -913,24 +913,24 @@ export function createTelegramBot(
       }
 
       // File persists for the session lifetime so follow-up turns can reference it.
-      // Drop cleanup reclaims the file if the message never reaches an agent
-      // (queue cap exceeded, /reconnect, /clean). Session-close handles the
-      // happy-path reclaim for delivered messages.
-      const pathToDropClean = tempPath;
+      // `cleanup` releases in-flight tracking when the message is delivered; the
+      // active session then owns the file. `dropCleanup` reclaims the file if
+      // the message never reaches an agent (cap exceeded, /reconnect, /clean).
+      const trackedPath = tempPath;
       tempPath = null;
       messageQueue.enqueue(
         key,
         binding.agentId,
         messageText,
         createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults),
-        undefined,
-        () => { cleanupTempFile(pathToDropClean); },
+        () => { releaseMediaPath(trackedPath); },
+        () => { discardMediaPath(trackedPath); },
       );
     } catch (err) {
       log.error("telegram-bot", `${anim ? "Animation" : "Document"} handling error for chat ${chatId}:`, err);
       await ctx.reply(`Failed to process ${anim ? "animation" : "document"}. Please try again.`).catch(() => {});
       if (tempPath) {
-        cleanupTempFile(tempPath);
+        discardMediaPath(tempPath);
       }
     }
   });
@@ -989,13 +989,24 @@ export function createTelegramBot(
         : `${context}${meta}\n${tempPath}`;
 
       // File persists for the session lifetime so follow-up turns can reference it.
+      // `cleanup` releases in-flight tracking when the message is delivered; the
+      // active session then owns the file. `dropCleanup` reclaims the file if
+      // the message never reaches an agent (cap exceeded, /reconnect, /clean).
+      const trackedPath = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
+      messageQueue.enqueue(
+        key,
+        binding.agentId,
+        messageText,
+        createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults),
+        () => { releaseMediaPath(trackedPath); },
+        () => { discardMediaPath(trackedPath); },
+      );
     } catch (err) {
       log.error("telegram-bot", `${typeLabel} handling error for chat ${chatId}:`, err);
       await ctx.reply(`Failed to process ${typeLabel.toLowerCase()}. Please try again.`).catch(() => {});
       if (tempPath) {
-        cleanupTempFile(tempPath);
+        discardMediaPath(tempPath);
       }
     }
   });

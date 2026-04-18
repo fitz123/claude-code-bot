@@ -154,8 +154,7 @@ describe("SessionManager", () => {
   it("resolveStoredSession purges stale media on agent mismatch but preserves current-turn download", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const { SessionStore } = await import("../session-store.js");
-    const { ensureSessionMediaDir } = await import("../media-store.js");
-    const { utimesSync } = await import("node:fs");
+    const { ensureSessionMediaDir, allocateMediaPath, releaseMediaPath } = await import("../media-store.js");
 
     // Pre-populate store with a session using "main" agent
     const store = new SessionStore(TEST_STORE_PATH);
@@ -166,15 +165,14 @@ describe("SessionManager", () => {
       lastActivity: Date.now(),
     });
 
-    // Stale leftover from the prior agent — aged well past the freshness window
+    // Stale leftover from the prior agent — written directly, not tracked as in-flight.
+    // Simulates both aged orphans and just-crashed-process leftovers.
     const dir = ensureSessionMediaDir("chat-race");
     const stale = `${dir}/photo-prior-session.jpg`;
     writeFileSync(stale, "stale");
-    const twoMinutesAgo = (Date.now() - 120_000) / 1000;
-    utimesSync(stale, twoMinutesAgo, twoMinutesAgo);
 
-    // Current-turn download — still fresh
-    const justDownloaded = `${dir}/photo-current-turn.jpg`;
+    // Current-turn download — registered as in-flight via allocateMediaPath.
+    const justDownloaded = allocateMediaPath("chat-race", "photo", ".jpg");
     writeFileSync(justDownloaded, "current");
 
     const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
@@ -183,6 +181,8 @@ describe("SessionManager", () => {
     assert.strictEqual(result.resume, false, "mismatched agent should not resume");
     assert.ok(existsSync(justDownloaded), "current-turn download must survive mismatch resolution");
     assert.ok(!existsSync(stale), "prior-agent leftover must be purged on rotation");
+
+    releaseMediaPath(justDownloaded);
   });
 
   it("closeSession preserves stored state (reconnect can resume)", async () => {

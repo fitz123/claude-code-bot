@@ -7,8 +7,11 @@ import {
   sessionMediaDir,
   ensureSessionMediaDir,
   cleanupSessionMediaDir,
+  cleanupStaleSessionMedia,
   cleanupAllMedia,
   allocateMediaPath,
+  releaseMediaPath,
+  discardMediaPath,
   enforceMediaCap,
 } from "../media-store.js";
 
@@ -220,6 +223,82 @@ describe("ensureSessionMediaDir permissions", () => {
       rmSync(MEDIA_BASE, { force: true });
       rmSync(decoy, { recursive: true, force: true });
     }
+  });
+});
+
+describe("cleanupStaleSessionMedia", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("is a no-op when session dir does not exist", () => {
+    assert.doesNotThrow(() => cleanupStaleSessionMedia("missing-chat"));
+  });
+
+  it("removes files not registered as in-flight (orphans from a crashed prior process)", () => {
+    const dir = ensureSessionMediaDir("chat-orphan");
+    const orphan = join(dir, "leftover.jpg");
+    writeFileSync(orphan, "orphan");
+
+    cleanupStaleSessionMedia("chat-orphan");
+
+    assert.ok(!existsSync(orphan), "untracked orphan must be removed");
+  });
+
+  it("preserves files currently registered as in-flight", () => {
+    const tracked = allocateMediaPath("chat-inflight", "photo", ".jpg");
+    writeFileSync(tracked, "tracked");
+
+    cleanupStaleSessionMedia("chat-inflight");
+
+    assert.ok(existsSync(tracked), "in-flight file must survive stale cleanup");
+    releaseMediaPath(tracked);
+  });
+
+  it("wipes orphan alongside in-flight file in the same dir (crash + rotation race)", () => {
+    const tracked = allocateMediaPath("chat-mixed", "photo", ".jpg");
+    writeFileSync(tracked, "tracked");
+
+    const orphan = join(sessionMediaDir("chat-mixed"), "prior-process.jpg");
+    writeFileSync(orphan, "orphan");
+
+    cleanupStaleSessionMedia("chat-mixed");
+
+    assert.ok(existsSync(tracked), "in-flight file must survive");
+    assert.ok(!existsSync(orphan), "orphan next to in-flight must be removed");
+    releaseMediaPath(tracked);
+  });
+
+  it("removes files after release (file is no longer in-flight)", () => {
+    const path = allocateMediaPath("chat-released", "photo", ".jpg");
+    writeFileSync(path, "content");
+    releaseMediaPath(path);
+
+    cleanupStaleSessionMedia("chat-released");
+
+    assert.ok(!existsSync(path), "released file should not be preserved");
+  });
+});
+
+describe("discardMediaPath", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("unlinks the file and releases tracking", () => {
+    const path = allocateMediaPath("chat-discard", "photo", ".jpg");
+    writeFileSync(path, "content");
+
+    discardMediaPath(path);
+
+    assert.ok(!existsSync(path), "file should be removed");
+
+    // Writing the file back and running stale cleanup proves tracking was released.
+    writeFileSync(path, "respawn");
+    cleanupStaleSessionMedia("chat-discard");
+    assert.ok(!existsSync(path), "respawned file with released tracking is cleaned");
+  });
+
+  it("is a no-op when the file does not exist", () => {
+    assert.doesNotThrow(() => discardMediaPath("/tmp/bot-media/chat-gone/never-existed.jpg"));
   });
 });
 

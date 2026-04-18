@@ -19,9 +19,6 @@ const RESPONSE_ACTIVITY_TIMEOUT_MS = 1_800_000; // 30 minutes with no events = h
 const CRASH_BACKOFF_BASE_MS = 5_000; // Base delay for crash backoff
 const MAX_CRASH_BACKOFF_MS = 60_000; // Maximum backoff delay (1 minute)
 export const MAX_CRASH_RESTARTS = 5; // Block session after this many consecutive crashes
-// Files newer than this on stored-session rotation are assumed to belong to the
-// in-flight turn (download -> debounce -> spawn) and are preserved.
-const STALE_MEDIA_FRESH_MS = 60_000;
 
 /** Deterministic outbox directory path for a given chat. */
 export function outboxDir(chatId: string): string {
@@ -631,10 +628,11 @@ export class SessionManager {
       log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
       this.store.deleteSession(chatId);
       // Purge leftover media belonging to the discarded session so the new
-      // agent cannot read the prior agent's files. Files newer than the
-      // freshness window are preserved: they belong to the in-flight turn
-      // the current handler just downloaded and enqueued.
-      try { cleanupStaleSessionMedia(chatId, STALE_MEDIA_FRESH_MS); } catch { /* ignore */ }
+      // agent cannot read the prior agent's files. Files currently tracked
+      // as in-flight (the download the active handler just enqueued) are
+      // preserved; anything else — including orphans from a crashed prior
+      // process — is wiped.
+      try { cleanupStaleSessionMedia(chatId); } catch { /* ignore */ }
       return { resume: false, sessionId: randomUUID() };
     }
 

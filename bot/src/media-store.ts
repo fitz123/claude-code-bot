@@ -6,6 +6,14 @@ import { log } from "./logger.js";
 export const MEDIA_BASE = "/tmp/bot-media";
 export const DEFAULT_MAX_MEDIA_BYTES = 200 * 1024 * 1024;
 
+/**
+ * Paths currently owned by an in-flight handler (downloaded but not yet
+ * delivered to a session, or delivered and owned by an active session).
+ * Used by `cleanupStaleSessionMedia` to decide what belongs to the current
+ * logical session vs. orphaned from a prior process or a rotated agent.
+ */
+const inflightMediaPaths = new Set<string>();
+
 function safeChatId(chatId: string): string {
   return chatId.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
@@ -57,15 +65,15 @@ export function cleanupAllMedia(): void {
 }
 
 /**
- * Remove files in this session's media dir whose mtime is older than
- * `now - freshMs`. Used when a stored session is discarded (agent changed or
- * deleted) to wipe leftovers from the prior logical session without deleting
- * the file the current handler just downloaded for the next session's turn.
+ * Remove files in this session's media dir that are not currently tracked as
+ * in-flight. Used when a stored session is discarded (agent changed or
+ * deleted) to wipe leftovers from the prior logical session — including
+ * orphans from a crashed prior process — without deleting the file the
+ * current handler just downloaded for the next session's turn.
  */
-export function cleanupStaleSessionMedia(chatId: string, freshMs: number): void {
+export function cleanupStaleSessionMedia(chatId: string): void {
   const dir = sessionMediaDir(chatId);
   if (!existsSync(dir)) return;
-  const cutoff = Date.now() - freshMs;
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -78,12 +86,10 @@ export function cleanupStaleSessionMedia(chatId: string, freshMs: number): void 
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     const path = join(dir, entry.name);
+    if (inflightMediaPaths.has(path)) continue;
     try {
-      const stat = statSync(path);
-      if (stat.mtimeMs < cutoff) {
-        unlinkSync(path);
-        log.debug("media-store", `Removed stale media ${path} on session rotation`);
-      }
+      unlinkSync(path);
+      log.debug("media-store", `Removed stale media ${path} on session rotation`);
     } catch (err) {
       if (!isMissingErr(err)) {
         log.warn("media-store", `Failed to clean ${path}: ${(err as Error).message}`);
@@ -94,7 +100,33 @@ export function cleanupStaleSessionMedia(chatId: string, freshMs: number): void 
 
 export function allocateMediaPath(chatId: string, prefix: string, extension: string): string {
   const dir = ensureSessionMediaDir(chatId);
-  return join(dir, `${prefix}-${randomUUID()}${extension}`);
+  const path = join(dir, `${prefix}-${randomUUID()}${extension}`);
+  inflightMediaPaths.add(path);
+  return path;
+}
+
+/**
+ * Mark a media file as no longer in-flight (delivered to a session, which now
+ * owns its lifetime). Does not touch the file.
+ */
+export function releaseMediaPath(path: string): void {
+  inflightMediaPaths.delete(path);
+}
+
+/**
+ * Release tracking AND unlink the file. Used when a media file is dropped
+ * (queue cap exceeded, /reconnect, /clean) or the handler hits an error
+ * before enqueue.
+ */
+export function discardMediaPath(path: string): void {
+  inflightMediaPaths.delete(path);
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    if (!isMissingErr(err)) {
+      log.warn("media-store", `Failed to discard ${path}: ${(err as Error).message}`);
+    }
+  }
 }
 
 function isMissingErr(err: unknown): boolean {
