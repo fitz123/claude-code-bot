@@ -141,6 +141,10 @@ describe("enforceMediaCap", () => {
     const pOld = allocateMediaPath("chat-a", "doc", ".bin");
     const pMid = allocateMediaPath("chat-b", "doc", ".bin");
     const pNew = allocateMediaPath("chat-a", "doc", ".bin");
+    // Release so they're evictable (simulates files already delivered to a session).
+    releaseMediaPath(pOld);
+    releaseMediaPath(pMid);
+    releaseMediaPath(pNew);
     writeSized(pOld, 100, now - 3000);
     writeSized(pMid, 100, now - 2000);
     writeSized(pNew, 100, now - 1000);
@@ -158,6 +162,9 @@ describe("enforceMediaCap", () => {
     const p1 = allocateMediaPath("chat-a", "doc", ".bin");
     const p2 = allocateMediaPath("chat-a", "doc", ".bin");
     const p3 = allocateMediaPath("chat-a", "doc", ".bin");
+    releaseMediaPath(p1);
+    releaseMediaPath(p2);
+    releaseMediaPath(p3);
     writeSized(p1, 100, now - 3000);
     writeSized(p2, 100, now - 2000);
     writeSized(p3, 100, now - 1000);
@@ -177,6 +184,136 @@ describe("enforceMediaCap", () => {
 
     assert.doesNotThrow(() => enforceMediaCap(1000));
     assert.ok(existsSync(p));
+  });
+});
+
+describe("enforceMediaCap in-flight protection", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  function writeSized(path: string, size: number, mtime: number): void {
+    writeFileSync(path, Buffer.alloc(size));
+    utimesSync(path, mtime / 1000, mtime / 1000);
+  }
+
+  it("never evicts a path that is currently in-flight", () => {
+    const now = Date.now();
+    // In-flight path is the OLDEST — normally would be evicted first.
+    const inflight = allocateMediaPath("chat-inflight", "photo", ".jpg");
+    const olderNonInflight = allocateMediaPath("chat-other", "doc", ".bin");
+    releaseMediaPath(olderNonInflight); // release so it's evictable
+    const newer = allocateMediaPath("chat-other", "doc", ".bin");
+    releaseMediaPath(newer);
+
+    writeSized(inflight, 100, now - 5000);
+    writeSized(olderNonInflight, 100, now - 3000);
+    writeSized(newer, 100, now - 1000);
+
+    // Total = 300, cap = 150 → must evict 200 bytes of non-inflight.
+    enforceMediaCap(150);
+
+    assert.ok(existsSync(inflight), "in-flight file must be preserved even though it's oldest");
+    assert.ok(!existsSync(olderNonInflight), "non-inflight older file evicted");
+    assert.ok(!existsSync(newer), "newer non-inflight file evicted (still over cap)");
+
+    releaseMediaPath(inflight);
+  });
+
+  it("counts in-flight bytes toward total but does not evict them", () => {
+    const now = Date.now();
+    const inflight = allocateMediaPath("chat-a", "photo", ".jpg");
+    const evictable = allocateMediaPath("chat-b", "doc", ".bin");
+    releaseMediaPath(evictable);
+
+    writeSized(inflight, 200, now - 1000);
+    writeSized(evictable, 100, now - 500);
+
+    // Total = 300, cap = 150 → evict the 100-byte evictable. Still over cap
+    // (200 > 150) but nothing else can be evicted; warn-and-return.
+    enforceMediaCap(150);
+
+    assert.ok(existsSync(inflight), "in-flight preserved");
+    assert.ok(!existsSync(evictable), "evictable removed");
+
+    releaseMediaPath(inflight);
+  });
+});
+
+describe("cleanupSessionMediaDir symlink protection", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("refuses to follow MEDIA_BASE if it is a symlink", () => {
+    // Set up a decoy target that must NOT be touched.
+    const decoy = "/tmp/bot-media-victim-target";
+    rmSync(decoy, { recursive: true, force: true });
+    mkdirSync(decoy, { recursive: true, mode: 0o700 });
+    const decoyChatDir = join(decoy, "attacker");
+    mkdirSync(decoyChatDir);
+    const decoyFile = join(decoyChatDir, "important.txt");
+    writeFileSync(decoyFile, "must survive");
+
+    rmSync(MEDIA_BASE, { recursive: true, force: true });
+    symlinkSync(decoy, MEDIA_BASE);
+
+    try {
+      assert.doesNotThrow(() => cleanupSessionMediaDir("attacker"));
+      assert.ok(existsSync(decoyFile), "decoy file must still exist — cleanup refused to follow symlink");
+    } finally {
+      rmSync(MEDIA_BASE, { force: true });
+      rmSync(decoy, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cleanupStaleSessionMedia symlink protection", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("refuses to follow MEDIA_BASE if it is a symlink", () => {
+    const decoy = "/tmp/bot-media-victim-stale";
+    rmSync(decoy, { recursive: true, force: true });
+    mkdirSync(decoy, { recursive: true, mode: 0o700 });
+    const decoyChatDir = join(decoy, "attacker");
+    mkdirSync(decoyChatDir);
+    const decoyFile = join(decoyChatDir, "important.txt");
+    writeFileSync(decoyFile, "must survive");
+
+    rmSync(MEDIA_BASE, { recursive: true, force: true });
+    symlinkSync(decoy, MEDIA_BASE);
+
+    try {
+      assert.doesNotThrow(() => cleanupStaleSessionMedia("attacker"));
+      assert.ok(existsSync(decoyFile), "decoy file must survive");
+    } finally {
+      rmSync(MEDIA_BASE, { force: true });
+      rmSync(decoy, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cleanupAllMedia symlink protection", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("unlinks a MEDIA_BASE symlink without recursing into its target", () => {
+    const decoy = "/tmp/bot-media-victim-all";
+    rmSync(decoy, { recursive: true, force: true });
+    mkdirSync(decoy, { recursive: true, mode: 0o700 });
+    const decoyFile = join(decoy, "important.txt");
+    writeFileSync(decoyFile, "must survive");
+
+    rmSync(MEDIA_BASE, { recursive: true, force: true });
+    symlinkSync(decoy, MEDIA_BASE);
+
+    try {
+      assert.doesNotThrow(() => cleanupAllMedia());
+      assert.ok(!existsSync(MEDIA_BASE), "symlink itself removed");
+      assert.ok(existsSync(decoyFile), "decoy target file must survive");
+    } finally {
+      rmSync(MEDIA_BASE, { force: true });
+      rmSync(decoy, { recursive: true, force: true });
+    }
   });
 });
 
@@ -344,6 +481,7 @@ describe("enforceMediaCap error handling", () => {
     }
 
     const p = allocateMediaPath("chat-readable", "doc", ".bin");
+    releaseMediaPath(p); // make evictable
     writeFileSync(p, Buffer.alloc(100));
 
     ensureSessionMediaDir("chat-blocked");

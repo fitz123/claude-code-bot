@@ -449,6 +449,196 @@ describe("MessageQueue error handling", () => {
 });
 
 // -------------------------------------------------------------------
+// MessageQueue — drop cleanups (persistent media reclamation)
+// -------------------------------------------------------------------
+
+describe("MessageQueue drop cleanups", () => {
+  it("runs pendingDropCleanups when processFn throws", async () => {
+    let dropFired = 0;
+    let cleanupFired = 0;
+    const failProcess = async () => { throw new Error("send failed"); };
+
+    const queue = new MessageQueue(failProcess, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    queue.enqueue(
+      "chat1", "main", "hello", platform,
+      () => { cleanupFired++; },
+      () => { dropFired++; },
+    );
+
+    await wait(80);
+
+    assert.strictEqual(cleanupFired, 1, "turn cleanup fires on error");
+    assert.strictEqual(dropFired, 1, "drop cleanup MUST fire when delivery fails");
+
+    queue.clearAll();
+  });
+
+  it("does NOT run pendingDropCleanups on successful delivery", async () => {
+    let dropFired = 0;
+    const { processFn } = createMockProcess();
+    const queue = new MessageQueue(processFn, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    queue.enqueue(
+      "chat1", "main", "hello", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    await wait(80);
+
+    assert.strictEqual(dropFired, 0, "drop cleanup must not fire on success — session owns file");
+
+    queue.clearAll();
+  });
+
+  it("runs pendingDropCleanups exactly once when queue is cleared mid-process", async () => {
+    let dropFired = 0;
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(
+      "chat1", "main", "hello", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    // Wait for flush to start
+    await wait(50);
+    assert.ok(queue.isBusy("chat1"));
+
+    // Clear while processFn is still blocked
+    queue.clear("chat1");
+
+    // Unblock — post-await code notices queue was cleared
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(50);
+
+    assert.strictEqual(dropFired, 1, "drop cleanup must fire exactly once on clear-while-busy");
+
+    queue.clearAll();
+  });
+
+  it("runs collectDropCleanups when drain processFn throws", async () => {
+    let dropFired = 0;
+    let callCount = 0;
+    const processFn = async () => {
+      callCount++;
+      if (callCount === 1) {
+        // block first call so a mid-turn message lands in collect buffer
+        await new Promise<void>((r) => setTimeout(r, 30));
+      } else {
+        throw new Error("drain exploded");
+      }
+    };
+    const queue = new MessageQueue(processFn, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    queue.enqueue("chat1", "main", "initial", platform);
+
+    // Wait for flush to start processing (callCount goes to 1)
+    await wait(40);
+
+    // Enqueue a mid-turn message with a drop cleanup
+    queue.enqueue(
+      "chat1", "main", "mid-turn", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    // Wait for flush + drain to complete (drain will throw)
+    await wait(120);
+
+    assert.strictEqual(callCount, 2, "both flush and drain ran");
+    assert.strictEqual(dropFired, 1, "collect drop cleanup fires on drain failure");
+
+    queue.clearAll();
+  });
+
+  it("does NOT run collectDropCleanups on successful drain", async () => {
+    let dropFired = 0;
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue("chat1", "main", "initial", platform);
+    await wait(40);
+
+    queue.enqueue(
+      "chat1", "main", "mid-turn", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(80);
+
+    assert.strictEqual(dropFired, 0, "drop cleanup must not fire on successful drain");
+
+    queue.clearAll();
+  });
+
+  it("runs collectDropCleanups when queue is cleared mid-drain", async () => {
+    let dropFired = 0;
+    const mock = createMockProcess();
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue("chat1", "main", "initial", platform);
+    await wait(40); // flush is now blocked on initial
+
+    // Mid-turn message with drop cleanup — buffered in collect
+    queue.enqueue(
+      "chat1", "main", "mid-turn", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    // Unblock the FIRST call; drain begins and blocks on the NEXT call
+    // (setBlocking is still true).
+    mock.unblock();
+    await wait(40);
+
+    // Clear the queue while drain is blocked on the collect message.
+    queue.clear("chat1");
+
+    // Unblock drain so it returns and notices queue was cleared.
+    mock.unblock();
+    await wait(40);
+
+    assert.strictEqual(dropFired, 1, "drop cleanup fires exactly once on clear-mid-drain");
+
+    queue.clearAll();
+  });
+
+  it("runs drop cleanups when message is dropped by cap", () => {
+    let dropFired = 0;
+    const { processFn } = createMockProcess();
+    const queue = new MessageQueue(processFn, { debounceMs: 1000, queueCap: 1 });
+    const platform = mockPlatform();
+
+    queue.enqueue("chat1", "main", "first", platform);
+    queue.enqueue(
+      "chat1", "main", "second", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    assert.strictEqual(dropFired, 1, "cap-dropped message runs its drop cleanup");
+
+    queue.clearAll();
+  });
+});
+
+// -------------------------------------------------------------------
 // MessageQueue — inject file writing
 // -------------------------------------------------------------------
 

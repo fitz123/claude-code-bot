@@ -7,10 +7,15 @@ export const MEDIA_BASE = "/tmp/bot-media";
 export const DEFAULT_MAX_MEDIA_BYTES = 200 * 1024 * 1024;
 
 /**
- * Paths currently owned by an in-flight handler (downloaded but not yet
- * delivered to a session, or delivered and owned by an active session).
- * Used by `cleanupStaleSessionMedia` to decide what belongs to the current
- * logical session vs. orphaned from a prior process or a rotated agent.
+ * Paths downloaded by a handler that have NOT yet been released to a
+ * session. On successful delivery (queue consumes the message) the handler
+ * calls `releaseMediaPath` and the path leaves this set — the session owns
+ * the file from that point and it's reclaimed on session close. On drop
+ * paths (queue cap exceeded, /reconnect, /clean, handler error before
+ * enqueue) the handler calls `discardMediaPath` which removes from the set
+ * and unlinks. Consulted by `cleanupStaleSessionMedia` and
+ * `enforceMediaCap` so they never delete files that are pre-delivery
+ * in-flight.
  */
 const inflightMediaPaths = new Set<string>();
 
@@ -51,7 +56,35 @@ export function ensureSessionMediaDir(chatId: string): string {
   return dir;
 }
 
+/**
+ * Verify MEDIA_BASE exists and is a real directory (not a symlink). Returns
+ * false on symlink (refuse to follow — a pre-squatted link could redirect
+ * deletions outside the intended tree) or missing. Callers treat false as
+ * "nothing safe to clean; bail out".
+ */
+function mediaBaseSafeToTouch(): boolean {
+  if (!existsSync(MEDIA_BASE)) return false;
+  try {
+    const stat = lstatSync(MEDIA_BASE);
+    if (stat.isSymbolicLink()) {
+      log.warn("media-store", `Refusing to touch ${MEDIA_BASE}: it is a symlink`);
+      return false;
+    }
+    if (!stat.isDirectory()) {
+      log.warn("media-store", `Refusing to touch ${MEDIA_BASE}: not a directory`);
+      return false;
+    }
+  } catch (err) {
+    if (!isMissingErr(err)) {
+      log.warn("media-store", `Failed to stat ${MEDIA_BASE}: ${(err as Error).message}`);
+    }
+    return false;
+  }
+  return true;
+}
+
 export function cleanupSessionMediaDir(chatId: string): void {
+  if (!mediaBaseSafeToTouch()) return;
   rmSync(sessionMediaDir(chatId), { recursive: true, force: true });
 }
 
@@ -61,6 +94,21 @@ export function cleanupSessionMediaDir(chatId: string): void {
  * rotation via the freshness heuristic) cannot leak into a new process.
  */
 export function cleanupAllMedia(): void {
+  if (!existsSync(MEDIA_BASE)) return;
+  try {
+    const stat = lstatSync(MEDIA_BASE);
+    if (stat.isSymbolicLink()) {
+      // Pre-squatted symlink: unlink the link itself, do not recurse into target.
+      log.warn("media-store", `${MEDIA_BASE} is a symlink; unlinking the link only`);
+      unlinkSync(MEDIA_BASE);
+      return;
+    }
+  } catch (err) {
+    if (!isMissingErr(err)) {
+      log.warn("media-store", `Failed to stat ${MEDIA_BASE}: ${(err as Error).message}`);
+    }
+    return;
+  }
   rmSync(MEDIA_BASE, { recursive: true, force: true });
 }
 
@@ -72,6 +120,7 @@ export function cleanupAllMedia(): void {
  * current handler just downloaded for the next session's turn.
  */
 export function cleanupStaleSessionMedia(chatId: string): void {
+  if (!mediaBaseSafeToTouch()) return;
   const dir = sessionMediaDir(chatId);
   if (!existsSync(dir)) return;
   let entries;
@@ -142,7 +191,8 @@ export function enforceMediaCap(maxBytes: number): void {
   // in another chat's dir must not fail the current download-enqueue path.
   if (!existsSync(MEDIA_BASE)) return;
 
-  const files: { path: string; size: number; mtime: number }[] = [];
+  const candidates: { path: string; size: number; mtime: number }[] = [];
+  let total = 0;
   let chatEntries;
   try {
     chatEntries = readdirSync(MEDIA_BASE, { withFileTypes: true });
@@ -170,7 +220,13 @@ export function enforceMediaCap(maxBytes: number): void {
       const path = join(dir, fileEntry.name);
       try {
         const stat = statSync(path);
-        files.push({ path, size: stat.size, mtime: stat.mtimeMs });
+        total += stat.size;
+        // In-flight files (downloaded, not yet handed to a session) must not
+        // be evicted — the handler is about to enqueue them and the agent
+        // would get a path that no longer exists.
+        if (!inflightMediaPaths.has(path)) {
+          candidates.push({ path, size: stat.size, mtime: stat.mtimeMs });
+        }
       } catch (err) {
         if (!isMissingErr(err)) {
           log.warn("media-store", `Failed to stat ${path}: ${(err as Error).message}`);
@@ -179,12 +235,11 @@ export function enforceMediaCap(maxBytes: number): void {
     }
   }
 
-  let total = files.reduce((sum, f) => sum + f.size, 0);
   if (total <= maxBytes) return;
 
-  files.sort((a, b) => a.mtime - b.mtime);
+  candidates.sort((a, b) => a.mtime - b.mtime);
 
-  for (const f of files) {
+  for (const f of candidates) {
     if (total <= maxBytes) break;
     try {
       unlinkSync(f.path);

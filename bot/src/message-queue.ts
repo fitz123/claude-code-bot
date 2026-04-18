@@ -219,8 +219,11 @@ export class MessageQueue {
 
     const texts = state.pendingTexts.splice(0);
     const cleanups = state.pendingCleanups.splice(0);
-    // Discard drop cleanups — the message is being delivered, not dropped.
-    state.pendingDropCleanups.splice(0);
+    // Hold drop cleanups locally during processing. If processFn throws, or
+    // the queue is cleared mid-process, we must run them so persistent media
+    // doesn't leak on disk. Splicing out of state now also means clear()'s
+    // own drop-cleanup loop won't double-fire them.
+    const dropCleanups = state.pendingDropCleanups.splice(0);
     state.debounceTimer = null;
     state.busy = true;
 
@@ -230,10 +233,12 @@ export class MessageQueue {
     // relayStream() will clear this timer on handoff and start its own
     this.startPreStreamTyping(state.latestPlatform);
 
+    let delivered = false;
     try {
       if (state.latestPlatform) {
         await this.processFn(chatId, state.agentId, combinedText, state.latestPlatform);
       }
+      delivered = true;
     } catch (err) {
       log.error("message-queue", `Send error for ${chatId}:`, err);
       if (state.latestPlatform) {
@@ -246,8 +251,13 @@ export class MessageQueue {
       for (const fn of cleanups) fn();
     }
 
-    // If queue was cleared during processing (e.g., /reconnect), stop here
-    if (this.queues.get(chatId) !== state) return;
+    // Queue cleared during processing (/reconnect, /clean) or processFn failed:
+    // the session never took ownership, so run drop cleanups to reclaim files.
+    const queueCleared = this.queues.get(chatId) !== state;
+    if (!delivered || queueCleared) {
+      for (const fn of dropCleanups) fn();
+    }
+    if (queueCleared) return;
 
     // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
     for (const fn of state.deferredCleanups) fn();
@@ -299,8 +309,12 @@ export class MessageQueue {
 
       const collected = state.collectBuffer.splice(0);
       const cleanups = state.collectCleanups.splice(0);
-      // Discard drop cleanups — messages are being delivered.
-      state.collectDropCleanups.splice(0);
+      // Hold drop cleanups locally for exactly this batch. If processFn
+      // throws or the queue is cleared mid-drain, we must run them. Any
+      // drop cleanups added during processing (new mid-turn collect) stay
+      // in state — they'll be processed on the next loop iteration, or
+      // handled by clear().
+      const dropCleanups = state.collectDropCleanups.splice(0, collected.length);
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
@@ -311,10 +325,12 @@ export class MessageQueue {
 
       this.startPreStreamTyping(state.latestPlatform);
 
+      let delivered = false;
       try {
         if (state.latestPlatform) {
           await this.processFn(chatId, state.agentId, prompt, state.latestPlatform);
         }
+        delivered = true;
       } catch (err) {
         log.error("message-queue", `Collect drain error for ${chatId}:`, err);
         if (state.latestPlatform) {
@@ -327,8 +343,11 @@ export class MessageQueue {
         for (const fn of cleanups) fn();
       }
 
-      // If queue was cleared during processing, stop draining
-      if (this.queues.get(chatId) !== state) return;
+      const queueCleared = this.queues.get(chatId) !== state;
+      if (!delivered || queueCleared) {
+        for (const fn of dropCleanups) fn();
+      }
+      if (queueCleared) return;
 
       // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
       for (const fn of state.deferredCleanups) fn();
