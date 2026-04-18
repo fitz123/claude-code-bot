@@ -40,8 +40,14 @@ function createMockProcess() {
     agentId: string,
     text: string,
     _platform: PlatformContext,
+    onAgentOwnership?: () => void,
   ) => {
     calls.push({ chatId, agentId, text });
+    // Mimic real bot: agent accepts the prompt as soon as the call begins
+    // (in production this fires when the first stream event arrives). The
+    // queue ignores ownership signals fired after the queue was cleared, so
+    // clear-mid-process tests still see drop cleanups fire correctly.
+    onAgentOwnership?.();
     if (shouldBlock) {
       await new Promise<void>((resolve) => {
         blockResolve = resolve;
@@ -494,13 +500,17 @@ describe("MessageQueue drop cleanups", () => {
     queue.clearAll();
   });
 
-  it("runs pendingDropCleanups exactly once when queue is cleared mid-process", async () => {
+  it("runs pendingDropCleanups exactly once when queue is cleared mid-process before ownership transfer", async () => {
     let dropFired = 0;
-    const mock = createMockProcess();
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 20 });
+    let unblock!: () => void;
+    // processFn that blocks WITHOUT signaling ownership — mimics a real
+    // session that hasn't yet received any stream events from Claude.
+    const blockBeforeOwnership = async () => {
+      await new Promise<void>((resolve) => { unblock = resolve; });
+    };
+    const queue = new MessageQueue(blockBeforeOwnership, { debounceMs: 20 });
     const platform = mockPlatform();
 
-    mock.setBlocking(true);
     queue.enqueue(
       "chat1", "main", "hello", platform,
       undefined,
@@ -511,15 +521,14 @@ describe("MessageQueue drop cleanups", () => {
     await wait(50);
     assert.ok(queue.isBusy("chat1"));
 
-    // Clear while processFn is still blocked
+    // Clear while processFn is still blocked (and ownership not yet signaled)
     queue.clear("chat1");
 
     // Unblock — post-await code notices queue was cleared
-    mock.setBlocking(false);
-    mock.unblock();
+    unblock();
     await wait(50);
 
-    assert.strictEqual(dropFired, 1, "drop cleanup must fire exactly once on clear-while-busy");
+    assert.strictEqual(dropFired, 1, "drop cleanup must fire exactly once on clear-while-busy when ownership hasn't transferred");
 
     queue.clearAll();
   });
@@ -585,13 +594,16 @@ describe("MessageQueue drop cleanups", () => {
     queue.clearAll();
   });
 
-  it("runs collectDropCleanups when queue is cleared mid-drain", async () => {
+  it("runs collectDropCleanups when queue is cleared mid-drain before ownership transfer", async () => {
     let dropFired = 0;
-    const mock = createMockProcess();
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 20 });
+    const unblockers: Array<() => void> = [];
+    // processFn that blocks WITHOUT signaling ownership on each call.
+    const blockBeforeOwnership = async () => {
+      await new Promise<void>((resolve) => { unblockers.push(resolve); });
+    };
+    const queue = new MessageQueue(blockBeforeOwnership, { debounceMs: 20 });
     const platform = mockPlatform();
 
-    mock.setBlocking(true);
     queue.enqueue("chat1", "main", "initial", platform);
     await wait(40); // flush is now blocked on initial
 
@@ -602,19 +614,83 @@ describe("MessageQueue drop cleanups", () => {
       () => { dropFired++; },
     );
 
-    // Unblock the FIRST call; drain begins and blocks on the NEXT call
-    // (setBlocking is still true).
-    mock.unblock();
+    // Unblock the FIRST call; drain begins and blocks on the NEXT call.
+    unblockers.shift()?.();
     await wait(40);
 
     // Clear the queue while drain is blocked on the collect message.
     queue.clear("chat1");
 
     // Unblock drain so it returns and notices queue was cleared.
-    mock.unblock();
+    unblockers.shift()?.();
     await wait(40);
 
     assert.strictEqual(dropFired, 1, "drop cleanup fires exactly once on clear-mid-drain");
+
+    queue.clearAll();
+  });
+
+  it("does NOT run pendingDropCleanups when processFn signals ownership then throws (issue #99 regression)", async () => {
+    let dropFired = 0;
+    let cleanupFired = 0;
+    // Simulate: agent accepted prompt (ownership signaled), then response
+    // relay failed (e.g. Telegram sendMessage failed for the first chunk).
+    const ownThenFail = async (
+      _chatId: string, _agentId: string, _text: string,
+      _platform: PlatformContext, onAgentOwnership: () => void,
+    ) => {
+      onAgentOwnership();
+      throw new Error("response relay failed after agent committed turn");
+    };
+
+    const queue = new MessageQueue(ownThenFail, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    queue.enqueue(
+      "chat1", "main", "hello", platform,
+      () => { cleanupFired++; },
+      () => { dropFired++; },
+    );
+
+    await wait(80);
+
+    assert.strictEqual(cleanupFired, 1, "turn cleanup still fires on relay failure");
+    assert.strictEqual(dropFired, 0, "drop cleanup MUST NOT fire after ownership transferred — session owns media");
+
+    queue.clearAll();
+  });
+
+  it("does NOT run collectDropCleanups when drain processFn signals ownership then throws", async () => {
+    let dropFired = 0;
+    let callCount = 0;
+    const processFn = async (
+      _chatId: string, _agentId: string, _text: string,
+      _platform: PlatformContext, onAgentOwnership: () => void,
+    ) => {
+      callCount++;
+      if (callCount === 1) {
+        await new Promise<void>((r) => setTimeout(r, 30));
+      } else {
+        onAgentOwnership();
+        throw new Error("drain relay failed after agent committed turn");
+      }
+    };
+    const queue = new MessageQueue(processFn, { debounceMs: 20 });
+    const platform = mockPlatform();
+
+    queue.enqueue("chat1", "main", "initial", platform);
+    await wait(40);
+
+    queue.enqueue(
+      "chat1", "main", "mid-turn", platform,
+      undefined,
+      () => { dropFired++; },
+    );
+
+    await wait(120);
+
+    assert.strictEqual(callCount, 2, "both flush and drain ran");
+    assert.strictEqual(dropFired, 0, "drop cleanup MUST NOT fire after ownership transferred mid-drain");
 
     queue.clearAll();
   });

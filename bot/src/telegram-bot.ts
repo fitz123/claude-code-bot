@@ -540,9 +540,9 @@ export function createTelegramBot(
 
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
-    async (chatId, agentId, text, platform) => {
+    async (chatId, agentId, text, platform, onAgentOwnership) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
-      await relayStream(stream, platform, outboxDir(chatId));
+      await relayStream(stream, platform, outboxDir(chatId), onAgentOwnership);
     },
   );
 

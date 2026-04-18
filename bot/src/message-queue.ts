@@ -8,12 +8,18 @@ export const DEFAULT_QUEUE_CAP = 20;
 /**
  * Callback that sends combined text to Claude and relays the response.
  * Called by the queue when debounce expires or collect buffer drains.
+ *
+ * `onAgentOwnership` MUST be invoked once the agent has accepted the prompt
+ * (the conversation history now references any media paths in the text). After
+ * that point, even if response relay fails, persistent media must NOT be
+ * discarded — the agent owns it for the rest of the session.
  */
 export type ProcessFn = (
   chatId: string,
   agentId: string,
   text: string,
   platform: PlatformContext,
+  onAgentOwnership: () => void,
 ) => Promise<void>;
 
 /** Fire-and-forget cleanup callback (e.g. delete a temp file after processing). */
@@ -233,12 +239,23 @@ export class MessageQueue {
     // relayStream() will clear this timer on handoff and start its own
     this.startPreStreamTyping(state.latestPlatform);
 
-    let delivered = false;
+    // Mutable holder so onAgentOwnership can drop the cleanups: once the
+    // agent has accepted the prompt, the conversation references any media
+    // paths and we must never reclaim them via drop cleanup, even if the
+    // response relay fails afterward (issue #99 regression vector). If the
+    // queue was cleared before ownership transferred (/reconnect, /clean),
+    // ignore the signal — the session is being torn down and drop cleanups
+    // must still run.
+    let liveDropCleanups: CleanupFn[] | null = dropCleanups;
+    const transferOwnership = () => {
+      if (this.queues.get(chatId) !== state) return;
+      liveDropCleanups = null;
+    };
+
     try {
       if (state.latestPlatform) {
-        await this.processFn(chatId, state.agentId, combinedText, state.latestPlatform);
+        await this.processFn(chatId, state.agentId, combinedText, state.latestPlatform, transferOwnership);
       }
-      delivered = true;
     } catch (err) {
       log.error("message-queue", `Send error for ${chatId}:`, err);
       if (state.latestPlatform) {
@@ -251,11 +268,14 @@ export class MessageQueue {
       for (const fn of cleanups) fn();
     }
 
-    // Queue cleared during processing (/reconnect, /clean) or processFn failed:
-    // the session never took ownership, so run drop cleanups to reclaim files.
+    // If transferOwnership() fired, liveDropCleanups is null and we skip — the
+    // session now owns the media for its full lifetime, even if response relay
+    // failed afterward. Otherwise (queue cleared, processFn threw before
+    // ownership, or processFn returned without ever taking ownership): the
+    // agent never claimed the media, reclaim it.
     const queueCleared = this.queues.get(chatId) !== state;
-    if (!delivered || queueCleared) {
-      for (const fn of dropCleanups) fn();
+    if (liveDropCleanups) {
+      for (const fn of liveDropCleanups) fn();
     }
     if (queueCleared) return;
 
@@ -325,12 +345,16 @@ export class MessageQueue {
 
       this.startPreStreamTyping(state.latestPlatform);
 
-      let delivered = false;
+      let liveDropCleanups: CleanupFn[] | null = dropCleanups;
+      const transferOwnership = () => {
+        if (this.queues.get(chatId) !== state) return;
+        liveDropCleanups = null;
+      };
+
       try {
         if (state.latestPlatform) {
-          await this.processFn(chatId, state.agentId, prompt, state.latestPlatform);
+          await this.processFn(chatId, state.agentId, prompt, state.latestPlatform, transferOwnership);
         }
-        delivered = true;
       } catch (err) {
         log.error("message-queue", `Collect drain error for ${chatId}:`, err);
         if (state.latestPlatform) {
@@ -344,8 +368,8 @@ export class MessageQueue {
       }
 
       const queueCleared = this.queues.get(chatId) !== state;
-      if (!delivered || queueCleared) {
-        for (const fn of dropCleanups) fn();
+      if (liveDropCleanups) {
+        for (const fn of liveDropCleanups) fn();
       }
       if (queueCleared) return;
 
