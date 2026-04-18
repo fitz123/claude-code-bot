@@ -22,14 +22,23 @@ export type CleanupFn = () => void;
 interface ChatQueueState {
   /** Messages pending debounce timer (pre-send) */
   pendingTexts: string[];
-  /** Cleanup callbacks for pending messages */
+  /** Cleanup callbacks for pending messages (fire on successful delivery) */
   pendingCleanups: CleanupFn[];
+  /**
+   * Drop-only cleanup callbacks for pending messages. Fire when the message
+   * is dropped (cap exceeded) or the queue is cleared (/reconnect, /clean).
+   * Discarded on successful flush — the session will own the file and clean
+   * it up on close. Used for persistent media that must outlive the turn.
+   */
+  pendingDropCleanups: CleanupFn[];
   debounceTimer: ReturnType<typeof setTimeout> | null;
 
   /** Messages collected during active processing (mid-turn) */
   collectBuffer: string[];
-  /** Cleanup callbacks for collected messages */
+  /** Cleanup callbacks for collected messages (fire on successful delivery) */
   collectCleanups: CleanupFn[];
+  /** Drop-only cleanup callbacks for collected messages (see pendingDropCleanups). */
+  collectDropCleanups: CleanupFn[];
 
   /** Deferred cleanups for messages consumed by hook mid-turn (temp files still in use) */
   deferredCleanups: CleanupFn[];
@@ -95,9 +104,11 @@ export class MessageQueue {
       state = {
         pendingTexts: [],
         pendingCleanups: [],
+        pendingDropCleanups: [],
         debounceTimer: null,
         collectBuffer: [],
         collectCleanups: [],
+        collectDropCleanups: [],
         deferredCleanups: [],
         busy: false,
         latestPlatform: null,
@@ -114,8 +125,24 @@ export class MessageQueue {
   /**
    * Enqueue a message for a chat. Handles debouncing and mid-turn collect.
    * Fire-and-forget: returns immediately, processing happens in background.
+   *
+   * `cleanup` runs when the message is consumed (successful delivery or drop)
+   * and is the right hook for turn-scoped temp files.
+   *
+   * `dropCleanup` runs only on drop/clear paths (cap exceeded, /reconnect,
+   * /clean). It is discarded on successful delivery so the callee can own the
+   * file for the session lifetime (persistent media). Use this for downloads
+   * that must survive the turn but be reclaimed if the message never reaches
+   * an agent.
    */
-  enqueue(chatId: string, agentId: string, text: string, platform: PlatformContext, cleanup?: CleanupFn): void {
+  enqueue(
+    chatId: string,
+    agentId: string,
+    text: string,
+    platform: PlatformContext,
+    cleanup?: CleanupFn,
+    dropCleanup?: CleanupFn,
+  ): void {
     const state = this.getState(chatId, agentId);
     state.latestPlatform = platform;
 
@@ -131,6 +158,8 @@ export class MessageQueue {
         const consumed = state.injectConsumed;
         state.collectBuffer.splice(0, consumed);
         const consumedCleanups = state.collectCleanups.splice(0, consumed);
+        // Drop cleanups for hook-consumed messages are dropped: the agent owns the file.
+        state.collectDropCleanups.splice(0, consumed);
         state.deferredCleanups.push(...consumedCleanups);
         state.injectConsumed = 0;
       }
@@ -139,6 +168,7 @@ export class MessageQueue {
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
         state.collectCleanups.push(cleanup ?? (() => {}));
+        state.collectDropCleanups.push(dropCleanup ?? (() => {}));
 
         // Write inject file so PreToolUse hook can deliver mid-turn
         this.writeInject(chatId, state);
@@ -149,6 +179,7 @@ export class MessageQueue {
         );
       } else {
         if (cleanup) cleanup();
+        if (dropCleanup) dropCleanup();
         log.warn(
           "message-queue",
           `Collect buffer full for ${chatId}, dropping message`,
@@ -160,6 +191,7 @@ export class MessageQueue {
     // Pre-send debounce: add to pending and reset timer
     if (state.pendingTexts.length >= this.queueCap) {
       if (cleanup) cleanup();
+      if (dropCleanup) dropCleanup();
       log.warn(
         "message-queue",
         `Debounce buffer full for ${chatId}, dropping message`,
@@ -167,7 +199,8 @@ export class MessageQueue {
       return;
     }
     state.pendingTexts.push(text);
-    if (cleanup) state.pendingCleanups.push(cleanup);
+    state.pendingCleanups.push(cleanup ?? (() => {}));
+    state.pendingDropCleanups.push(dropCleanup ?? (() => {}));
 
     if (state.debounceTimer) {
       clearTimeout(state.debounceTimer);
@@ -186,6 +219,8 @@ export class MessageQueue {
 
     const texts = state.pendingTexts.splice(0);
     const cleanups = state.pendingCleanups.splice(0);
+    // Discard drop cleanups — the message is being delivered, not dropped.
+    state.pendingDropCleanups.splice(0);
     state.debounceTimer = null;
     state.busy = true;
 
@@ -236,6 +271,7 @@ export class MessageQueue {
     if (consumed > 0) {
       state.collectBuffer.splice(0, consumed);
       const consumedCleanups = state.collectCleanups.splice(0, consumed);
+      state.collectDropCleanups.splice(0, consumed);
       for (const fn of consumedCleanups) fn();
       log.debug("message-queue", `Deduped ${consumed} inject-consumed message(s) for ${chatId}`);
     }
@@ -243,6 +279,7 @@ export class MessageQueue {
     // If all messages were consumed by hook, just run cleanups and return
     if (state.collectBuffer.length === 0) {
       const cleanups = state.collectCleanups.splice(0);
+      state.collectDropCleanups.splice(0);
       for (const fn of cleanups) fn();
       return;
     }
@@ -254,6 +291,7 @@ export class MessageQueue {
       if (loopConsumed > 0) {
         state.collectBuffer.splice(0, loopConsumed);
         const loopCleanups = state.collectCleanups.splice(0, loopConsumed);
+        state.collectDropCleanups.splice(0, loopConsumed);
         for (const fn of loopCleanups) fn();
         log.debug("message-queue", `Deduped ${loopConsumed} inject-consumed message(s) for ${chatId} (drain loop)`);
       }
@@ -261,6 +299,8 @@ export class MessageQueue {
 
       const collected = state.collectBuffer.splice(0);
       const cleanups = state.collectCleanups.splice(0);
+      // Discard drop cleanups — messages are being delivered.
+      state.collectDropCleanups.splice(0);
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
@@ -321,7 +361,9 @@ export class MessageQueue {
         clearTimeout(state.debounceTimer);
       }
       for (const fn of state.pendingCleanups) fn();
+      for (const fn of state.pendingDropCleanups) fn();
       for (const fn of state.collectCleanups) fn();
+      for (const fn of state.collectDropCleanups) fn();
       for (const fn of state.deferredCleanups) fn();
       this.queues.delete(chatId);
     }
@@ -350,7 +392,9 @@ export class MessageQueue {
         clearTimeout(state.debounceTimer);
       }
       for (const fn of state.pendingCleanups) fn();
+      for (const fn of state.pendingDropCleanups) fn();
       for (const fn of state.collectCleanups) fn();
+      for (const fn of state.collectDropCleanups) fn();
       for (const fn of state.deferredCleanups) fn();
       try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
     }

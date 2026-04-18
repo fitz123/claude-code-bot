@@ -815,8 +815,19 @@ export function createTelegramBot(
         : `${context}${tempPath}`;
 
       // File persists for the session lifetime so follow-up turns can reference it.
+      // Drop cleanup reclaims the file if the message never reaches an agent
+      // (queue cap exceeded, /reconnect, /clean). Session-close handles the
+      // happy-path reclaim for delivered messages.
+      const pathToDropClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
+      messageQueue.enqueue(
+        key,
+        binding.agentId,
+        messageText,
+        createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults),
+        undefined,
+        () => { cleanupTempFile(pathToDropClean); },
+      );
     } catch (err) {
       log.error("telegram-bot", `Photo handling error for chat ${chatId}:`, err);
       await ctx.reply("Failed to process photo. Please try again.").catch(() => {});
@@ -902,8 +913,19 @@ export function createTelegramBot(
       }
 
       // File persists for the session lifetime so follow-up turns can reference it.
+      // Drop cleanup reclaims the file if the message never reaches an agent
+      // (queue cap exceeded, /reconnect, /clean). Session-close handles the
+      // happy-path reclaim for delivered messages.
+      const pathToDropClean = tempPath;
       tempPath = null;
-      messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
+      messageQueue.enqueue(
+        key,
+        binding.agentId,
+        messageText,
+        createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults),
+        undefined,
+        () => { cleanupTempFile(pathToDropClean); },
+      );
     } catch (err) {
       log.error("telegram-bot", `${anim ? "Animation" : "Document"} handling error for chat ${chatId}:`, err);
       await ctx.reply(`Failed to process ${anim ? "animation" : "document"}. Please try again.`).catch(() => {});

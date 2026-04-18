@@ -10,7 +10,6 @@ import { restoreThreadCache, saveThreadCache } from "./message-thread-cache.js";
 import { restoreMessageIndex, saveMessageIndex } from "./message-content-index.js";
 import { setBotUsername } from "./telegram-adapter.js";
 import { getVersion } from "./version.js";
-import { cleanupAllMedia } from "./media-store.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
 import type { EchoWatcher } from "./echo-watcher.js";
@@ -143,13 +142,11 @@ async function main(): Promise<void> {
             clearTimeout(startupTimeout);
             setBotUsername(botInfo.username);
             log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
-            // Wipe media dir only after polling ownership is confirmed. Doing this
-            // before bot.start() would clobber an overlapping live instance's files
-            // during the 409-retry window; grammY awaits onStart before dispatching
-            // handlers, so no in-flight handler can race the wipe here.
-            try { cleanupAllMedia(); } catch (err) {
-              log.warn("main", `Failed to clean prior media dir: ${(err as Error).message}`);
-            }
+            // No global media wipe on startup: grammY invokes onStart before the
+            // first getUpdates, so polling ownership isn't proven yet. A blanket
+            // wipe here can clobber files that an overlapping old instance is
+            // still serving. Orphans from prior runs are reclaimed via per-session
+            // cleanupSessionMediaDir on close and enforceMediaCap eviction.
             if (watchdog) watchdog.start();
             try {
               await bot.api.setMyCommands(BOT_COMMANDS);
