@@ -187,6 +187,37 @@ describe("validateAgent defaultModel inheritance", () => {
     assert.strictEqual(agent.model, "claude-opus-4-7");
     assert.strictEqual(agent.fallbackModel, "claude-sonnet-4-6");
   });
+
+  it("throws when agent model is present but non-string (does not silently inherit)", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: 42 },
+        "main",
+        "claude-opus-4-7",
+      ),
+      /Agent "main" has invalid model/,
+    );
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: ["claude-opus-4-7"] },
+        "main",
+        "claude-opus-4-7",
+      ),
+      /Agent "main" has invalid model/,
+    );
+  });
+
+  it("throws when agent fallbackModel is present but non-string", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", fallbackModel: 99 },
+        "main",
+        undefined,
+        "claude-sonnet-4-6",
+      ),
+      /Agent "main" has invalid fallbackModel/,
+    );
+  });
 });
 
 describe("loadConfig top-level defaultModel validation", () => {
@@ -239,5 +270,52 @@ agents:
 `,
     );
     assert.throws(() => loadConfig(configPath), /Agent "main" missing model/);
+  });
+
+  it("inherits top-level defaults end-to-end for agents without model/fallbackModel", () => {
+    // No telegramTokenService / bindings / discord → loadConfig reaches the
+    // "at least one platform" guard AFTER agent validation, proving the default
+    // inheritance wiring succeeded without needing Keychain access.
+    const configPath = join(TEST_DIR, "config.yaml");
+    writeFileSync(
+      configPath,
+      `
+defaultModel: claude-opus-4-7
+defaultFallbackModel: claude-sonnet-4-6
+agents:
+  inheritor:
+    workspaceCwd: /tmp/x
+  pinned:
+    workspaceCwd: /tmp/y
+    model: claude-haiku-4-5-20251001
+`,
+    );
+    assert.throws(() => loadConfig(configPath), (e: unknown) => {
+      const msg = (e as Error).message;
+      assert.match(msg, /At least one platform must be configured/);
+      return true;
+    });
+  });
+
+  it("local config defaultModel replaces base defaultModel", () => {
+    const configPath = join(TEST_DIR, "config.yaml");
+    const localPath = join(TEST_DIR, "config.local.yaml");
+    writeFileSync(
+      configPath,
+      `
+defaultModel: claude-opus-4-6
+agents:
+  main:
+    workspaceCwd: /tmp/x
+`,
+    );
+    writeFileSync(
+      localPath,
+      `
+defaultModel: claude-opus-4-7
+`,
+    );
+    // Agents validated OK (no missing-model error); fails at platform guard.
+    assert.throws(() => loadConfig(configPath), /At least one platform must be configured/);
   });
 });

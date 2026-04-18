@@ -102,11 +102,17 @@ export function validateAgent(
   if (typeof obj.workspaceCwd !== "string") {
     throw new Error(`Agent "${id}" missing workspaceCwd`);
   }
-  const model = typeof obj.model === "string" ? obj.model : defaultModel;
+  if (obj.model !== undefined && typeof obj.model !== "string") {
+    throw new Error(`Agent "${id}" has invalid model (must be a string)`);
+  }
+  const model = obj.model ?? defaultModel;
   if (typeof model !== "string") {
     throw new Error(`Agent "${id}" missing model (and no top-level defaultModel set)`);
   }
-  const fallbackModel = typeof obj.fallbackModel === "string" ? obj.fallbackModel : defaultFallbackModel;
+  if (obj.fallbackModel !== undefined && typeof obj.fallbackModel !== "string") {
+    throw new Error(`Agent "${id}" has invalid fallbackModel (must be a string)`);
+  }
+  const fallbackModel = (obj.fallbackModel as string | undefined) ?? defaultFallbackModel;
   return {
     id: String(obj.id ?? id),
     workspaceCwd: obj.workspaceCwd,
@@ -315,8 +321,8 @@ export function loadConfig(configPath?: string): BotConfig {
   if (raw.defaultFallbackModel !== undefined && typeof raw.defaultFallbackModel !== "string") {
     throw new Error(`Invalid defaultFallbackModel: must be a string`);
   }
-  const defaultModel = raw.defaultModel as string | undefined;
-  const defaultFallbackModel = raw.defaultFallbackModel as string | undefined;
+  const defaultModel = raw.defaultModel;
+  const defaultFallbackModel = raw.defaultFallbackModel;
 
   // Validate agents (needed before validating bindings)
   if (!raw.agents || typeof raw.agents !== "object") {
