@@ -10,6 +10,7 @@ import { restoreThreadCache, saveThreadCache } from "./message-thread-cache.js";
 import { restoreMessageIndex, saveMessageIndex } from "./message-content-index.js";
 import { setBotUsername } from "./telegram-adapter.js";
 import { getVersion } from "./version.js";
+import { cleanupAllMedia } from "./media-store.js";
 import type { Client } from "discord.js";
 import type { MessageQueue } from "./message-queue.js";
 import type { EchoWatcher } from "./echo-watcher.js";
@@ -31,6 +32,13 @@ async function main(): Promise<void> {
   // Restore caches from disk (survives restarts)
   restoreThreadCache();
   restoreMessageIndex();
+
+  // Wipe media dir from prior process: session-scoped lifetime means files from
+  // a previous run must not leak into new sessions (e.g. after agent binding
+  // change, or orphaned debounce-pending downloads from a crashed instance).
+  try { cleanupAllMedia(); } catch (err) {
+    log.warn("main", `Failed to clean prior media dir: ${(err as Error).message}`);
+  }
 
   const sessionManager = new SessionManager(loadConfig);
   log.info("main", "Session manager initialized");

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, readdirSync, statSync, unlinkSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, readdirSync, statSync, unlinkSync, existsSync, lstatSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { log } from "./logger.js";
@@ -14,17 +14,46 @@ export function sessionMediaDir(chatId: string): string {
   return join(MEDIA_BASE, safeChatId(chatId));
 }
 
+/**
+ * Create `path` with mode 0o700 if missing, otherwise verify it's a real dir
+ * (not a symlink) and force permissions to 0o700. mkdirSync's `mode` option is
+ * ignored when the dir already exists, so a pre-squatted `/tmp/bot-media` with
+ * loose perms would otherwise leak filenames to other local users.
+ */
+function ensureSecureDir(path: string): void {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Refusing to use ${path}: it is a symlink`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`Refusing to use ${path}: not a directory`);
+  }
+  if ((stat.mode & 0o777) !== 0o700) {
+    chmodSync(path, 0o700);
+  }
+}
+
 export function ensureSessionMediaDir(chatId: string): string {
   const dir = sessionMediaDir(chatId);
   // mode 0o700: only the bot user can traverse/list. On shared hosts this
   // prevents other local users from enumerating filenames of downloaded media.
-  mkdirSync(MEDIA_BASE, { recursive: true, mode: 0o700 });
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  ensureSecureDir(MEDIA_BASE);
+  ensureSecureDir(dir);
   return dir;
 }
 
 export function cleanupSessionMediaDir(chatId: string): void {
   rmSync(sessionMediaDir(chatId), { recursive: true, force: true });
+}
+
+/**
+ * Wipe the entire media root. Called on bot startup so prior-run downloads
+ * (including orphaned pending-debounce files and files that survived agent
+ * rotation via the freshness heuristic) cannot leak into a new process.
+ */
+export function cleanupAllMedia(): void {
+  rmSync(MEDIA_BASE, { recursive: true, force: true });
 }
 
 /**

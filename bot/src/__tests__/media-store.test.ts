@@ -1,12 +1,13 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, chmodSync, rmSync, statSync, writeFileSync, utimesSync } from "node:fs";
+import { existsSync, chmodSync, mkdirSync, symlinkSync, rmSync, statSync, writeFileSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import {
   MEDIA_BASE,
   sessionMediaDir,
   ensureSessionMediaDir,
   cleanupSessionMediaDir,
+  cleanupAllMedia,
   allocateMediaPath,
   enforceMediaCap,
 } from "../media-store.js";
@@ -185,6 +186,64 @@ describe("ensureSessionMediaDir permissions", () => {
     // Mask off file-type bits; check only permission bits.
     assert.strictEqual(statSync(MEDIA_BASE).mode & 0o777, 0o700);
     assert.strictEqual(statSync(dir).mode & 0o777, 0o700);
+  });
+
+  it("chmods an existing loose-permission MEDIA_BASE to 0o700", () => {
+    // Simulate pre-squat: another process created the dir with loose perms.
+    mkdirSync(MEDIA_BASE, { recursive: true, mode: 0o755 });
+    assert.strictEqual(statSync(MEDIA_BASE).mode & 0o777, 0o755);
+
+    ensureSessionMediaDir("chat-tighten");
+
+    assert.strictEqual(statSync(MEDIA_BASE).mode & 0o777, 0o700);
+  });
+
+  it("chmods an existing loose-permission session dir to 0o700", () => {
+    mkdirSync(sessionMediaDir("chat-loose"), { recursive: true, mode: 0o755 });
+    assert.strictEqual(statSync(sessionMediaDir("chat-loose")).mode & 0o777, 0o755);
+
+    ensureSessionMediaDir("chat-loose");
+
+    assert.strictEqual(statSync(sessionMediaDir("chat-loose")).mode & 0o777, 0o700);
+  });
+
+  it("refuses to use MEDIA_BASE if it is a symlink", () => {
+    const decoy = "/tmp/bot-media-decoy-target";
+    rmSync(decoy, { recursive: true, force: true });
+    mkdirSync(decoy, { recursive: true, mode: 0o700 });
+    rmSync(MEDIA_BASE, { recursive: true, force: true });
+    symlinkSync(decoy, MEDIA_BASE);
+
+    try {
+      assert.throws(() => ensureSessionMediaDir("chat-symlink"), /symlink/);
+    } finally {
+      rmSync(MEDIA_BASE, { force: true });
+      rmSync(decoy, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cleanupAllMedia", () => {
+  beforeEach(resetMediaBase);
+  afterEach(resetMediaBase);
+
+  it("removes the entire media root and every session's files", () => {
+    const a = allocateMediaPath("chat-a", "photo", ".jpg");
+    const b = allocateMediaPath("chat-b", "doc", ".pdf");
+    writeFileSync(a, "a");
+    writeFileSync(b, "b");
+    assert.ok(existsSync(a) && existsSync(b));
+
+    cleanupAllMedia();
+
+    assert.ok(!existsSync(MEDIA_BASE), "media root removed");
+    assert.ok(!existsSync(a));
+    assert.ok(!existsSync(b));
+  });
+
+  it("is a no-op when the media root is absent", () => {
+    rmSync(MEDIA_BASE, { recursive: true, force: true });
+    assert.doesNotThrow(() => cleanupAllMedia());
   });
 });
 
