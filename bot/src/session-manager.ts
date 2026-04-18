@@ -240,7 +240,12 @@ export class SessionManager {
       }
       // No session will be created to own files just downloaded for this turn;
       // wipe the dir so they don't sit around until the next startup/cap eviction.
-      try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
+      // Skip when resuming: the stored session record stays intact, so a later
+      // successful resume will continue the same conversation history — and that
+      // history may reference files already in this dir from prior turns.
+      if (!resume) {
+        try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
+      }
       // Increment crash count so startup failures contribute to backoff
       const count = (this.restartCounts.get(chatId) ?? 0) + 1;
       this.restartCounts.set(chatId, count);
