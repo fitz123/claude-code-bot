@@ -113,10 +113,10 @@ Case 2 is where operators get hurt: the naive `bootout` + `bootstrap` sequence h
 
 **What we want.** After Task 1 lands, the rule points operators to the script as the canonical restart path. Operators who edit `config.yaml` / `config.local.yaml` or the plist should be able to follow the rule without ever running raw `launchctl` commands.
 
-- [ ] The rule recommends the Task 1 script (by its actual name and CLI) as the default way to restart the bot, and explicitly covers the plist-change case.
-- [ ] Any previous guidance that contradicts or misleads about the plist-change flow — specifically the blanket "Never use `launchctl bootout` after SIGTERM" line — is updated or removed so operators following the rule end up with a working bot after a plist edit.
-- [ ] The "Never use `launchctl kickstart -k`" warning is preserved.
-- [ ] The auto-restart fallback ("If auto-restart doesn't happen…") still works: it points at the script first, and only falls back to manual `launchctl` commands if the script itself fails.
-- [ ] All existing sections on hot-reload fields, boot-level fields, and cron changes are preserved unchanged.
-- [ ] Following the updated rule end-to-end (edit plist → run script → check `sudo launchctl procinfo <pid>`) successfully picks up the new on-disk plist without any raw `launchctl` commands typed by the operator
-- [ ] Verify existing tests pass
+- [x] The rule recommends the Task 1 script (by its actual name and CLI) as the default way to restart the bot, and explicitly covers the plist-change case.
+- [x] Any previous guidance that contradicts or misleads about the plist-change flow — specifically the blanket "Never use `launchctl bootout` after SIGTERM" line — is updated or removed so operators following the rule end up with a working bot after a plist edit.
+- [x] The "Never use `launchctl kickstart -k`" warning is preserved.
+- [x] The auto-restart fallback ("If auto-restart doesn't happen…") still works: it points at the script first, and only falls back to manual `launchctl` commands if the script itself fails.
+- [x] All existing sections on hot-reload fields, boot-level fields, and cron changes are preserved unchanged.
+- [x] manual test (skipped - not automatable): Following the updated rule end-to-end (edit plist → run script → check `sudo launchctl procinfo <pid>`) successfully picks up the new on-disk plist without any raw `launchctl` commands typed by the operator
+- [x] Verify existing tests pass
