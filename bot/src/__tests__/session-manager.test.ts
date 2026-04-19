@@ -269,6 +269,83 @@ describe("SessionManager", () => {
     assert.strictEqual(result.resume, false, "destroyed session should not resume");
   });
 
+  it("destroySession removes stored state before awaiting child exit (race-safe)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const { SessionStore } = await import("../session-store.js");
+
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("chat-race", {
+      sessionId: "race-sid",
+      chatId: "chat-race",
+      agentId: "main",
+      lastActivity: Date.now(),
+    });
+
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
+
+    // Build a child that delays its exit to widen the race window
+    const slowChild = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(slowChild, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(_c, _e, cb) { cb(); } }),
+      pid: 99999,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (slowChild as unknown as Record<string, unknown>).killed = true;
+        setTimeout(() => {
+          (slowChild as unknown as Record<string, unknown>).exitCode = 0;
+          slowChild.emit("exit", 0, signal ?? "SIGTERM");
+        }, 200);
+        return true;
+      },
+    });
+
+    const outboxPath = `${TEST_DIR}/outbox-race`;
+    const injectDir = `${TEST_DIR}/inject-race`;
+    mkdirSync(outboxPath, { recursive: true });
+    mkdirSync(injectDir, { recursive: true });
+
+    const fakeSession: ActiveSession = {
+      child: slowChild,
+      sessionId: "race-sid",
+      agentId: "main",
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      idleTimeoutMs: 100000,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath,
+      injectDir,
+    };
+
+    (manager as unknown as { active: Map<string, ActiveSession> }).active.set("chat-race", fakeSession);
+
+    const destroyPromise = manager.destroySession("chat-race");
+
+    // Mid-flight: store entry must already be gone (delete precedes child-exit await)
+    const storeMid = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(
+      storeMid.getSession("chat-race"),
+      undefined,
+      "destroySession must delete store entry BEFORE awaiting child exit",
+    );
+
+    await destroyPromise;
+
+    // And destroySession's {persist: false} must keep it gone
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(
+      storeAfter.getSession("chat-race"),
+      undefined,
+      "store must remain empty after destroy completes (persist: false)",
+    );
+  });
+
   it("destroySession deletes state that closeSession would preserve", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const { SessionStore } = await import("../session-store.js");

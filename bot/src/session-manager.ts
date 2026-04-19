@@ -454,7 +454,7 @@ export class SessionManager {
   }
 
   /** Close a session: persist state, SIGTERM child, clean up. */
-  async closeSession(chatId: string): Promise<void> {
+  async closeSession(chatId: string, { persist = true }: { persist?: boolean } = {}): Promise<void> {
     // Always clear crash count so /reconnect unblocks circuit-broken chats
     this.restartCounts.delete(chatId);
 
@@ -467,8 +467,10 @@ export class SessionManager {
       session.idleTimer = null;
     }
 
-    // Persist final state
-    this.store.setSession(chatId, this.toSessionState(chatId, session));
+    // Persist final state (skipped by destroySession to prevent race)
+    if (persist) {
+      this.store.setSession(chatId, this.toSessionState(chatId, session));
+    }
 
     // Remove from active map first to prevent re-entry
     this.active.delete(chatId);
@@ -567,10 +569,14 @@ export class SessionManager {
   /**
    * Destroy a session: close it AND delete stored state.
    * Next message will start a completely fresh session (no --resume).
+   *
+   * Deletes from store BEFORE closing and skips closeSession's persist
+   * to prevent a concurrent getOrCreateSession from resuming with
+   * --resume during the child-exit await window.
    */
   async destroySession(chatId: string): Promise<void> {
-    await this.closeSession(chatId);
     this.store.deleteSession(chatId);
+    await this.closeSession(chatId, { persist: false });
     // closeSession only touches the media dir when an in-memory session exists;
     // /clean after a bot restart/crash (or before any spawn) must still wipe it.
     try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
