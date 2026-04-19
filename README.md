@@ -175,8 +175,11 @@ The bot runs as a launchd service: `ai.minime.telegram-bot`.
 # Check status
 launchctl print gui/$(id -u)/ai.minime.telegram-bot 2>&1 | head -5
 
-# Restart (graceful — waits for active sessions to finish)
-launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot
+# Restart (graceful — validates config, sends SIGTERM, waits for drain, returns new PID)
+bot/scripts/restart-bot.sh
+
+# Restart after editing ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
+bot/scripts/restart-bot.sh --plist
 
 # Stop
 launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
@@ -185,7 +188,7 @@ launchctl bootout gui/$(id -u)/ai.minime.telegram-bot
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.plist
 ```
 
-**Warning:** Graceful restart sends SIGTERM — the bot injects a shutdown message into active sessions and waits up to 60s for turns to complete before exiting. Idle sessions close immediately. launchd auto-restarts via KeepAlive. Still, active work is interrupted — always confirm before restarting.
+**Warning:** Graceful restart sends SIGTERM — the bot injects a shutdown message into active sessions and waits up to 60s for turns to complete before exiting. Idle sessions close immediately. launchd auto-restarts via KeepAlive. Still, active work is interrupted — always confirm before restarting. Use `--plist` after editing the plist on disk, because launchd caches the plist at bootstrap time and a plain SIGTERM restart would pick up the stale cache.
 
 ## Add a Cron
 
@@ -247,10 +250,9 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
 
    See [config.yaml](config.yaml) for all binding options including `requireMention`, `voiceTranscriptEcho`, `typingIndicator`, and per-topic overrides for forum supergroups.
 
-2. Validate and restart:
+2. Restart (the script validates config before sending SIGTERM):
    ```bash
-   cd ~/.minime/bot && npx tsx src/config.ts --validate
-   launchctl kill SIGTERM gui/$(id -u)/ai.minime.telegram-bot
+   bot/scripts/restart-bot.sh
    ```
 
 ## Add a Discord Binding
