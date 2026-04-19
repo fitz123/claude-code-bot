@@ -20,7 +20,7 @@ if [ -z "${HOME:-}" ]; then
 fi
 export HOME
 if [ -z "$HOME" ]; then
-  echo "[restart-bot] Error: could not determine HOME (dscl fallback returned empty)" >&2
+  echo "[restart-bot] Error: could not determine HOME from environment or fallback lookups" >&2
   exit 1
 fi
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
