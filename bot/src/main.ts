@@ -142,6 +142,11 @@ async function main(): Promise<void> {
             clearTimeout(startupTimeout);
             setBotUsername(botInfo.username);
             log.info("main", `Telegram bot @${botInfo.username} is running (id: ${botInfo.id})`);
+            // No global media wipe on startup: grammY invokes onStart before the
+            // first getUpdates, so polling ownership isn't proven yet. A blanket
+            // wipe here can clobber files that an overlapping old instance is
+            // still serving. Orphans from prior runs are reclaimed via per-session
+            // cleanupSessionMediaDir on close and enforceMediaCap eviction.
             if (watchdog) watchdog.start();
             try {
               await bot.api.setMyCommands(BOT_COMMANDS);

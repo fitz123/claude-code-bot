@@ -80,6 +80,7 @@ export interface SessionDefaults {
   maxConcurrentSessions: number;
   maxMessageAgeMs: number;
   requireMention: boolean;
+  maxMediaBytes: number;
 }
 
 export interface BotConfig {
