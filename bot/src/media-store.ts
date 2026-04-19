@@ -186,6 +186,10 @@ export function enforceMediaCap(maxBytes: number): void {
 
   for (const f of files) {
     if (total <= maxBytes) break;
+    // Never evict a file a live handler still owns (downloaded but not yet
+    // enqueued). Deleting it would strand the handler with a stale path and
+    // the session would receive a dangling reference.
+    if (inflightMediaPaths.has(f.path)) continue;
     try {
       unlinkSync(f.path);
       total -= f.size;

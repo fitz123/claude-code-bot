@@ -130,6 +130,7 @@ describe("enforceMediaCap", () => {
   it("is a no-op when under cap", () => {
     const p = allocateMediaPath("chat-a", "doc", ".bin");
     writeFileSync(p, Buffer.alloc(100));
+    releaseMediaPath(p);
 
     enforceMediaCap(1000);
 
@@ -144,6 +145,9 @@ describe("enforceMediaCap", () => {
     writeSized(pOld, 100, now - 3000);
     writeSized(pMid, 100, now - 2000);
     writeSized(pNew, 100, now - 1000);
+    releaseMediaPath(pOld);
+    releaseMediaPath(pMid);
+    releaseMediaPath(pNew);
 
     // Total = 300, cap = 150 → evict oldest two (200 bytes removed, 100 remain)
     enforceMediaCap(150);
@@ -161,6 +165,9 @@ describe("enforceMediaCap", () => {
     writeSized(p1, 100, now - 3000);
     writeSized(p2, 100, now - 2000);
     writeSized(p3, 100, now - 1000);
+    releaseMediaPath(p1);
+    releaseMediaPath(p2);
+    releaseMediaPath(p3);
 
     // Total = 300, cap = 250 → evict only oldest (50 bytes over)
     enforceMediaCap(250);
@@ -170,10 +177,29 @@ describe("enforceMediaCap", () => {
     assert.ok(existsSync(p3), "p3 preserved");
   });
 
+  it("never evicts in-flight files even when they are oldest", () => {
+    const now = Date.now();
+    const pInflight = allocateMediaPath("chat-a", "doc", ".bin");
+    const pReleased = allocateMediaPath("chat-b", "doc", ".bin");
+    writeSized(pInflight, 100, now - 3000);
+    writeSized(pReleased, 100, now - 1000);
+    // pInflight stays in-flight (simulating a handler that downloaded but
+    // has not yet enqueued); pReleased is already delivered to a session.
+    releaseMediaPath(pReleased);
+
+    // Total = 200, cap = 50 → eviction loop runs. Oldest (pInflight) must be
+    // skipped because evicting it would strand the live handler.
+    enforceMediaCap(50);
+
+    assert.ok(existsSync(pInflight), "in-flight file preserved despite being oldest");
+    assert.ok(!existsSync(pReleased), "released file evicted");
+  });
+
   it("handles sessions with no files gracefully", () => {
     ensureSessionMediaDir("empty-chat");
     const p = allocateMediaPath("chat-a", "doc", ".bin");
     writeFileSync(p, Buffer.alloc(100));
+    releaseMediaPath(p);
 
     assert.doesNotThrow(() => enforceMediaCap(1000));
     assert.ok(existsSync(p));
@@ -345,6 +371,7 @@ describe("enforceMediaCap error handling", () => {
 
     const p = allocateMediaPath("chat-readable", "doc", ".bin");
     writeFileSync(p, Buffer.alloc(100));
+    releaseMediaPath(p);
 
     ensureSessionMediaDir("chat-blocked");
     writeFileSync(join(blockedDir, "file.bin"), Buffer.alloc(100));
