@@ -10,7 +10,15 @@
 
 set -euo pipefail
 
-export HOME="${HOME:-$(dscl . -read "/Users/$(whoami)" NFSHomeDirectory | awk '{print $2}')}"
+if [ -z "${HOME:-}" ]; then
+  if command -v dscl >/dev/null 2>&1; then
+    HOME="$(dscl . -read "/Users/$(whoami)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+  fi
+fi
+if [ -z "${HOME:-}" ]; then
+  HOME="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
+fi
+export HOME
 if [ -z "$HOME" ]; then
   echo "[restart-bot] Error: could not determine HOME (dscl fallback returned empty)" >&2
   exit 1

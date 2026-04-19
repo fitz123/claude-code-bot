@@ -91,9 +91,47 @@ case "\$cmd" in
 esac
 `;
 
+const MOCK_PLUTIL = `#!/bin/bash
+set -uo pipefail
+
+cmd="\${1:-}"
+case "\$cmd" in
+  -lint)
+    file="\${2:-}"
+    if [ -z "\$file" ] || [ ! -f "\$file" ]; then
+      exit 1
+    fi
+    if grep -q "<plist" "\$file" && grep -q "</plist>" "\$file" && grep -q "<dict>" "\$file" && grep -q "</dict>" "\$file"; then
+      exit 0
+    fi
+    echo "mock-plutil: malformed plist" >&2
+    exit 1
+    ;;
+  -extract)
+    key="\${2:-}"
+    fmt="\${3:-}"
+    file="\${4:-}"
+    if [ "\$key" != "Label" ] || [ "\$fmt" != "raw" ] || [ -z "\$file" ] || [ ! -f "\$file" ]; then
+      exit 1
+    fi
+    label=\$(tr -d '\\n' < "\$file" | sed -n 's|.*<key>[[:space:]]*Label[[:space:]]*</key>[[:space:]]*<string>\\([^<]*\\)</string>.*|\\1|p')
+    if [ -n "\$label" ]; then
+      printf '%s\\n' "\$label"
+      exit 0
+    fi
+    exit 1
+    ;;
+  *)
+    echo "mock-plutil: unsupported args: \$*" >&2
+    exit 1
+    ;;
+esac
+`;
+
 type Harness = {
   dir: string;
   launchctl: string;
+  plutil: string;
   plist: string;
   stateDir: string;
   setState(kv: Record<string, string | number>): void;
@@ -117,10 +155,13 @@ const VALID_PLIST = (label = "ai.minime.telegram-bot", extra = "INITIAL") => `<?
 function createHarness(): Harness {
   const dir = mkdtempSync(join(tmpdir(), "restart-bot-test-"));
   const launchctl = join(dir, "launchctl");
+  const plutil = join(dir, "plutil");
   const stateDir = join(dir, "state-dir");
   const plist = join(dir, "ai.minime.telegram-bot.plist");
   writeFileSync(launchctl, MOCK_LAUNCHCTL);
+  writeFileSync(plutil, MOCK_PLUTIL);
   chmodSync(launchctl, 0o755);
+  chmodSync(plutil, 0o755);
   writeFileSync(plist, VALID_PLIST());
   mkdirSync(stateDir, { recursive: true });
   const stateFile = join(stateDir, "state");
@@ -161,6 +202,7 @@ function createHarness(): Harness {
       env: {
         ...process.env,
         LAUNCHCTL_BIN: launchctl,
+        PLUTIL_BIN: plutil,
         BOT_LABEL: "ai.minime.telegram-bot",
         BOT_PLIST: plist,
         BOT_UID: "501",
@@ -182,7 +224,7 @@ function createHarness(): Harness {
     };
   };
 
-  return { dir, launchctl, plist, stateDir, setState, readState, writePlist, run };
+  return { dir, launchctl, plutil, plist, stateDir, setState, readState, writePlist, run };
 }
 
 function cleanup(h: Harness) {
