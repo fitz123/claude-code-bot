@@ -94,18 +94,18 @@ Case 2 is where operators get hurt: the naive `bootout` + `bootstrap` sequence h
 
 **What we want.** A single supported, scripted entry point that an operator (or automation) can invoke to restart the bot safely, covering both cases. After the restart, the bot is running and — in case 2 — actually reflects the on-disk plist.
 
-- [ ] There is an executable script in `bot/scripts/` that operators invoke to restart the bot. Exact name and CLI are the implementer's choice, but the name and usage MUST be referenced verbatim from the updated rule in Task 2 (one contract, one source of truth).
-- [ ] Default / zero-argument invocation performs a graceful restart suitable for case 1 (code/config changes only); it sends SIGTERM, waits for the old process to exit, and returns successfully once a new PID is running.
-- [ ] There is a clearly named mode (flag, subcommand, or separate script — implementer's choice) that performs case 2: after the script finishes successfully, the running bot process reflects the current on-disk plist (verifiable via `sudo launchctl procinfo <pid>` showing any new `EnvironmentVariables` from the plist).
-- [ ] The script tolerates variable session-drain time — including the full 60-second shutdown window — without racing launchd's teardown and without relying on a fixed `sleep`. Simulating a slow shutdown (e.g. a stub that delays exit) must not cause false-positive or false-negative exits.
-- [ ] The script never sends SIGKILL and never invokes `launchctl kickstart -k` or equivalent; graceful shutdown is not bypassable.
-- [ ] On success the script prints the new PID and exits 0; on any failure to shut down or to bring the service back up, it prints a clear diagnostic and exits non-zero.
-- [ ] Invoking with `-h` / `--help` or an unknown argument prints usage and exits with an appropriate status.
-- [ ] Style is consistent with other shell scripts in `bot/scripts/` (see `deliver.sh`, `run-cron.sh`).
-- [ ] `shellcheck` produces no errors on the new script (warnings acceptable if justified inline).
-- [ ] Before any restart action the script runs config validation (`npx tsx bot/src/config.ts --validate` or equivalent for the case being applied) and aborts with a non-zero exit and a clear diagnostic if validation fails — the bot is never restarted with a broken config
-- [ ] Automated test harness covers: (a) graceful path returns the new PID and exits 0; (b) plist-change mode results in the on-disk plist being reflected after success; (c) a slow-shutdown stub that delays exit up to the full 60-second drain window does not cause the script to race launchd's teardown or exit early; (d) a deliberately broken config aborts the restart before any SIGTERM is sent
-- [ ] Verify existing tests pass
+- [x] There is an executable script in `bot/scripts/` that operators invoke to restart the bot. Exact name and CLI are the implementer's choice, but the name and usage MUST be referenced verbatim from the updated rule in Task 2 (one contract, one source of truth).
+- [x] Default / zero-argument invocation performs a graceful restart suitable for case 1 (code/config changes only); it sends SIGTERM, waits for the old process to exit, and returns successfully once a new PID is running.
+- [x] There is a clearly named mode (flag, subcommand, or separate script — implementer's choice) that performs case 2: after the script finishes successfully, the running bot process reflects the current on-disk plist (verifiable via `sudo launchctl procinfo <pid>` showing any new `EnvironmentVariables` from the plist).
+- [x] The script tolerates variable session-drain time — including the full 60-second shutdown window — without racing launchd's teardown and without relying on a fixed `sleep`. Simulating a slow shutdown (e.g. a stub that delays exit) must not cause false-positive or false-negative exits.
+- [x] The script never sends SIGKILL and never invokes `launchctl kickstart -k` or equivalent; graceful shutdown is not bypassable.
+- [x] On success the script prints the new PID and exits 0; on any failure to shut down or to bring the service back up, it prints a clear diagnostic and exits non-zero.
+- [x] Invoking with `-h` / `--help` or an unknown argument prints usage and exits with an appropriate status.
+- [x] Style is consistent with other shell scripts in `bot/scripts/` (see `deliver.sh`, `run-cron.sh`).
+- [x] `shellcheck` produces no errors on the new script (warnings acceptable if justified inline).
+- [x] Before any restart action the script runs config validation (`npx tsx bot/src/config.ts --validate` or equivalent for the case being applied) and aborts with a non-zero exit and a clear diagnostic if validation fails — the bot is never restarted with a broken config
+- [x] Automated test harness covers: (a) graceful path returns the new PID and exits 0; (b) plist-change mode results in the on-disk plist being reflected after success; (c) a slow-shutdown stub that delays exit up to the full 60-second drain window does not cause the script to race launchd's teardown or exit early; (d) a deliberately broken config aborts the restart before any SIGTERM is sent
+- [x] Verify existing tests pass
 
 ### Task 2: Recommend the script in `.claude/rules/platform/bot-operations.md` (#100, P1)
 
@@ -113,13 +113,13 @@ Case 2 is where operators get hurt: the naive `bootout` + `bootstrap` sequence h
 
 **What we want.** After Task 1 lands, the rule points operators to the script as the canonical restart path. Operators who edit `config.yaml` / `config.local.yaml` or the plist should be able to follow the rule without ever running raw `launchctl` commands.
 
-- [ ] The rule recommends the Task 1 script (by its actual name and CLI) as the default way to restart the bot, and explicitly covers the plist-change case.
-- [ ] Any previous guidance that contradicts or misleads about the plist-change flow — specifically the blanket "Never use `launchctl bootout` after SIGTERM" line — is updated or removed so operators following the rule end up with a working bot after a plist edit.
-- [ ] The "Never use `launchctl kickstart -k`" warning is preserved.
-- [ ] The auto-restart fallback ("If auto-restart doesn't happen…") still works: it points at the script first, and only falls back to manual `launchctl` commands if the script itself fails.
-- [ ] All existing sections on hot-reload fields, boot-level fields, and cron changes are preserved unchanged.
-- [ ] Following the updated rule end-to-end (edit plist → run script → check `sudo launchctl procinfo <pid>`) successfully picks up the new on-disk plist without any raw `launchctl` commands typed by the operator
-- [ ] Verify existing tests pass
+- [x] The rule recommends the Task 1 script (by its actual name and CLI) as the default way to restart the bot, and explicitly covers the plist-change case.
+- [x] Any previous guidance that contradicts or misleads about the plist-change flow — specifically the blanket "Never use `launchctl bootout` after SIGTERM" line — is updated or removed so operators following the rule end up with a working bot after a plist edit.
+- [x] The "Never use `launchctl kickstart -k`" warning is preserved.
+- [x] The auto-restart fallback ("If auto-restart doesn't happen…") still works: it points at the script first, and only falls back to manual `launchctl` commands if the script itself fails.
+- [x] All existing sections on hot-reload fields, boot-level fields, and cron changes are preserved unchanged.
+- [x] Following the updated rule end-to-end (edit plist → run script → check `sudo launchctl procinfo <pid>`) successfully picks up the new on-disk plist without any raw `launchctl` commands typed by the operator
+- [x] Verify existing tests pass
 
 
 ### Task 3: Address PR #103 Copilot review findings
@@ -130,37 +130,37 @@ PR https://github.com/fitz123/claude-code-bot/pull/103 — 4 unresolved Copilot 
 
 `bot/scripts/restart-bot.sh` runs with `set -u`, but uses `${BOT_PLIST:-$HOME/Library/...}` in the default value without ensuring `HOME` is set. In a launchd/automation context where `HOME` is unset, the script exits immediately with "unbound variable".
 
-- [ ] Set `HOME` defensively at the top of `restart-bot.sh` (same pattern as `start-bot.sh` / `run-cron.sh`), OR build the default plist path without depending on `$HOME`.
-- [ ] Add a regression test: invoke the script with `env -u HOME bash bot/scripts/restart-bot.sh ...` and confirm it does not blow up on the variable expansion.
+- [x] Set `HOME` defensively at the top of `restart-bot.sh` (same pattern as `start-bot.sh` / `run-cron.sh`), OR build the default plist path without depending on `$HOME`.
+- [x] Add a regression test: invoke the script with `env -u HOME bash bot/scripts/restart-bot.sh ...` and confirm it does not blow up on the variable expansion.
 
 #### Finding 2: `eval` injection in `validate_config` (`restart-bot.sh:124`)
 
 `validate_config` uses `eval "$CONFIG_VALIDATE_CMD"`. Even though the override is intended only for tests, `eval` is a shell-injection footgun and breaks on subtle quoting/word-splitting if `CONFIG_VALIDATE_CMD` is ever passed from the environment.
 
-- [ ] Replace the eval-based override. Pick one approach:
+- [x] Replace the eval-based override. Pick one approach:
   - (a) Drop the env-var override entirely and add a dedicated `SKIP_CONFIG_VALIDATE=1` flag the test harness can set, OR
   - (b) Represent the validator as `CONFIG_VALIDATE_BIN` + `CONFIG_VALIDATE_ARGS` arrays and execute without `eval`.
-- [ ] Update the test that exercises this path so it still works after the rewrite.
-- [ ] Confirm `npx tsc --noEmit` and `npm test` both pass.
+- [x] Update the test that exercises this path so it still works after the rewrite.
+- [x] Confirm `npx tsc --noEmit` and `npm test` both pass.
 
 #### Finding 3: `shasum` external dep in `restart-bot.test.ts` (line 281)
 
 `bot/src/__tests__/restart-bot.test.ts` invokes the external `shasum` binary to compute the expected plist signature. Tests should be hermetic.
 
-- [ ] Replace `shasum` with Node's `crypto.createHash('sha1')` for the expected-signature computation.
-- [ ] Confirm the test still asserts the same behaviour and passes.
+- [x] Replace `shasum` with Node's `crypto.createHash('sha1')` for the expected-signature computation.
+- [x] Confirm the test still asserts the same behaviour and passes.
 
 #### Finding 4: `shasum` in mock `launchctl` (`restart-bot.test.ts:79`)
 
 The mock `launchctl` shells out to `shasum` to compute a plist signature. Same hermeticity issue as Finding 3, plus this version is INSIDE a fixture script.
 
-- [ ] Replace the `shasum` shell-out in the mock with a Node-based hash. Either:
+- [x] Replace the `shasum` shell-out in the mock with a Node-based hash. Either:
   - (a) Inline a `node -e '...'` invocation that uses `crypto.createHash('sha1')` over the plist contents, OR
   - (b) Store the plist contents directly in the test fixture state so no hashing is needed at all in the mock.
-- [ ] Confirm the mock still exercises the same code path (signature comparison) in `restart-bot.sh` and the test passes.
+- [x] Confirm the mock still exercises the same code path (signature comparison) in `restart-bot.sh` and the test passes.
 
 #### Wrap-up
-- [ ] All 4 findings addressed (boxes ticked above)
-- [ ] `npx tsc --noEmit` clean
-- [ ] `npm test` clean (or only pre-existing unrelated failures)
-- [ ] Commit message references PR #103 and lists the findings fixed
+- [x] All 4 findings addressed (boxes ticked above)
+- [x] `npx tsc --noEmit` clean
+- [x] `npm test` clean (or only pre-existing unrelated failures)
+- [x] Commit message references PR #103 and lists the findings fixed

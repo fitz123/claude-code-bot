@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync, execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, chmodSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -76,7 +77,7 @@ case "\$cmd" in
     fi
     plist_path="\${2:-}"
     if [ -n "\$plist_path" ] && [ -f "\$plist_path" ]; then
-      sig=\$(shasum "\$plist_path" | awk '{print \$1}')
+      sig=\$(node -e "const fs=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha1').update(fs.readFileSync(process.argv[1])).digest('hex'))" "\$plist_path")
       set_kv bootstrapped_sig "\$sig"
     fi
     np=\$(get next_pid); [ -z "\$np" ] && np=99999
@@ -156,7 +157,7 @@ function createHarness(): Harness {
         SHUTDOWN_TIMEOUT: "30",
         TEARDOWN_TIMEOUT: "30",
         STARTUP_TIMEOUT: "20",
-        CONFIG_VALIDATE_CMD: "true",
+        CONFIG_VALIDATE_BIN: "true",
         ...env,
       },
       encoding: "utf8",
@@ -184,6 +185,26 @@ describe("restart-bot.sh", () => {
       assert.strictEqual(status, 0);
       assert.match(stdout, /Usage:/);
       assert.match(stdout, /--plist/);
+    } finally {
+      cleanup(h);
+    }
+  });
+
+  it("does not blow up when HOME is unset (launchd context)", () => {
+    const h = createHarness();
+    try {
+      // Regression: `set -u` + `${BOT_PLIST:-$HOME/...}` crashed when HOME was unset.
+      // Drop HOME from the inherited env; --help should still print and exit 0.
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      delete env.HOME;
+      const result = spawnSync(SCRIPT, ["--help"], {
+        env: env as Record<string, string>,
+        encoding: "utf8",
+        timeout: 30_000,
+      });
+      assert.strictEqual(result.status, 0, `expected exit 0, got ${result.status}: ${result.stderr}`);
+      assert.match(result.stdout, /Usage:/);
+      assert.doesNotMatch(result.stderr, /unbound variable/);
     } finally {
       cleanup(h);
     }
@@ -253,7 +274,7 @@ describe("restart-bot.sh", () => {
     try {
       h.setState({ registered: 1, label: "ai.minime.telegram-bot", pid: 1111, next_pid: 2222 });
       const { status, stdout, stderr } = h.run([], {
-        CONFIG_VALIDATE_CMD: "false",
+        CONFIG_VALIDATE_BIN: "false",
       });
       assert.notStrictEqual(status, 0);
       assert.match(stderr, /config validation failed/);
@@ -276,8 +297,8 @@ describe("restart-bot.sh", () => {
       // Operator edits the plist on disk just before restart.
       h.writePlist("<plist>NEW_ENV_VAR=BAR</plist>");
 
-      // Capture signature of the NEW plist.
-      const newSig = execFileSync("shasum", [h.plist], { encoding: "utf8" }).split(/\s+/)[0];
+      // Capture signature of the NEW plist (matches mock launchctl's sha1 digest).
+      const newSig = createHash("sha1").update(readFileSync(h.plist)).digest("hex");
 
       const { status, stdout, stderr } = h.run(["--plist"]);
       assert.strictEqual(status, 0, `expected exit 0, got ${status}: ${stderr}`);
@@ -315,7 +336,7 @@ describe("restart-bot.sh", () => {
     const h = createHarness();
     try {
       h.setState({ registered: 1, label: "ai.minime.telegram-bot", pid: 1111, next_pid: 4444 });
-      const { status, stderr } = h.run(["--plist"], { CONFIG_VALIDATE_CMD: "false" });
+      const { status, stderr } = h.run(["--plist"], { CONFIG_VALIDATE_BIN: "false" });
       assert.notStrictEqual(status, 0);
       assert.match(stderr, /config validation failed/);
       const state = h.readState();

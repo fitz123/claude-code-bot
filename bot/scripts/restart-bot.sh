@@ -10,6 +10,7 @@
 
 set -euo pipefail
 
+export HOME="${HOME:-$(dscl . -read "/Users/$(whoami)" NFSHomeDirectory | awk '{print $2}')}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -22,8 +23,9 @@ BOT_UID="${BOT_UID:-$(id -u)}"
 DOMAIN="gui/${BOT_UID}"
 SERVICE="${DOMAIN}/${BOT_LABEL}"
 
-# Overridable for tests. Default runs the project's validator from BOT_DIR.
-CONFIG_VALIDATE_CMD="${CONFIG_VALIDATE_CMD:-npx tsx src/config.ts --validate}"
+# Test-only: override the validator with a single executable (no args, no eval).
+# Tests set this to `true` / `false` to simulate validation pass / fail paths.
+CONFIG_VALIDATE_BIN="${CONFIG_VALIDATE_BIN:-}"
 
 # Timeouts (seconds). Drain window is 60s — give headroom.
 SHUTDOWN_TIMEOUT="${SHUTDOWN_TIMEOUT:-90}"
@@ -118,7 +120,14 @@ _pred_running_pid() {
 
 validate_config() {
   log "Validating config before restart…"
-  if ! ( cd "$BOT_DIR" && eval "$CONFIG_VALIDATE_CMD" >/dev/null ); then
+  if [ -n "$CONFIG_VALIDATE_BIN" ]; then
+    if ! ( cd "$BOT_DIR" && "$CONFIG_VALIDATE_BIN" >/dev/null 2>&1 ); then
+      err "config validation failed; refusing to restart"
+      return 1
+    fi
+    return 0
+  fi
+  if ! ( cd "$BOT_DIR" && npx tsx src/config.ts --validate >/dev/null ); then
     err "config validation failed; refusing to restart"
     return 1
   fi
