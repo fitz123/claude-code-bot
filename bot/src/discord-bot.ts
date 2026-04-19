@@ -177,9 +177,9 @@ export async function createDiscordBot(
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
   const messageQueue = new MessageQueue(
-    async (chatId, agentId, text, platform) => {
+    async (chatId, agentId, text, platform, onAgentOwnership) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
-      await relayStream(stream, platform, outboxDir(chatId));
+      await relayStream(stream, platform, outboxDir(chatId), onAgentOwnership);
     },
   );
 

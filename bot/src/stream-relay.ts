@@ -141,6 +141,7 @@ export async function relayStream(
   stream: AsyncGenerator<StreamLine>,
   platform: PlatformContext,
   outboxPath?: string,
+  onAgentOwnership?: () => void,
 ): Promise<void> {
   let accumulated = "";
   let typingTimer: ReturnType<typeof setInterval> | null = null;
@@ -195,8 +196,17 @@ export async function relayStream(
 
   try {
     let resultText: string | null = null;
+    let ownershipSignaled = false;
 
     for await (const msg of stream) {
+      // First event from the stream means Claude received the prompt over
+      // stdin and started processing — the conversation history now references
+      // any media paths in the prompt. Signal ownership so the queue won't
+      // reclaim media if response delivery fails afterward (issue #99).
+      if (!ownershipSignaled) {
+        ownershipSignaled = true;
+        onAgentOwnership?.();
+      }
       // Detect non-text content blocks (tool_use, etc.) so we can insert a
       // paragraph break when the next text block starts.  Without this,
       // "plan:" + [Edit tool] + "Done!" would become "plan:Done!".

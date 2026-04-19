@@ -10,6 +10,7 @@ import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
 import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
+import { ensureSessionMediaDir, cleanupSessionMediaDir, cleanupStaleSessionMedia } from "./media-store.js";
 
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const OUTBOX_BASE = "/tmp/bot-outbox";
@@ -214,6 +215,11 @@ export class SessionManager {
     cleanupInjectDir(injectPath);
     mkdirSync(injectPath, { recursive: true });
 
+    // Ensure media directory exists (do NOT wipe: a photo may have been
+    // downloaded into it moments before this spawn was triggered).
+    // Cleanup happens on session close, crash recovery, and via the global cap.
+    ensureSessionMediaDir(chatId);
+
     // Spawn the claude subprocess
     const child = spawnClaudeSession({
       agent,
@@ -231,6 +237,14 @@ export class SessionManager {
       // Ensure child is dead before throwing
       if (!hasExited(child) && !child.killed) {
         child.kill("SIGKILL");
+      }
+      // No session will be created to own files just downloaded for this turn;
+      // wipe the dir so they don't sit around until the next startup/cap eviction.
+      // Skip when resuming: the stored session record stays intact, so a later
+      // successful resume will continue the same conversation history — and that
+      // history may reference files already in this dir from prior turns.
+      if (!resume) {
+        try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
       }
       // Increment crash count so startup failures contribute to backoff
       const count = (this.restartCounts.get(chatId) ?? 0) + 1;
@@ -412,6 +426,19 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Extend the idle window for an active session without creating one.
+   * Called by message handlers while staging incoming payloads (e.g. media
+   * downloads) so the idle timer cannot fire mid-download and wipe the
+   * session media dir before the queued message is consumed.
+   */
+  touchActivity(chatId: string): void {
+    const session = this.active.get(chatId);
+    if (!session) return;
+    session.lastActivity = Date.now();
+    this.resetIdleTimer(chatId);
+  }
+
   /** Reset the idle timer for a session. After timeout, session is closed. */
   resetIdleTimer(chatId: string): void {
     const session = this.active.get(chatId);
@@ -447,7 +474,7 @@ export class SessionManager {
     this.active.delete(chatId);
     sessionsActive.dec();
 
-    // Clean up outbox and inject directories
+    // Clean up outbox, inject, and media directories
     try {
       rmSync(session.outboxPath, { recursive: true, force: true });
     } catch {
@@ -455,6 +482,11 @@ export class SessionManager {
     }
     try {
       cleanupInjectDir(session.injectDir);
+    } catch {
+      // Ignore cleanup errors
+    }
+    try {
+      cleanupSessionMediaDir(chatId);
     } catch {
       // Ignore cleanup errors
     }
@@ -539,6 +571,9 @@ export class SessionManager {
   async destroySession(chatId: string): Promise<void> {
     await this.closeSession(chatId);
     this.store.deleteSession(chatId);
+    // closeSession only touches the media dir when an in-memory session exists;
+    // /clean after a bot restart/crash (or before any spawn) must still wipe it.
+    try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
   }
 
   /** Close all sessions gracefully. For shutdown. */
@@ -597,6 +632,12 @@ export class SessionManager {
         : `agentId changed from "${stored.agentId}" to "${agentId}"`;
       log.warn("session-manager", `Discarding stale session for chat ${chatId}: ${reason}`);
       this.store.deleteSession(chatId);
+      // Purge leftover media belonging to the discarded session so the new
+      // agent cannot read the prior agent's files. Files currently tracked
+      // as in-flight (the download the active handler just enqueued) are
+      // preserved; anything else — including orphans from a crashed prior
+      // process — is wiped.
+      try { cleanupStaleSessionMedia(chatId); } catch { /* ignore */ }
       return { resume: false, sessionId: randomUUID() };
     }
 
@@ -638,6 +679,8 @@ export class SessionManager {
 
       // Clean up inject directory (stale files would confuse next spawn)
       try { cleanupInjectDir(session.injectDir); } catch { /* ignore */ }
+      // Clean up media directory — files are scoped to this session's lifetime
+      try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
 
       if (code !== 0 && signal !== "SIGTERM" && signal !== "SIGKILL") {
         sessionCrashes.inc({ agent_id: session.agentId });

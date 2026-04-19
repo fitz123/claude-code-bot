@@ -97,6 +97,7 @@ function makeConfig(model: string): BotConfig {
       maxConcurrentSessions: 5,
       maxMessageAgeMs: 300_000,
       requireMention: false,
+      maxMediaBytes: 209715200,
     },
   };
 }
