@@ -11,6 +11,10 @@
 set -euo pipefail
 
 export HOME="${HOME:-$(dscl . -read "/Users/$(whoami)" NFSHomeDirectory | awk '{print $2}')}"
+if [ -z "$HOME" ]; then
+  echo "[restart-bot] Error: could not determine HOME (dscl fallback returned empty)" >&2
+  exit 1
+fi
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -153,13 +157,11 @@ graceful_restart() {
     return 1
   fi
 
-  if [ -n "$old_pid" ]; then
-    _old_pid="$old_pid"
-    log "Waiting up to ${SHUTDOWN_TIMEOUT}s for old process $old_pid to exit…"
-    if ! wait_until "$SHUTDOWN_TIMEOUT" _pred_old_pid_gone; then
-      err "old process $old_pid did not exit within ${SHUTDOWN_TIMEOUT}s"
-      return 1
-    fi
+  _old_pid="$old_pid"
+  log "Waiting up to ${SHUTDOWN_TIMEOUT}s for old process $old_pid to exit…"
+  if ! wait_until "$SHUTDOWN_TIMEOUT" _pred_old_pid_gone; then
+    err "old process $old_pid did not exit within ${SHUTDOWN_TIMEOUT}s"
+    return 1
   fi
 
   log "Waiting up to ${STARTUP_TIMEOUT}s for KeepAlive to spawn a new PID…"
