@@ -12,11 +12,13 @@ set -euo pipefail
 
 if [ -z "${HOME:-}" ]; then
   if command -v dscl >/dev/null 2>&1; then
-    HOME="$(dscl . -read "/Users/$(whoami)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+    HOME="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
   fi
 fi
 if [ -z "${HOME:-}" ]; then
-  HOME="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
+  if command -v getent >/dev/null 2>&1; then
+    HOME="$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6)"
+  fi
 fi
 export HOME
 if [ -z "$HOME" ]; then
