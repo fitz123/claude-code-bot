@@ -102,6 +102,18 @@ type Harness = {
   run(args: string[], env?: Record<string, string>): { status: number | null; stdout: string; stderr: string };
 };
 
+const VALID_PLIST = (label = "ai.minime.telegram-bot", extra = "INITIAL") => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${label}</string>
+  <key>Extra</key>
+  <string>${extra}</string>
+</dict>
+</plist>
+`;
+
 function createHarness(): Harness {
   const dir = mkdtempSync(join(tmpdir(), "restart-bot-test-"));
   const launchctl = join(dir, "launchctl");
@@ -109,7 +121,7 @@ function createHarness(): Harness {
   const plist = join(dir, "ai.minime.telegram-bot.plist");
   writeFileSync(launchctl, MOCK_LAUNCHCTL);
   chmodSync(launchctl, 0o755);
-  writeFileSync(plist, "<plist>initial</plist>");
+  writeFileSync(plist, VALID_PLIST());
   mkdirSync(stateDir, { recursive: true });
   const stateFile = join(stateDir, "state");
 
@@ -292,10 +304,10 @@ describe("restart-bot.sh", () => {
     const h = createHarness();
     try {
       // Old plist content, bot currently running.
-      h.writePlist("<plist>OLD</plist>");
+      h.writePlist(VALID_PLIST("ai.minime.telegram-bot", "OLD"));
       h.setState({ registered: 1, label: "ai.minime.telegram-bot", pid: 1111, next_pid: 4444, bootout_delay: 2 });
       // Operator edits the plist on disk just before restart.
-      h.writePlist("<plist>NEW_ENV_VAR=BAR</plist>");
+      h.writePlist(VALID_PLIST("ai.minime.telegram-bot", "NEW_ENV_VAR=BAR"));
 
       // Capture signature of the NEW plist (matches mock launchctl's sha1 digest).
       const newSig = createHash("sha1").update(readFileSync(h.plist)).digest("hex");
@@ -342,6 +354,42 @@ describe("restart-bot.sh", () => {
       const state = h.readState();
       // No bootout scheduled.
       assert.ok(!("bootout_at" in state));
+      assert.strictEqual(state.pid, "1111");
+    } finally {
+      cleanup(h);
+    }
+  });
+
+  it("--plist: aborts before bootout when plist is malformed", () => {
+    const h = createHarness();
+    try {
+      h.setState({ registered: 1, label: "ai.minime.telegram-bot", pid: 1111, next_pid: 4444 });
+      // Syntactically broken plist — plutil -lint must reject before any bootout.
+      h.writePlist("<plist>not valid xml");
+      const { status, stderr } = h.run(["--plist"]);
+      assert.notStrictEqual(status, 0);
+      assert.match(stderr, /plist is malformed/);
+      const state = h.readState();
+      // No bootout scheduled, service still registered and running.
+      assert.ok(!("bootout_at" in state), `expected no bootout scheduled, got: ${JSON.stringify(state)}`);
+      assert.strictEqual(state.registered, "1");
+      assert.strictEqual(state.pid, "1111");
+    } finally {
+      cleanup(h);
+    }
+  });
+
+  it("--plist: aborts before bootout when plist Label does not match", () => {
+    const h = createHarness();
+    try {
+      h.setState({ registered: 1, label: "ai.minime.telegram-bot", pid: 1111, next_pid: 4444 });
+      h.writePlist(VALID_PLIST("ai.minime.WRONG-LABEL", "X"));
+      const { status, stderr } = h.run(["--plist"]);
+      assert.notStrictEqual(status, 0);
+      assert.match(stderr, /Label .* does not match/);
+      const state = h.readState();
+      assert.ok(!("bootout_at" in state));
+      assert.strictEqual(state.registered, "1");
       assert.strictEqual(state.pid, "1111");
     } finally {
       cleanup(h);

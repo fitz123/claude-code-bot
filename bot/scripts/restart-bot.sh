@@ -21,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 LAUNCHCTL_BIN="${LAUNCHCTL_BIN:-/bin/launchctl}"
+PLUTIL_BIN="${PLUTIL_BIN:-/usr/bin/plutil}"
 BOT_LABEL="${BOT_LABEL:-ai.minime.telegram-bot}"
 BOT_PLIST="${BOT_PLIST:-$HOME/Library/LaunchAgents/${BOT_LABEL}.plist}"
 BOT_UID="${BOT_UID:-$(id -u)}"
@@ -138,6 +139,24 @@ _pred_running_pid() {
   [ "$rc" -eq 0 ] && [ -n "$pid" ] && [ "$pid" != "$_old_pid" ]
 }
 
+validate_plist() {
+  log "Validating plist at $BOT_PLIST…"
+  if ! "$PLUTIL_BIN" -lint "$BOT_PLIST" >/dev/null 2>&1; then
+    err "plist is malformed: $BOT_PLIST"
+    err "run: $PLUTIL_BIN -lint \"$BOT_PLIST\" for details"
+    return 1
+  fi
+  local plist_label
+  if ! plist_label=$("$PLUTIL_BIN" -extract Label raw "$BOT_PLIST" 2>/dev/null); then
+    err "plist is missing 'Label' key: $BOT_PLIST"
+    return 1
+  fi
+  if [ "$plist_label" != "$BOT_LABEL" ]; then
+    err "plist Label '$plist_label' does not match expected '$BOT_LABEL'"
+    return 1
+  fi
+}
+
 validate_config() {
   log "Validating config before restart…"
   if [ -n "$CONFIG_VALIDATE_BIN" ]; then
@@ -198,6 +217,7 @@ plist_restart() {
     return 1
   fi
 
+  validate_plist || return 1
   validate_config || return 1
 
   if is_registered; then
