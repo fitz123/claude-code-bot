@@ -67,15 +67,20 @@ done
 #   ""            — service is registered but has no running process (PID = "-")
 # exit status:
 #   0 — registered (pid may be empty)
-#   1 — not registered
+#   1 — not registered (launchctl query succeeded, label absent)
+#   2 — launchctl query itself failed (unknown state)
 get_pid() {
+  local out
+  if ! out=$("$LAUNCHCTL_BIN" list 2>/dev/null); then
+    return 2
+  fi
   local line
-  line=$("$LAUNCHCTL_BIN" list 2>/dev/null | awk -v L="$BOT_LABEL" '$3==L { print; exit }') || true
+  line=$(printf '%s\n' "$out" | awk -v L="$BOT_LABEL" '$3==L { print; exit }')
   if [ -z "$line" ]; then
     return 1
   fi
   local pid
-  pid=$(echo "$line" | awk '{print $1}')
+  pid=$(printf '%s\n' "$line" | awk '{print $1}')
   if [ "$pid" = "-" ]; then
     echo ""
   else
@@ -84,8 +89,12 @@ get_pid() {
   return 0
 }
 
+# True only when launchctl query succeeded AND the service is registered.
+# A transient query failure is NOT treated as "registered" or "not registered".
 is_registered() {
-  get_pid >/dev/null 2>&1
+  local rc=0
+  get_pid >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 0 ]
 }
 
 wait_until() {
@@ -104,22 +113,29 @@ wait_until() {
 
 _old_pid=""
 _pred_old_pid_gone() {
-  local cur
-  if ! cur=$(get_pid 2>/dev/null); then
-    # Not registered at all → old pid is definitely gone.
-    return 0
-  fi
-  [ "$cur" != "$_old_pid" ]
+  local cur rc=0
+  cur=$(get_pid 2>/dev/null) || rc=$?
+  case "$rc" in
+    0) [ "$cur" != "$_old_pid" ] ;;
+    1) return 0 ;;   # explicitly not registered → old pid gone
+    *) return 1 ;;   # query failed → unknown, keep polling
+  esac
 }
 
+# Distinguishes "confirmed not registered" from "query failed", so a transient
+# launchctl error can't trick us into bootstrapping over a still-registered svc.
 _pred_unregistered() {
-  ! is_registered
+  local rc=0
+  get_pid >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 1 ]
 }
 
+# Requires a successful query AND a non-empty PID that differs from the old PID,
+# so a stale `launchctl list` response can't be mistaken for the new process.
 _pred_running_pid() {
-  local pid
-  pid=$(get_pid 2>/dev/null) || return 1
-  [ -n "$pid" ]
+  local pid rc=0
+  pid=$(get_pid 2>/dev/null) || rc=$?
+  [ "$rc" -eq 0 ] && [ -n "$pid" ] && [ "$pid" != "$_old_pid" ]
 }
 
 validate_config() {
