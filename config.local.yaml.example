@@ -7,13 +7,20 @@
 # Optional: override the fleet-wide model in one place.
 # Any agent without its own `model` inherits this value; bump it to upgrade
 # every inheriting agent at once. Per-agent `model` still wins when declared.
-# defaultModel: claude-opus-4-7
-# defaultFallbackModel: claude-sonnet-4-6
+#
+# Use aliases (`opus`, `sonnet`, `haiku`) for auto-upgrade to the latest
+# version on your account tier, or full names (`claude-opus-4-7`) to pin.
+# Append `[1m]` for the 1M-token context window (e.g. `opus[1m]`) — check
+# Claude Code's Model configuration docs for plan eligibility.
+# defaultModel: opus
+# defaultFallbackModel: sonnet
 
 agents:
   main:
     workspaceCwd: /Users/you/.minime/workspace   # absolute path to your Claude workspace (~ not expanded)
-    # model omitted — inherits defaultModel. Uncomment to pin this agent to a specific model:
+    # model omitted — inherits defaultModel. Uncomment to pin this agent to a specific model
+    # or opt into the 1M context window on a single agent:
+    # model: opus[1m]
     # model: claude-haiku-4-5-20251001
 
 bindings:

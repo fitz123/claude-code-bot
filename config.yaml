@@ -13,8 +13,15 @@ logLevel: info
 # Fleet-wide defaults: any agent without its own `model` / `fallbackModel`
 # inherits these. Bump here to upgrade every inheriting agent at once.
 # Per-agent `model` / `fallbackModel` still wins when declared.
-defaultModel: claude-opus-4-6
-defaultFallbackModel: claude-sonnet-4-6
+#
+# Aliases (`opus`, `sonnet`, `haiku`) resolve to the latest version for your
+# account tier and auto-upgrade when Anthropic ships a new model. Pin to a
+# full name (e.g. `claude-opus-4-7`) if you want a fixed version. Append
+# `[1m]` (e.g. `opus[1m]`) to opt into the 1M-token context window on
+# supported models — see Claude Code's Model configuration docs for plan
+# eligibility.
+defaultModel: opus
+defaultFallbackModel: sonnet
 
 agents:
   main:
