@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, before, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -597,5 +597,78 @@ describe("cron-runner", () => {
       };
       assert.throws(() => runScript(cron), /no command/i);
     });
+  });
+});
+
+describe("cron-runner NO_REPLY suppression (shouldSuppressNoReply)", () => {
+  // The cron LLM-output gate (cron-runner.ts) calls shouldSuppressNoReply on
+  // raw output before delivery. Verify the same end-of-message + start-of-message
+  // patterns the stream-relay tests cover.
+  let shouldSuppressNoReply: (s: string) => boolean;
+
+  before(async () => {
+    ({ shouldSuppressNoReply } = await import("../no-reply.js"));
+  });
+
+  it("suppresses <content>\\n\\nNO_REPLY (end-of-message, blank line before)", () => {
+    assert.strictEqual(shouldSuppressNoReply("All checks complete. Everything is clean.\n\nNO_REPLY"), true);
+  });
+
+  it("suppresses <content>\\nNO_REPLY (single newline before)", () => {
+    assert.strictEqual(shouldSuppressNoReply("All clean.\nNO_REPLY"), true);
+  });
+
+  it("suppresses <content>\\nNO_REPLY\\n (trailing newline)", () => {
+    assert.strictEqual(shouldSuppressNoReply("All clean.\nNO_REPLY\n"), true);
+  });
+
+  it("suppresses operator's leaked workspace-health sample verbatim", () => {
+    const sample = [
+      "All checks complete. Let me compile the results:",
+      "• Size audit: OK (335M, no bloat)",
+      "• Hook integrity: OK",
+      "• Config check: 1 warning (settings.local.json missing outputStyle — minor, file doesn't exist)",
+      "The only finding is the settings.local.json warning, which is informational.",
+      "",
+      "NO_REPLY",
+    ].join("\n");
+    assert.strictEqual(shouldSuppressNoReply(sample), true);
+  });
+
+  it("delivers same-line `Some text NO_REPLY` (token shares line with content)", () => {
+    assert.strictEqual(shouldSuppressNoReply("Some text NO_REPLY"), false);
+  });
+
+  it("delivers `Done. NO_REPLY_EXTRA more` (substring prefix on same line)", () => {
+    assert.strictEqual(shouldSuppressNoReply("Done. NO_REPLY_EXTRA more"), false);
+  });
+
+  it("preserves issue #80: suppresses NO_REPLY at start (exact)", () => {
+    assert.strictEqual(shouldSuppressNoReply("NO_REPLY"), true);
+  });
+
+  it("preserves issue #80: suppresses NO_REPLY\\n\\n<text> at start", () => {
+    assert.strictEqual(shouldSuppressNoReply("NO_REPLY\n\nSome explanation text..."), true);
+  });
+
+  it("preserves issue #80: suppresses NO_REPLY: reason at start", () => {
+    assert.strictEqual(shouldSuppressNoReply("NO_REPLY: nothing actionable"), true);
+  });
+
+  it("preserves issue #80: suppresses whitespace-padded NO_REPLY", () => {
+    assert.strictEqual(shouldSuppressNoReply("  NO_REPLY  "), true);
+  });
+
+  it("does not suppress regular output", () => {
+    assert.strictEqual(shouldSuppressNoReply("Hello, this is a normal response"), false);
+  });
+
+  it("does not suppress empty / whitespace-only output", () => {
+    assert.strictEqual(shouldSuppressNoReply(""), false);
+    assert.strictEqual(shouldSuppressNoReply("   \n\n  "), false);
+  });
+
+  it("does not suppress NO_REPLY_EXTRA alone on last line (substring, not equal)", () => {
+    assert.strictEqual(shouldSuppressNoReply("Some content\n\nNO_REPLY_EXTRA"), false);
   });
 });

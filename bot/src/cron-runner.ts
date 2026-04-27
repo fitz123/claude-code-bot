@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import type { CronJob, AgentConfig } from "./types.js";
+import { shouldSuppressNoReply } from "./no-reply.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
@@ -390,7 +391,7 @@ async function main(): Promise<void> {
     log(taskName, "DONE");
     return;
   }
-  if (cron.type === "llm" && /^NO_REPLY\b/.test(output.trim())) {
+  if (cron.type === "llm" && shouldSuppressNoReply(output)) {
     log(taskName, "NO_REPLY — skipping delivery");
     log(taskName, "DONE");
     return;
