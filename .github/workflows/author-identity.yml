@@ -1,0 +1,31 @@
+name: Author Identity Check
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  author-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify commit authors use noreply email
+        run: |
+          set -eu
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          bad=$(git log --pretty='%h %ae' "${base}..${head}" \
+            | grep -v 'users\.noreply\.github\.com$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::PR contains commits with non-noreply author email:"
+            echo "$bad"
+            echo
+            echo "Fix locally:"
+            echo "  git config user.email USER@users.noreply.github.com"
+            echo "  git rebase -i \$base  # squash/edit to apply new identity"
+            exit 1
+          fi
+          echo "All commit author emails OK"
