@@ -855,6 +855,81 @@ describe("relayStream NO_REPLY with drafts", () => {
     assert.strictEqual(sends.length, 1, "Should deliver regular output");
     assert.strictEqual(sends[0].text, "Hello, this is a normal response");
   });
+
+  it("suppresses delivery for <content>\\n\\nNO_REPLY (end-of-message, blank line before)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["All checks complete. Everything is clean.\n\nNO_REPLY"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should suppress when NO_REPLY is alone on last non-empty line after blank line");
+  });
+
+  it("suppresses delivery for <content>\\nNO_REPLY (single newline before)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["All clean.\nNO_REPLY"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should suppress when NO_REPLY is alone on last line after single newline");
+  });
+
+  it("suppresses delivery for <content>\\nNO_REPLY\\n (trailing newline)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["All clean.\nNO_REPLY\n"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should suppress when NO_REPLY is alone on last non-empty line with trailing newline");
+  });
+
+  it("suppresses operator's leaked workspace-health sample verbatim", async () => {
+    const { platform, sends } = mockPlatform();
+    const sample = [
+      "All checks complete. Let me compile the results:",
+      "• Size audit: OK (335M, no bloat)",
+      "• Hook integrity: OK",
+      "• Config check: 1 warning (settings.local.json missing outputStyle — minor, file doesn't exist)",
+      "The only finding is the settings.local.json warning, which is informational.",
+      "",
+      "NO_REPLY",
+    ].join("\n");
+    const stream = fakeStream([sample]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 0, "Should suppress multi-line operator sample with end-of-message NO_REPLY");
+  });
+
+  it("delivers same-line `Some text NO_REPLY` (token shares line with content)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["Some text NO_REPLY"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1, "Should deliver when NO_REPLY shares its line with other content");
+    assert.strictEqual(sends[0].text, "Some text NO_REPLY");
+  });
+
+  it("delivers `Done. NO_REPLY_EXTRA more` (substring prefix on same line)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["Done. NO_REPLY_EXTRA more"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1, "Should deliver when only a substring prefix appears on the same line");
+    assert.strictEqual(sends[0].text, "Done. NO_REPLY_EXTRA more");
+  });
+
+  it("delivers `<content>\\n\\nNO_REPLY_EXTRA` (substring alone on last line is NOT exact match)", async () => {
+    const { platform, sends } = mockPlatform();
+    const stream = fakeStream(["Some content\n\nNO_REPLY_EXTRA"]);
+
+    await relayStream(stream, platform);
+
+    assert.strictEqual(sends.length, 1, "Should deliver when last non-empty line is NO_REPLY_EXTRA, not exact NO_REPLY");
+    assert.strictEqual(sends[0].text, "Some content\n\nNO_REPLY_EXTRA");
+  });
 });
 
 describe("relayStream edge cases", () => {

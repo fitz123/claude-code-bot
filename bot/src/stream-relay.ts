@@ -4,6 +4,7 @@ import type { StreamLine, PlatformContext } from "./types.js";
 import { extractTextDelta } from "./cli-protocol.js";
 import { log } from "./logger.js";
 import { messagesSent } from "./metrics.js";
+import { shouldSuppressNoReply } from "./no-reply.js";
 
 /**
  * Split text into chunks that fit a platform's message limit.
@@ -270,8 +271,7 @@ export async function relayStream(
 
     // NO_REPLY: agent explicitly signals "no response needed" — suppress delivery.
     // Drafts auto-disappear when no sendMessage follows.
-    const trimmed = accumulated.trim();
-    if (accumulated && /^NO_REPLY\b/.test(trimmed)) {
+    if (accumulated && shouldSuppressNoReply(accumulated)) {
       return;
     }
 
