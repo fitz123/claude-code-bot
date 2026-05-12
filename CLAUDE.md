@@ -2,6 +2,7 @@
 
 @USER.md
 @IDENTITY.md
+@MEMORY.md
 
 ## Critical Rules
 
