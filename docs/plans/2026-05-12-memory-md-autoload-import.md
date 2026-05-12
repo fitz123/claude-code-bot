@@ -87,12 +87,12 @@ What we want:
   2. CLAUDE.md with `@MEMORY.md` → `config-check.sh` does not warn about the import.
 - All existing test cases in `test-scripts.sh` continue to pass.
 
-- [ ] `.claude/skills/workspace-health/scripts/config-check.sh` contains a grep for `^@MEMORY\.md$` in `CLAUDE.md`
-- [ ] When the grep fails, the script emits a `warn` (or equivalent) message about the missing import
-- [ ] The warning message mentions `MEMORY.md will not be auto-loaded` or equivalent consequence text
-- [ ] `.claude/skills/workspace-health/tests/test-scripts.sh` includes a test case for CLAUDE.md missing `@MEMORY.md` that asserts the warning
-- [ ] `.claude/skills/workspace-health/tests/test-scripts.sh` includes a test case for CLAUDE.md containing `@MEMORY.md` that asserts the warning is NOT emitted
-- [ ] Running `bash .claude/skills/workspace-health/tests/test-scripts.sh` exits with status 0
+- [x] `.claude/skills/workspace-health/scripts/config-check.sh` contains a grep for `^@MEMORY\.md$` in `CLAUDE.md`
+- [x] When the grep fails, the script emits a `warn` (or equivalent) message about the missing import
+- [x] The warning message mentions `MEMORY.md will not be auto-loaded` or equivalent consequence text
+- [x] `.claude/skills/workspace-health/tests/test-scripts.sh` includes a test case for CLAUDE.md missing `@MEMORY.md` that asserts the warning
+- [x] `.claude/skills/workspace-health/tests/test-scripts.sh` includes a test case for CLAUDE.md containing `@MEMORY.md` that asserts the warning is NOT emitted
+- [x] Running `bash .claude/skills/workspace-health/tests/test-scripts.sh` exits with status 0
 
 ### Task 4: Document memory architecture in README
 
