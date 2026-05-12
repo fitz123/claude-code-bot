@@ -2,7 +2,7 @@
 
 ## Storage locations
 
-- **Daily notes:** `memory/daily/YYYY-MM-DD.md` — consolidation digests
+- **Diary digests:** `memory/diary/YYYY-MM-DD.md` — consolidation digests
 - **Long-term:** `MEMORY.md` — curated index of memory files
 - **Auto files:** `memory/auto/` — structured memory files with frontmatter
 
