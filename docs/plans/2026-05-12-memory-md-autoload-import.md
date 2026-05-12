@@ -105,8 +105,8 @@ What we want:
 - Section references issue #34146 or the platform memory-protocol rule for further detail.
 - Section is placed coherently within the README (after setup/getting-started content, before deep configuration details).
 
-- [ ] `README.md` contains a heading line matching (case-insensitive) the phrase `memory architecture`
-- [ ] The section mentions: `MEMORY.md` at workspace root, `memory/auto/` directory, `@-import` or `@MEMORY.md` mechanism
-- [ ] The section includes a warning against removing the `@MEMORY.md` import
-- [ ] The section references either `anthropics/claude-code#34146` or `.claude/rules/platform/memory-protocol.md` for further context
-- [ ] No existing README content is destroyed (only additive change)
+- [x] `README.md` contains a heading line matching (case-insensitive) the phrase `memory architecture`
+- [x] The section mentions: `MEMORY.md` at workspace root, `memory/auto/` directory, `@-import` or `@MEMORY.md` mechanism
+- [x] The section includes a warning against removing the `@MEMORY.md` import
+- [x] The section references either `anthropics/claude-code#34146` or `.claude/rules/platform/memory-protocol.md` for further context
+- [x] No existing README content is destroyed (only additive change)
