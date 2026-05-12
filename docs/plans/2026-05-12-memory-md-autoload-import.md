@@ -68,12 +68,12 @@ What we want:
 - Section warns: removing `@MEMORY.md` from `CLAUDE.md` makes workspace memory invisible to the agent.
 - Identical wording across both files for consistency.
 
-- [ ] `.claude/rules/platform/memory-protocol.md` contains a section titled `## Auto-load mechanism`
-- [ ] `.claude/optional-rules/memory-protocol.md` contains the same section with identical wording
-- [ ] Both sections reference `anthropics/claude-code#34146` and `#36636` by URL or shorthand
-- [ ] Both sections explicitly state that `autoMemoryDirectory` does NOT affect injection
-- [ ] Both sections explicitly warn against removing `@MEMORY.md` from `CLAUDE.md`
-- [ ] The new section is placed coherently within the existing document structure (not appended awkwardly to the end)
+- [x] `.claude/rules/platform/memory-protocol.md` contains a section titled `## Auto-load mechanism`
+- [x] `.claude/optional-rules/memory-protocol.md` contains the same section with identical wording
+- [x] Both sections reference `anthropics/claude-code#34146` and `#36636` by URL or shorthand
+- [x] Both sections explicitly state that `autoMemoryDirectory` does NOT affect injection
+- [x] Both sections explicitly warn against removing `@MEMORY.md` from `CLAUDE.md`
+- [x] The new section is placed coherently within the existing document structure (not appended awkwardly to the end)
 
 ### Task 3: Add @MEMORY.md presence check to workspace-health
 
