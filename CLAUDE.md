@@ -2,6 +2,7 @@
 
 @USER.md
 @IDENTITY.md
+@MEMORY.md
 
 ## Critical Rules
 
@@ -41,6 +42,8 @@ Architectural decisions are tracked in `reference/governance/decisions.md`.
 See `.claude/rules/platform/adr-governance.md` for the enforcement rule.
 
 ## Memory
+
+`MEMORY.md` at the workspace root is a curated index of memory files. It is auto-loaded into every session via the `@MEMORY.md` line above — do not remove it (see `.claude/rules/platform/memory-protocol.md`).
 
 Use `memory/` for persistent notes. It is gitignored.
 

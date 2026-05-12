@@ -12,6 +12,14 @@ Claude Code sessions are stateless — each conversation starts fresh with no re
 - **Auto-generated memories:** `memory/auto/*.md` — created by the memory-consolidation skill
 - **Diary (optional):** `memory/diary/YYYY-MM-DD.md` — consolidation digests
 
+## Auto-load mechanism
+
+Workspace root `MEMORY.md` is auto-loaded into the agent's initial context via the `@MEMORY.md` line in `CLAUDE.md`. This is a workaround for [anthropics/claude-code#34146](https://github.com/anthropics/claude-code/issues/34146): the `autoMemoryDirectory` setting is documented to redirect auto-memory location, but in practice does NOT affect system-prompt injection — it only affects **writes**. System-prompt injection of MEMORY.md always reads from the default `~/.claude/projects/<encoded>/memory/MEMORY.md` path regardless of the setting.
+
+The workaround comes from the issue thread (see also [#36636](https://github.com/anthropics/claude-code/issues/36636)): a line containing exactly `@MEMORY.md` in `CLAUDE.md` causes Claude Code to inline workspace MEMORY.md content via the @-import mechanism. CLAUDE.md instructions take priority over the system prompt's hardcoded path.
+
+**Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, workspace `MEMORY.md` exists on disk but never enters the agent's initial context — your memory index becomes invisible to the agent.
+
 ## Guidelines
 
 - Write memories for anything that should survive across sessions: user preferences, project decisions, recurring patterns, feedback.

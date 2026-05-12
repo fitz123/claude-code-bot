@@ -180,6 +180,44 @@ else
 fi
 rm -rf "$_TMP_CFG3"
 
+# Test: CLAUDE.md missing @MEMORY.md should WARN
+TESTS=$((TESTS + 1))
+_TMP_CFG4=$(mktemp -d)
+git -C "$_TMP_CFG4" init -q >/dev/null 2>&1
+mkdir -p "$_TMP_CFG4/.claude"
+echo '{}' > "$_TMP_CFG4/.claude/settings.json"
+printf '# Workspace\n\n@USER.md\n@IDENTITY.md\n' > "$_TMP_CFG4/CLAUDE.md"
+touch "$_TMP_CFG4/USER.md" "$_TMP_CFG4/IDENTITY.md" "$_TMP_CFG4/.gitignore" "$_TMP_CFG4/MEMORY.md"
+_CFG_OUT4=$(bash "$SCRIPT_DIR/config-check.sh" "$_TMP_CFG4" 2>&1 || true)
+if echo "$_CFG_OUT4" | grep -q "WARN.*@MEMORY\.md" && echo "$_CFG_OUT4" | grep -q "will not be auto-loaded"; then
+  echo "  PASS: warns when CLAUDE.md missing @MEMORY.md import"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: did not warn about missing @MEMORY.md import"
+  echo "    Output: $(echo "$_CFG_OUT4" | grep -i 'fail\|warn\|memory' | head -5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_TMP_CFG4"
+
+# Test: CLAUDE.md with @MEMORY.md should NOT warn about import
+TESTS=$((TESTS + 1))
+_TMP_CFG5=$(mktemp -d)
+git -C "$_TMP_CFG5" init -q >/dev/null 2>&1
+mkdir -p "$_TMP_CFG5/.claude"
+echo '{}' > "$_TMP_CFG5/.claude/settings.json"
+printf '# Workspace\n\n@USER.md\n@IDENTITY.md\n@MEMORY.md\n' > "$_TMP_CFG5/CLAUDE.md"
+touch "$_TMP_CFG5/USER.md" "$_TMP_CFG5/IDENTITY.md" "$_TMP_CFG5/.gitignore" "$_TMP_CFG5/MEMORY.md"
+_CFG_OUT5=$(bash "$SCRIPT_DIR/config-check.sh" "$_TMP_CFG5" 2>&1 || true)
+if echo "$_CFG_OUT5" | grep -q "OK: CLAUDE.md imports @MEMORY.md" && ! echo "$_CFG_OUT5" | grep -q "WARN.*@MEMORY\.md"; then
+  echo "  PASS: no warning when CLAUDE.md contains @MEMORY.md"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: incorrectly warned about @MEMORY.md when import is present"
+  echo "    Output: $(echo "$_CFG_OUT5" | grep -i 'memory' | head -5)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_TMP_CFG5"
+
 # No ADR references
 TESTS=$((TESTS + 1))
 if grep -q 'ADR-[0-9]' "$SCRIPT_DIR/config-check.sh"; then

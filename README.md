@@ -280,6 +280,18 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
 
 `telegramTokenService` is optional — the bot can run Discord-only.
 
+## Memory architecture
+
+The bot maintains persistent context across sessions through a memory system rooted at the workspace.
+
+- `MEMORY.md` at the workspace root is a curated index of memory files. Keep it concise — Claude Code loads it into the agent's initial context on every session.
+- `memory/auto/` holds typed memory files (`user`, `feedback`, `project`, `reference`) with frontmatter, written by the agent or the `memory-consolidation` nightly cron.
+- `memory/diary/` holds narrative digests from consolidation runs.
+
+`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. This is the upstream-recommended workaround for [anthropics/claude-code#34146](https://github.com/anthropics/claude-code/issues/34146): the `autoMemoryDirectory` setting only redirects memory *writes*, not the system-prompt injection that loads `MEMORY.md` into context. An explicit `@MEMORY.md` @-import in `CLAUDE.md` forces Claude Code to inline the workspace `MEMORY.md` instead of reading from its hardcoded default path.
+
+**Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, your workspace `MEMORY.md` will not be auto-loaded and the agent will start every session with no memory index. See [.claude/rules/platform/memory-protocol.md](.claude/rules/platform/memory-protocol.md) for the full protocol.
+
 ## Configuration
 
 ### Logging

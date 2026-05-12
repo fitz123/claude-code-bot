@@ -47,6 +47,17 @@ else
   echo "  WARN: MEMORY.md not found — memory index not initialized"
   WARNINGS=$((WARNINGS + 1))
 fi
+
+# --- @MEMORY.md import in CLAUDE.md ---
+CLAUDE_MD="$WORKSPACE/CLAUDE.md"
+if [ -f "$CLAUDE_MD" ]; then
+  if grep -q '^@MEMORY\.md$' "$CLAUDE_MD"; then
+    echo "  OK: CLAUDE.md imports @MEMORY.md"
+  else
+    echo "  WARN: CLAUDE.md missing @MEMORY.md import — MEMORY.md will not be auto-loaded (see .claude/rules/platform/memory-protocol.md)"
+    WARNINGS=$((WARNINGS + 1))
+  fi
+fi
 echo ""
 
 # --- Settings validation ---
