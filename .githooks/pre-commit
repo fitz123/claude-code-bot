@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Local mirror of the CI security checks (pii-scan.yml + author-identity.yml).
+# Runs gitleaks against the staged diff using the full ruleset from
+# fitz123/gitleaks-config (cached locally) and enforces the noreply
+# author-email convention. Any failure aborts the commit.
+#
+# Bypass discouraged: `git commit --no-verify` skips this. Don't.
+
+set -euo pipefail
+
+CONFIG="${GITLEAKS_CONFIG:-$HOME/.config/gitleaks/.gitleaks.toml}"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+REPORT="$(mktemp -t gitleaks-precommit.XXXXXX.json)"
+trap 'rm -f "$REPORT"' EXIT
+
+# --- 1. gitleaks on staged content ---------------------------------------
+
+if ! command -v gitleaks >/dev/null; then
+  echo "[pre-commit] FATAL: gitleaks not installed. brew install gitleaks" >&2
+  exit 1
+fi
+
+config_args=()
+if [[ -f "$CONFIG" ]]; then
+  config_args=(-c "$CONFIG")
+else
+  echo "[pre-commit] WARN: $CONFIG not found — falling back to gitleaks default rules." >&2
+  echo "                     Run $REPO_ROOT/.githooks/sync-config.sh to fetch the full ruleset." >&2
+fi
+
+# gitleaks 8.30 does not honor --exit-code in the `git` subcommand: it logs
+# `leaks found` but exits 0. Workaround: dump a JSON report and inspect it.
+gitleaks git --staged --no-banner --redact --timeout 30 \
+  -r "$REPORT" -f json "${config_args[@]}" >/dev/null 2>&1 || true
+
+leak_count="$(jq 'length' "$REPORT" 2>/dev/null || echo 0)"
+if [[ "$leak_count" -gt 0 ]]; then
+  echo "[pre-commit] BLOCKED — gitleaks found $leak_count finding(s) in staged content:" >&2
+  jq -r '.[] | "  \(.RuleID) @ \(.File):\(.StartLine)"' "$REPORT" >&2
+  echo >&2
+  echo "Unstage or fix the offending lines, then re-commit." >&2
+  exit 1
+fi
+
+# --- 2. Author identity (matches .github/workflows/author-identity.yml) --
+
+email="$(git config user.email || echo '')"
+if [[ "$email" != *"@users.noreply.github.com" ]]; then
+  echo "[pre-commit] BLOCKED — commit author email '$email' is not a GitHub noreply." >&2
+  echo "Fix: git config user.email YOUR_ID+USERNAME@users.noreply.github.com" >&2
+  exit 1
+fi
+
+exit 0
