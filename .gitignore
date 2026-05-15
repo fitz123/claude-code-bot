@@ -36,6 +36,9 @@ orphan-allowlist.local.txt
 # Ralphex
 completed/
 
+# Playwright MCP default output directory (screenshots, snapshots, traces)
+.playwright-mcp/
+
 # Instance config overrides (user creates from .example)
 config.local.yaml
 crons.local.yaml
