@@ -21,11 +21,18 @@ fi
 
 mkdir -p "$(dirname "$TARGET")"
 
+# Portable base64 decode: GNU coreutils uses -d, macOS/BSD uses -D.
+if base64 -d < /dev/null > /dev/null 2>&1; then
+  BASE64_DECODE_FLAG="-d"
+else
+  BASE64_DECODE_FLAG="-D"
+fi
+
 tmp="$(mktemp -t gitleaks-config.XXXXXX.toml)"
 trap 'rm -f "$tmp"' EXIT
 
 if ! gh api "repos/$SOURCE_REPO/contents/.gitleaks.toml?ref=$SOURCE_REF" \
-     --jq '.content' 2>/dev/null | base64 -d > "$tmp"; then
+     --jq '.content' 2>/dev/null | base64 "$BASE64_DECODE_FLAG" > "$tmp"; then
   echo "FATAL: could not fetch $SOURCE_REPO/.gitleaks.toml@$SOURCE_REF" >&2
   echo "       Check 'gh repo view $SOURCE_REPO' — do you have read access?" >&2
   exit 1
