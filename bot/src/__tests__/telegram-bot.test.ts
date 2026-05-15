@@ -1,7 +1,9 @@
 process.env.TZ = "UTC";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, extractMediaInfo, extensionForMedia, formatMediaMeta, createTelegramBot } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, extractMediaInfo, extensionForMedia, formatMediaMeta, createTelegramBot, extractChatContext, formatChatContextForLog, createApiErrorLoggingTransformer, resolveBindingLabel, BINDING_LABEL_NONE, BINDING_LABEL_UNBOUND } from "../telegram-bot.js";
+import client from "prom-client";
+import { telegramApiCalls, telegramApiErrors } from "../metrics.js";
 import type { TelegramBinding, BotConfig } from "../types.js";
 import type { SessionManager } from "../session-manager.js";
 
@@ -1347,5 +1349,410 @@ describe("command handler wiring", () => {
     await bot.handleUpdate(makeCommandUpdate("clean", 2));
     assert.ok(mockSM.calls.includes("destroySession"), "/clean should call destroySession");
     assert.ok(!mockSM.calls.includes("closeSession"), "/clean handler calls destroySession, not closeSession directly");
+  });
+});
+
+describe("extractChatContext", () => {
+  it("returns chatId and messageThreadId when both present", () => {
+    const ctx = extractChatContext({ chat_id: 555000111, message_thread_id: 42, text: "hi" });
+    assert.deepStrictEqual(ctx, { chatId: 555000111, messageThreadId: 42 });
+  });
+
+  it("returns only chatId when message_thread_id is absent", () => {
+    const ctx = extractChatContext({ chat_id: -100999, text: "hi" });
+    assert.deepStrictEqual(ctx, { chatId: -100999 });
+  });
+
+  it("accepts string chat_id (channel @username)", () => {
+    const ctx = extractChatContext({ chat_id: "@somechannel" });
+    assert.deepStrictEqual(ctx, { chatId: "@somechannel" });
+  });
+
+  it("returns empty object for non-chat payload (getUpdates)", () => {
+    const ctx = extractChatContext({ offset: 0, timeout: 30 });
+    assert.deepStrictEqual(ctx, {});
+  });
+
+  it("returns empty object for undefined payload", () => {
+    assert.deepStrictEqual(extractChatContext(undefined), {});
+  });
+
+  it("returns empty object for non-object payload", () => {
+    assert.deepStrictEqual(extractChatContext("nope"), {});
+  });
+
+  it("ignores null chat_id", () => {
+    assert.deepStrictEqual(extractChatContext({ chat_id: null }), {});
+  });
+
+  it("ignores non-numeric message_thread_id", () => {
+    const ctx = extractChatContext({ chat_id: 1, message_thread_id: null });
+    assert.deepStrictEqual(ctx, { chatId: 1 });
+  });
+});
+
+describe("formatChatContextForLog", () => {
+  it("returns empty string for empty context (so log lines have no chat_id=undefined)", () => {
+    assert.strictEqual(formatChatContextForLog({}), "");
+  });
+
+  it("formats chatId only", () => {
+    assert.strictEqual(formatChatContextForLog({ chatId: 555000111 }), " chat_id=555000111");
+  });
+
+  it("formats chatId and messageThreadId", () => {
+    assert.strictEqual(
+      formatChatContextForLog({ chatId: -100999, messageThreadId: 42 }),
+      " chat_id=-100999 message_thread_id=42",
+    );
+  });
+
+  it("formats string chatId (channel @username)", () => {
+    assert.strictEqual(formatChatContextForLog({ chatId: "@somechannel" }), " chat_id=@somechannel");
+  });
+});
+
+describe("createApiErrorLoggingTransformer", () => {
+  type WarnArgs = { tag: string; message: string };
+
+  // Reset metric registry so the transformer's per-call counter increments
+  // don't leak across tests in this block (and into adjacent blocks).
+  beforeEach(() => {
+    client.register.resetMetrics();
+  });
+
+  function captureWarn(): { logs: WarnArgs[]; restore: () => void } {
+    const logs: WarnArgs[] = [];
+    const orig = console.warn;
+    console.warn = (...args: unknown[]) => {
+      const line = args[0];
+      // Logger formats: "<ISO> WARN [<tag>] <message>"
+      const match = typeof line === "string" ? line.match(/^\S+\s+WARN\s+\[([^\]]+)\]\s+(.*)$/) : null;
+      if (match) logs.push({ tag: match[1], message: match[2] });
+      else logs.push({ tag: "", message: String(line) });
+    };
+    return { logs, restore: () => { console.warn = orig; } };
+  }
+
+  it("includes chat_id and message_thread_id in 429 rate-limit log", async () => {
+    const { logs, restore } = captureWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer();
+      const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 3 } } as const);
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, message_thread_id: 7, text: "x" });
+      const warn = logs.find((l) => l.tag === "telegram-api");
+      assert.ok(warn, "expected a telegram-api warn log");
+      // Pin full format so reorderings / extra noise / duplicates are caught.
+      assert.strictEqual(
+        warn.message,
+        "Rate limited: method=sendMessageDraft chat_id=555000111 message_thread_id=7 retry_after=3",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("records non-429 error responses without rate-limit log line", async () => {
+    const { logs, restore } = captureWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer();
+      const prev = async () => ({ ok: false, error_code: 400 } as const);
+      const res = await transformer(prev as never, "sendMessage", { chat_id: 555000111, text: "x" });
+      assert.strictEqual(res.ok, false);
+      // No "Rate limited" log for non-429 codes
+      const rateLog = logs.find((l) => l.tag === "telegram-api" && /Rate limited/.test(l.message));
+      assert.strictEqual(rateLog, undefined, "non-429 must not produce a Rate limited log");
+
+      // Error counter must record the 400 code
+      const errs = await telegramApiErrors.get();
+      const send400 = errs.values.find(
+        (v) => v.labels.method === "sendMessage" && v.labels.error_code === "400",
+      );
+      assert.strictEqual(send400?.value, 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("omits chat context when payload has no chat_id (getUpdates-style)", async () => {
+    const { logs, restore } = captureWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer();
+      const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 1 } } as const);
+      await transformer(prev as never, "getUpdates", { offset: 0, timeout: 30 });
+      const warn = logs.find((l) => l.tag === "telegram-api");
+      assert.ok(warn, "expected a telegram-api warn log");
+      assert.match(warn.message, /^Rate limited: method=getUpdates retry_after=1$/);
+      assert.ok(!/chat_id/.test(warn.message), "log line must not mention chat_id");
+      assert.ok(!/undefined/.test(warn.message), "log line must not contain 'undefined'");
+    } finally {
+      restore();
+    }
+  });
+
+  it("includes chat_id in HTTP-error log when payload has chat_id and prev throws", async () => {
+    const { logs, restore } = captureWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer();
+      const prev = async () => { throw new Error("ECONNRESET"); };
+      await assert.rejects(
+        () => transformer(prev as never, "sendMessage", { chat_id: -100999, text: "x" }),
+        /ECONNRESET/,
+      );
+      const warn = logs.find((l) => l.tag === "telegram-api");
+      assert.ok(warn, "expected a telegram-api warn log");
+      // Pin full format so reorderings / extra noise / duplicates are caught.
+      assert.strictEqual(warn.message, "HTTP error: method=sendMessage chat_id=-100999 ECONNRESET");
+    } finally {
+      restore();
+    }
+  });
+
+  it("HTTP-error log omits chat context for non-chat payloads", async () => {
+    const { logs, restore } = captureWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer();
+      const prev = async () => { throw new Error("ETIMEDOUT"); };
+      await assert.rejects(
+        () => transformer(prev as never, "getUpdates", { offset: 0, timeout: 30 }),
+        /ETIMEDOUT/,
+      );
+      const warn = logs.find((l) => l.tag === "telegram-api");
+      assert.ok(warn, "expected a telegram-api warn log");
+      assert.match(warn.message, /^HTTP error: method=getUpdates ETIMEDOUT$/);
+      assert.ok(!/chat_id/.test(warn.message));
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not log on successful responses", async () => {
+    const { logs, restore } = captureWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer();
+      const prev = async () => ({ ok: true, result: true } as const);
+      await transformer(prev as never, "sendMessage", { chat_id: 1, text: "x" });
+      assert.strictEqual(logs.filter((l) => l.tag === "telegram-api").length, 0);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("resolveBindingLabel", () => {
+  const bindings: TelegramBinding[] = [
+    { chatId: 111111111, agentId: "main", kind: "dm", label: "User1 DM" },
+    { chatId: -100999, agentId: "general", kind: "group", label: "General Group" },
+    { chatId: -100999, agentId: "dev-topic", kind: "group", topicId: 10, label: "Dev Topic" },
+    // Binding without a label — should fall back to agentId.
+    { chatId: 222222222, agentId: "agent-b", kind: "dm" },
+  ];
+
+  it("returns binding.label for a chat-targeted call with matching binding", () => {
+    assert.strictEqual(resolveBindingLabel({ chatId: 111111111 }, bindings), "User1 DM");
+  });
+
+  it("returns 'none' sentinel when payload has no chat_id (getUpdates-style)", () => {
+    assert.strictEqual(resolveBindingLabel({}, bindings), BINDING_LABEL_NONE);
+  });
+
+  it("returns 'unbound' sentinel when chat_id has no matching binding", () => {
+    assert.strictEqual(resolveBindingLabel({ chatId: 999999 }, bindings), BINDING_LABEL_UNBOUND);
+  });
+
+  it("sentinel constants are stable wire values for dashboards", () => {
+    // Pin the literal string values once: dashboard queries depend on these.
+    assert.strictEqual(BINDING_LABEL_NONE, "none");
+    assert.strictEqual(BINDING_LABEL_UNBOUND, "unbound");
+  });
+
+  it("returns 'unbound' for non-numeric string chat_id (e.g. @channelname)", () => {
+    assert.strictEqual(resolveBindingLabel({ chatId: "@somechannel" }, bindings), "unbound");
+  });
+
+  it("resolves topic-specific binding label when message_thread_id matches a topic binding", () => {
+    assert.strictEqual(
+      resolveBindingLabel({ chatId: -100999, messageThreadId: 10 }, bindings),
+      "Dev Topic",
+    );
+  });
+
+  it("falls back to chatId-only binding label for unlisted topic", () => {
+    assert.strictEqual(
+      resolveBindingLabel({ chatId: -100999, messageThreadId: 999 }, bindings),
+      "General Group",
+    );
+  });
+
+  it("falls back to agentId when binding has no label", () => {
+    assert.strictEqual(resolveBindingLabel({ chatId: 222222222 }, bindings), "agent-b");
+  });
+
+  it("accepts numeric-string chat_id and resolves it normally", () => {
+    assert.strictEqual(resolveBindingLabel({ chatId: "111111111" }, bindings), "User1 DM");
+  });
+
+  it("topics-array override inherits parent group label (TopicOverride has no label field)", () => {
+    // `TopicOverride` carries `topicId`/`agentId`/`requireMention` but no
+    // `label` — by design, topics-array entries inherit the parent group's
+    // label. This pins that behavior so the call counter's `binding` label
+    // collapses all topics under one group to that group's label. Per-topic
+    // distinction is intentionally not part of the metric: Telegram rate
+    // limits are per-chat, and parent-label cardinality is bounded by config.
+    // Operators who want a topic-distinct series can configure a top-level
+    // `topicId` binding with its own `label` (covered above by "Dev Topic").
+    const groupWithTopics: TelegramBinding[] = [
+      {
+        chatId: -100777,
+        agentId: "hq-main",
+        kind: "group",
+        label: "HQ",
+        topics: [
+          { topicId: 10, agentId: "hq-dev" },
+          { topicId: 30, agentId: "hq-ops" },
+        ],
+      },
+    ];
+    assert.strictEqual(
+      resolveBindingLabel({ chatId: -100777, messageThreadId: 10 }, groupWithTopics),
+      "HQ",
+    );
+    assert.strictEqual(
+      resolveBindingLabel({ chatId: -100777, messageThreadId: 30 }, groupWithTopics),
+      "HQ",
+    );
+  });
+});
+
+describe("createApiErrorLoggingTransformer — call counter", () => {
+  // The transformer increments `bot_telegram_api_calls_total` once per
+  // invocation regardless of outcome, using a binding-derived label. Each test
+  // resets the registry-level metrics so call counts are isolated.
+
+  const bindings: TelegramBinding[] = [
+    { chatId: 555000111, agentId: "main", kind: "dm", label: "User1 DM" },
+    { chatId: -100999, agentId: "ops", kind: "group", label: "Ops Group" },
+  ];
+
+  function silenceWarn(): { restore: () => void } {
+    const orig = console.warn;
+    console.warn = () => {};
+    return { restore: () => { console.warn = orig; } };
+  }
+
+  function findCall(values: Array<{ labels: Record<string, string | number>; value: number }>, method: string, binding: string): number {
+    return values.find((v) => v.labels.method === method && v.labels.binding === binding)?.value ?? 0;
+  }
+
+  it("increments on successful response with binding label from chat_id", async () => {
+    client.register.resetMetrics();
+    const transformer = createApiErrorLoggingTransformer({ bindings });
+    const prev = async () => ({ ok: true, result: true } as const);
+    await transformer(prev as never, "sendMessage", { chat_id: 555000111, text: "hi" });
+
+    const val = await telegramApiCalls.get();
+    assert.strictEqual(findCall(val.values, "sendMessage", "User1 DM"), 1);
+  });
+
+  it("increments on 429 response with binding label from chat_id", async () => {
+    client.register.resetMetrics();
+    const { restore } = silenceWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer({ bindings });
+      const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 3 } } as const);
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
+
+      const val = await telegramApiCalls.get();
+      assert.strictEqual(findCall(val.values, "sendMessageDraft", "User1 DM"), 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("increments on thrown HTTP error with binding label from chat_id", async () => {
+    client.register.resetMetrics();
+    const { restore } = silenceWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer({ bindings });
+      const prev = async () => { throw new Error("ECONNRESET"); };
+      await assert.rejects(
+        () => transformer(prev as never, "sendMessage", { chat_id: 555000111, text: "x" }),
+        /ECONNRESET/,
+      );
+
+      const val = await telegramApiCalls.get();
+      assert.strictEqual(findCall(val.values, "sendMessage", "User1 DM"), 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("uses 'none' sentinel for non-chat-targeted calls (getUpdates)", async () => {
+    client.register.resetMetrics();
+    const transformer = createApiErrorLoggingTransformer({ bindings });
+    const prev = async () => ({ ok: true, result: [] } as const);
+    await transformer(prev as never, "getUpdates", { offset: 0, timeout: 30 });
+
+    const val = await telegramApiCalls.get();
+    assert.strictEqual(findCall(val.values, "getUpdates", "none"), 1);
+  });
+
+  it("uses 'unbound' sentinel for chat_id that does not match any binding", async () => {
+    client.register.resetMetrics();
+    const transformer = createApiErrorLoggingTransformer({ bindings });
+    const prev = async () => ({ ok: true, result: true } as const);
+    await transformer(prev as never, "sendMessage", { chat_id: 555555, text: "x" });
+
+    const val = await telegramApiCalls.get();
+    assert.strictEqual(findCall(val.values, "sendMessage", "unbound"), 1);
+  });
+
+  it("counts each retried attempt separately (matches per-attempt error counter semantics)", async () => {
+    client.register.resetMetrics();
+    const { restore } = silenceWarn();
+    try {
+      const transformer = createApiErrorLoggingTransformer({ bindings });
+      const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 1 } } as const);
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
+
+      const val = await telegramApiCalls.get();
+      assert.strictEqual(findCall(val.values, "sendMessageDraft", "User1 DM"), 3);
+    } finally {
+      restore();
+    }
+  });
+
+  it("collapses unmatched chat_ids into a single 'unbound' label (cardinality guard)", async () => {
+    // Regression guard: emitting raw chat_id as a label value would blow up
+    // Prometheus cardinality. 50 distinct unmatched chat_ids must collapse to
+    // exactly one binding label value ("unbound").
+    client.register.resetMetrics();
+    const transformer = createApiErrorLoggingTransformer({ bindings });
+    const prev = async () => ({ ok: true, result: true } as const);
+    for (let i = 0; i < 50; i++) {
+      await transformer(prev as never, "sendMessage", { chat_id: 9_000_000 + i, text: "x" });
+    }
+
+    const val = await telegramApiCalls.get();
+    const labelValues = new Set(val.values.map((v) => v.labels.binding));
+    assert.deepStrictEqual([...labelValues], ["unbound"], `expected only "unbound", got: ${[...labelValues].join(",")}`);
+    assert.strictEqual(findCall(val.values, "sendMessage", "unbound"), 50);
+  });
+
+  it("uses default empty bindings when factory called without opts", async () => {
+    // Documented default: every call falls into "unbound"/"none" sentinels.
+    // Guards against a regression where the default becomes `undefined` and
+    // resolveBindingLabel throws on `bindings.find(...)`.
+    client.register.resetMetrics();
+    const transformer = createApiErrorLoggingTransformer();
+    const prev = async () => ({ ok: true, result: true } as const);
+    await transformer(prev as never, "sendMessage", { chat_id: 555000111, text: "x" });
+    await transformer(prev as never, "getUpdates", { offset: 0, timeout: 30 });
+
+    const val = await telegramApiCalls.get();
+    assert.strictEqual(findCall(val.values, "sendMessage", "unbound"), 1);
+    assert.strictEqual(findCall(val.values, "getUpdates", "none"), 1);
   });
 });

@@ -59,6 +59,14 @@ export const telegramApiErrors = new client.Counter({
   labelNames: ["method", "error_code"] as const,
 });
 
+// --- Telegram API calls (success + failure) ---
+
+export const telegramApiCalls = new client.Counter({
+  name: "bot_telegram_api_calls_total",
+  help: "Total Telegram API calls attempted by the bot (success or failure)",
+  labelNames: ["method", "binding"] as const,
+});
+
 // --- Session lifecycle ---
 
 export const sessionsActive = new client.Gauge({
@@ -125,6 +133,18 @@ export function recordResultMetrics(
  */
 export function recordTelegramApiError(method: string, errorCode: number | string): void {
   telegramApiErrors.inc({ method, error_code: String(errorCode) });
+}
+
+/**
+ * Record a Telegram API call attempt for metrics. Incremented once per
+ * transformer invocation (each autoRetry attempt is a separate call), so
+ * `errors / calls` over the same window yields an attempt-level error ratio.
+ *
+ * The `binding` label MUST come from the resolved binding (or a fixed
+ * sentinel) — never from the raw `chat_id`, since that would be unbounded.
+ */
+export function recordTelegramApiCall(method: string, binding: string): void {
+  telegramApiCalls.inc({ method, binding });
 }
 
 // --- HTTP server ---
