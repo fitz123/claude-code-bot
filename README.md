@@ -313,6 +313,38 @@ metricsPort: 9090
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
 
+#### Telegram API metrics
+
+Two complementary counters track outbound Telegram API traffic. Both increment per-attempt (the inner transformer runs once per autoRetry attempt), so `rate(errors) / rate(calls)` over the same window yields the attempt-level error ratio.
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `bot_telegram_api_calls_total` | `method`, `binding` | Total Telegram API call attempts (success or failure). The `binding` label is the originating binding's `label` (or its `agentId` when no label is set). Calls without a `chat_id` payload (e.g. `getUpdates`, `getMe`) use the sentinel `none`; calls whose `chat_id` does not match any configured binding use `unbound`. Raw `chat_id` is never emitted as a label value. |
+| `bot_telegram_api_errors_total` | `method`, `error_code` | Total Telegram API errors. `error_code` is the numeric Telegram error code (e.g. `429`) or `http_error` for transport-level failures. |
+
+Operationally, `none` is dominated by the `getUpdates` poll loop and is expected to be the highest-volume series. A non-zero `unbound` rate indicates traffic to a chat that no longer matches any configured binding — typically a stale cron target or a removed binding, and worth investigating.
+
+Example PromQL queries:
+
+```promql
+# 5-minute attempt-level error ratio, per method
+sum by (method) (rate(bot_telegram_api_errors_total[5m]))
+  /
+sum by (method) (rate(bot_telegram_api_calls_total[5m]))
+
+# Per-binding call rate — identifies the noisiest binding during a 429 burst
+sum by (binding) (rate(bot_telegram_api_calls_total[5m]))
+```
+
+#### Telegram API logging
+
+The `telegram-api` warn logs for `Rate limited` and `HTTP error` include `chat_id=` and (when present) `message_thread_id=` extracted from the API payload, so a single `grep` over the bot's stderr log identifies which binding triggered a burst. Methods without a `chat_id` (`getUpdates`, `getMe`, `setWebhook`, etc.) log without those fields — not with `chat_id=undefined`. Example:
+
+```
+2026-05-15T16:15:17.160Z WARN [telegram-api] Rate limited: method=sendMessageDraft chat_id=<numeric-chat-id> message_thread_id=7 retry_after=3
+2026-05-15T16:15:17.622Z WARN [telegram-api] Rate limited: method=getUpdates retry_after=1
+```
+
 ## Upgrading from config.yaml.example
 
 Older versions shipped `config.yaml.example` which you copied to `config.yaml` (gitignored). The current version tracks `config.yaml` directly and uses `config.local.yaml` for user overrides.

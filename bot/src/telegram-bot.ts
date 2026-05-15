@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, type Transformer } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
 import { outboxDir, type SessionManager } from "./session-manager.js";
@@ -9,7 +9,7 @@ import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./
 import { allocateMediaPath, enforceMediaCap, releaseMediaPath, discardMediaPath } from "./media-store.js";
 import { isImageMimeType, imageExtensionForMime } from "./mime.js";
 import { log } from "./logger.js";
-import { recordTelegramApiError, messagesReceived, messagesSent } from "./metrics.js";
+import { recordTelegramApiError, recordTelegramApiCall, messagesReceived, messagesSent } from "./metrics.js";
 import { setThread, getThread } from "./message-thread-cache.js";
 import { recordMessage, lookupMessage } from "./message-content-index.js";
 import type { MessageRecord } from "./message-content-index.js";
@@ -34,6 +34,99 @@ export const BOT_COMMANDS = [
   { command: "clean", description: "Clean session (fresh start)" },
   { command: "status", description: "Show bot status" },
 ] as const;
+
+/**
+ * Extract Telegram chat-targeting fields from an API request payload for
+ * inclusion in error logs and metric context. Returns an empty object when the
+ * method does not target a chat (e.g. getUpdates, getMe).
+ */
+export function extractChatContext(payload: unknown): { chatId?: number | string; messageThreadId?: number } {
+  if (!payload || typeof payload !== "object") return {};
+  const p = payload as { chat_id?: number | string | null; message_thread_id?: number | null };
+  const out: { chatId?: number | string; messageThreadId?: number } = {};
+  if (p.chat_id !== undefined && p.chat_id !== null) out.chatId = p.chat_id;
+  if (typeof p.message_thread_id === "number") out.messageThreadId = p.message_thread_id;
+  return out;
+}
+
+/**
+ * Format chat-context fields for inclusion in a log line. Returns an empty
+ * string when no chat context is present, so methods without `chat_id` log
+ * cleanly without `chat_id=undefined`. The returned string has a leading space
+ * so it can be concatenated directly after `method=...`.
+ */
+export function formatChatContextForLog(ctx: { chatId?: number | string; messageThreadId?: number }): string {
+  const parts: string[] = [];
+  if (ctx.chatId !== undefined) parts.push(`chat_id=${ctx.chatId}`);
+  if (ctx.messageThreadId !== undefined) parts.push(`message_thread_id=${ctx.messageThreadId}`);
+  return parts.length ? ` ${parts.join(" ")}` : "";
+}
+
+/** Sentinel `binding` label for API calls with no `chat_id` in the payload (getUpdates, getMe, etc). */
+export const BINDING_LABEL_NONE = "none";
+/** Sentinel `binding` label for API calls whose `chat_id` does not resolve to any configured binding. */
+export const BINDING_LABEL_UNBOUND = "unbound";
+
+/**
+ * Map an API payload's chat context to a low-cardinality `binding` label
+ * suitable for the `bot_telegram_api_calls_total` counter. The value MUST come
+ * from the resolved binding (preferring `label`, falling back to `agentId` —
+ * both are bounded by config) or one of the two sentinels above. Returning the
+ * raw `chat_id` is forbidden: it would balloon cardinality as new chats appear.
+ */
+export function resolveBindingLabel(
+  ctx: { chatId?: number | string; messageThreadId?: number },
+  bindings: TelegramBinding[],
+): string {
+  if (ctx.chatId === undefined) return BINDING_LABEL_NONE;
+  let numericChatId: number;
+  if (typeof ctx.chatId === "number") {
+    numericChatId = ctx.chatId;
+  } else {
+    // Numeric strings (rare but valid per Bot API) — resolve normally.
+    // Channel-username strings (@-prefixed) cannot match a numeric binding.
+    const parsed = Number(ctx.chatId);
+    if (!Number.isInteger(parsed)) return BINDING_LABEL_UNBOUND;
+    numericChatId = parsed;
+  }
+  const binding = resolveBinding(numericChatId, bindings, ctx.messageThreadId);
+  if (!binding) return BINDING_LABEL_UNBOUND;
+  return binding.label ?? binding.agentId;
+}
+
+/**
+ * Build the inner Telegram API transformer that logs rate-limit and HTTP
+ * errors with chat context, records error metrics, and increments the
+ * per-binding API call counter. Extracted from the bot constructor so it can
+ * be unit-tested without spinning up a Bot instance.
+ *
+ * `bindings` is used to map outgoing `chat_id` to a bounded-cardinality label
+ * for `bot_telegram_api_calls_total`. Defaults to an empty list (every call
+ * receives the `"unbound"` or `"none"` sentinel) so existing callers / tests
+ * keep working unchanged.
+ */
+export function createApiErrorLoggingTransformer(opts?: { bindings?: TelegramBinding[] }): Transformer {
+  const bindings = opts?.bindings ?? [];
+  return async (prev, method, payload, signal) => {
+    const ctx = extractChatContext(payload);
+    const ctxStr = formatChatContextForLog(ctx);
+    recordTelegramApiCall(String(method), resolveBindingLabel(ctx, bindings));
+    try {
+      const res = await prev(method, payload, signal);
+      if (!res.ok && res.error_code === 429) {
+        log.warn("telegram-api", `Rate limited: method=${String(method)}${ctxStr} retry_after=${res.parameters?.retry_after ?? "unknown"}`);
+        recordTelegramApiError(String(method), 429);
+      } else if (!res.ok && res.error_code) {
+        recordTelegramApiError(String(method), res.error_code);
+      }
+      return res;
+    } catch (err) {
+      log.warn("telegram-api", `HTTP error: method=${String(method)}${ctxStr} ${err instanceof Error ? err.message : err}`);
+      recordTelegramApiError(String(method), "http_error");
+      throw err;
+    }
+  };
+}
 
 /**
  * Build a session key from chatId and optional topicId.
@@ -514,24 +607,10 @@ export function createTelegramBot(
   const token = config.telegramToken;
   const bot = new Bot(token);
 
-// Log Telegram API errors, especially 429 rate limits (inner transformer —
-  // sees each individual attempt before autoRetry decides whether to retry)
-  bot.api.config.use(async (prev, method, payload, signal) => {
-    try {
-      const res = await prev(method, payload, signal);
-      if (!res.ok && res.error_code === 429) {
-        log.warn("telegram-api", `Rate limited: method=${String(method)} retry_after=${res.parameters?.retry_after ?? "unknown"}`);
-        recordTelegramApiError(String(method), 429);
-      } else if (!res.ok && res.error_code) {
-        recordTelegramApiError(String(method), res.error_code);
-      }
-      return res;
-    } catch (err) {
-      log.warn("telegram-api", `HTTP error: method=${String(method)} ${err instanceof Error ? err.message : err}`);
-      recordTelegramApiError(String(method), "http_error");
-      throw err;
-    }
-  });
+  // Log Telegram API errors, especially 429 rate limits, and count every API
+  // call attempt by binding (inner transformer — sees each individual attempt
+  // before autoRetry decides whether to retry)
+  bot.api.config.use(createApiErrorLoggingTransformer({ bindings: config.bindings }));
 
   // Auto-retry on rate limits (outermost transformer — retries after inner errors)
   bot.api.config.use(autoRetry(AUTO_RETRY_OPTIONS));

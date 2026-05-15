@@ -4,6 +4,7 @@ import client from "prom-client";
 import {
   recordResultMetrics,
   recordTelegramApiError,
+  recordTelegramApiCall,
   tokensInput,
   tokensOutput,
   tokensCacheRead,
@@ -11,6 +12,7 @@ import {
   costUsd,
   turnDuration,
   telegramApiErrors,
+  telegramApiCalls,
   sessionsActive,
   sessionCrashes,
   messagesReceived,
@@ -125,6 +127,47 @@ describe("recordTelegramApiError", () => {
     );
     assert.strictEqual(edit429?.value, 2);
     assert.strictEqual(send400?.value, 1);
+  });
+});
+
+describe("recordTelegramApiCall", () => {
+  it("records call with method and binding labels", async () => {
+    recordTelegramApiCall("sendMessage", "User1 DM");
+
+    const val = await telegramApiCalls.get();
+    assert.strictEqual(val.values.length, 1);
+    assert.strictEqual(val.values[0].labels.method, "sendMessage");
+    assert.strictEqual(val.values[0].labels.binding, "User1 DM");
+    assert.strictEqual(val.values[0].value, 1);
+  });
+
+  it("accumulates per (method, binding) label set", async () => {
+    recordTelegramApiCall("sendMessage", "User1 DM");
+    recordTelegramApiCall("sendMessage", "User1 DM");
+    recordTelegramApiCall("sendMessage", "Group A");
+    recordTelegramApiCall("getUpdates", "none");
+
+    const val = await telegramApiCalls.get();
+    const userSend = val.values.find(
+      (v) => v.labels.method === "sendMessage" && v.labels.binding === "User1 DM",
+    );
+    const groupSend = val.values.find(
+      (v) => v.labels.method === "sendMessage" && v.labels.binding === "Group A",
+    );
+    const poll = val.values.find(
+      (v) => v.labels.method === "getUpdates" && v.labels.binding === "none",
+    );
+    assert.strictEqual(userSend?.value, 2);
+    assert.strictEqual(groupSend?.value, 1);
+    assert.strictEqual(poll?.value, 1);
+  });
+
+  it("records 'unbound' sentinel as a regular label value", async () => {
+    recordTelegramApiCall("sendMessage", "unbound");
+
+    const val = await telegramApiCalls.get();
+    assert.strictEqual(val.values[0].labels.binding, "unbound");
+    assert.strictEqual(val.values[0].value, 1);
   });
 });
 
