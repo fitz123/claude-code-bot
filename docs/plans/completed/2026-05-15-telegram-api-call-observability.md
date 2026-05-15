@@ -1,5 +1,7 @@
 # Telegram API call observability — chat_id in logs, binding-labelled metric — Round 1
 
+> **Note (completed):** Reference sections below describe the pre-PR codebase state at the time the plan was written. File:line citations point at the legacy inline transformer; the merged implementation refactored it into the `createApiErrorLoggingTransformer` factory. See the merge commit on this branch for the post-implementation code.
+
 ## Goal
 
 Add diagnostic data to Telegram API error logging and introduce a baseline call counter so future 429 bursts can be traced to a specific binding without having to cross-reference session JSONL timestamps. Observability-only change — no retry/throttle behavior is modified.

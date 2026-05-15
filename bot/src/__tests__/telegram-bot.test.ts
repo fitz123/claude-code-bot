@@ -1439,7 +1439,7 @@ describe("createApiErrorLoggingTransformer", () => {
     try {
       const transformer = createApiErrorLoggingTransformer();
       const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 3 } } as const);
-      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, message_thread_id: 7, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, message_thread_id: 7, draft_id: 1, text: "x" });
       const warn = logs.find((l) => l.tag === "telegram-api");
       assert.ok(warn, "expected a telegram-api warn log");
       // Pin full format so reorderings / extra noise / duplicates are caught.
@@ -1660,7 +1660,7 @@ describe("createApiErrorLoggingTransformer — call counter", () => {
     try {
       const transformer = createApiErrorLoggingTransformer({ bindings });
       const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 3 } } as const);
-      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, draft_id: 1, text: "x" });
 
       const val = await telegramApiCalls.get();
       assert.strictEqual(findCall(val.values, "sendMessageDraft", "User1 DM"), 1);
@@ -1713,9 +1713,9 @@ describe("createApiErrorLoggingTransformer — call counter", () => {
     try {
       const transformer = createApiErrorLoggingTransformer({ bindings });
       const prev = async () => ({ ok: false, error_code: 429, parameters: { retry_after: 1 } } as const);
-      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
-      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
-      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, draft_id: 1, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, draft_id: 2, text: "x" });
+      await transformer(prev as never, "sendMessageDraft", { chat_id: 555000111, draft_id: 3, text: "x" });
 
       const val = await telegramApiCalls.get();
       assert.strictEqual(findCall(val.values, "sendMessageDraft", "User1 DM"), 3);

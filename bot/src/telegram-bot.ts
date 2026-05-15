@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, type Transformer } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
 import { outboxDir, type SessionManager } from "./session-manager.js";
@@ -105,9 +105,9 @@ export function resolveBindingLabel(
  * receives the `"unbound"` or `"none"` sentinel) so existing callers / tests
  * keep working unchanged.
  */
-export function createApiErrorLoggingTransformer(opts?: { bindings?: TelegramBinding[] }) {
+export function createApiErrorLoggingTransformer(opts?: { bindings?: TelegramBinding[] }): Transformer {
   const bindings = opts?.bindings ?? [];
-  return async (prev: (method: string, payload: unknown, signal?: AbortSignal) => Promise<{ ok: boolean; error_code?: number; parameters?: { retry_after?: number }; result?: unknown }>, method: string, payload: unknown, signal?: AbortSignal) => {
+  return async (prev, method, payload, signal) => {
     const ctx = extractChatContext(payload);
     const ctxStr = formatChatContextForLog(ctx);
     recordTelegramApiCall(String(method), resolveBindingLabel(ctx, bindings));
@@ -610,7 +610,7 @@ export function createTelegramBot(
   // Log Telegram API errors, especially 429 rate limits, and count every API
   // call attempt by binding (inner transformer — sees each individual attempt
   // before autoRetry decides whether to retry)
-  bot.api.config.use(createApiErrorLoggingTransformer({ bindings: config.bindings }) as Parameters<typeof bot.api.config.use>[0]);
+  bot.api.config.use(createApiErrorLoggingTransformer({ bindings: config.bindings }));
 
   // Auto-retry on rate limits (outermost transformer — retries after inner errors)
   bot.api.config.use(autoRetry(AUTO_RETRY_OPTIONS));
