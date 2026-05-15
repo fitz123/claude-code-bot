@@ -2,52 +2,52 @@
 # Local mirror of the CI security checks (pii-scan.yml + author-identity.yml).
 # Runs gitleaks against the staged diff using the full ruleset from
 # fitz123/gitleaks-config (cached locally) and enforces the noreply
-# author-email convention. Any failure aborts the commit.
+# author-email convention. Any failure — including a broken gitleaks
+# invocation — aborts the commit. Fail-closed by design.
 #
-# Bypass discouraged: `git commit --no-verify` skips this. Don't.
+# Bypass discouraged: `git commit --no-verify` skips this. CI still scans.
 
 set -euo pipefail
 
 CONFIG="${GITLEAKS_CONFIG:-$HOME/.config/gitleaks/.gitleaks.toml}"
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-REPORT="$(mktemp -t gitleaks-precommit.XXXXXX.json)"
+REPORT="$(mktemp "${TMPDIR:-/tmp}/gitleaks-precommit.XXXXXX.json")"
 trap 'rm -f "$REPORT"' EXIT
 
+# --- 0. Required binaries ------------------------------------------------
+
+for bin in gitleaks jq; do
+  if ! command -v "$bin" >/dev/null; then
+    echo "[pre-commit] FATAL: $bin not installed. brew install $bin" >&2
+    exit 1
+  fi
+done
+
 # --- 1. gitleaks on staged content ---------------------------------------
-
-if ! command -v gitleaks >/dev/null; then
-  echo "[pre-commit] FATAL: gitleaks not installed. brew install gitleaks" >&2
-  exit 1
-fi
-
-if ! command -v jq >/dev/null; then
-  echo "[pre-commit] FATAL: jq not installed. brew install jq" >&2
-  exit 1
-fi
 
 config_args=()
 if [[ -f "$CONFIG" ]]; then
   config_args=(-c "$CONFIG")
 else
   echo "[pre-commit] WARN: $CONFIG not found — falling back to gitleaks default rules." >&2
-  echo "                     Run $REPO_ROOT/.githooks/sync-config.sh to fetch the full ruleset." >&2
+  echo "                     Run $(git rev-parse --show-toplevel)/.githooks/sync-config.sh to fetch the full ruleset." >&2
+  # gitleaks reads GITLEAKS_CONFIG / GITLEAKS_CONFIG_TOML directly. Clear them
+  # so a stale env value doesn't override the default-config fallback above.
+  unset GITLEAKS_CONFIG GITLEAKS_CONFIG_TOML
 fi
 
-# gitleaks 8.30 does not honor --exit-code in the `git` subcommand: it logs
-# `leaks found` but exits 0. Workaround: dump a JSON report and inspect it.
-# Capture exit code: non-zero means a tool error (bad config, crash), not just findings.
+# gitleaks 8.30 returns exit 1 for "leaks found" in some paths and exit 0
+# for the same finding in others (`git` subcommand inconsistency). Don't
+# trust the exit code on its own — always check the JSON report. Exit code
+# is meaningful only as a fail-closed signal when the report is empty/broken.
 gitleaks_exit=0
 gitleaks git --staged --no-banner --redact --timeout 30 \
   -r "$REPORT" -f json "${config_args[@]}" >/dev/null 2>&1 || gitleaks_exit=$?
 
-if [[ $gitleaks_exit -ne 0 ]]; then
-  echo "[pre-commit] FATAL: gitleaks exited with error ($gitleaks_exit) — commit blocked." >&2
-  exit 1
-fi
-
-# Report must exist and contain valid JSON; any parse failure is treated as a fatal error.
 if ! jq 'length' "$REPORT" >/dev/null 2>&1; then
-  echo "[pre-commit] FATAL: gitleaks report missing or not valid JSON — aborting to fail closed." >&2
+  echo "[pre-commit] FATAL: gitleaks report missing or not valid JSON (exit=$gitleaks_exit) — aborting to fail closed." >&2
+  echo "Inspect: $REPORT" >&2
+  echo "Run manually for diagnostics: gitleaks git --staged ${config_args[*]:-}" >&2
+  trap - EXIT  # keep the file for inspection
   exit 1
 fi
 
@@ -60,15 +60,25 @@ if [[ "$leak_count" -gt 0 ]]; then
   exit 1
 fi
 
-# --- 2. Author identity (matches .github/workflows/author-identity.yml) --
+# Empty report — gl_exit must be 0 to trust it. Anything else means
+# gitleaks itself failed (bad config, version mismatch, etc.) and the
+# absence of findings in the report is meaningless.
+if [[ "$gitleaks_exit" -ne 0 ]]; then
+  echo "[pre-commit] FATAL: gitleaks exited $gitleaks_exit but produced an empty report — commit blocked." >&2
+  echo "Run manually for diagnostics: gitleaks git --staged ${config_args[*]:-}" >&2
+  exit 1
+fi
 
+# --- 2. Author identity (matches .github/workflows/author-identity.yml) --
 # `git var GIT_AUTHOR_IDENT` resolves the effective author identity, honouring
 # GIT_AUTHOR_EMAIL / --author overrides that `git config user.email` misses.
+
 author_ident="$(git var GIT_AUTHOR_IDENT)"
 email="$(echo "$author_ident" | sed -n 's/.*<\([^>]*\)>.*/\1/p')"
 if [[ "$email" != *"@users.noreply.github.com" ]]; then
   echo "[pre-commit] BLOCKED — commit author email '$email' is not a GitHub noreply." >&2
   echo "Fix: git config user.email YOUR_ID+USERNAME@users.noreply.github.com" >&2
+  echo "If overriding via --author or GIT_AUTHOR_EMAIL, use the noreply format there too." >&2
   exit 1
 fi
 

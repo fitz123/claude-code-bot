@@ -21,8 +21,9 @@ fi
 
 mkdir -p "$(dirname "$TARGET")"
 
-# Portable base64 decode: GNU coreutils uses -d, macOS/BSD uses -D.
-if base64 -d < /dev/null > /dev/null 2>&1; then
+# Portable base64 decode: GNU coreutils uses -d; older macOS/BSD only -D.
+# Modern macOS (Big Sur+) accepts both — probe and fall back.
+if base64 -d </dev/null >/dev/null 2>&1; then
   BASE64_DECODE_FLAG="-d"
 else
   BASE64_DECODE_FLAG="-D"
@@ -38,10 +39,10 @@ if ! gh api "repos/$SOURCE_REPO/contents/.gitleaks.toml?ref=$SOURCE_REF" \
   exit 1
 fi
 
-if ! head -10 "$tmp" | grep -qE '\[extend\]|^\[\[rules\]\]'; then
+if ! grep -qE '^\[\[rules\]\]|^\[extend\]|^\[allowlist\]' "$tmp"; then
   echo "FATAL: fetched file does not look like a gitleaks TOML config" >&2
   echo "       First lines:" >&2
-  head -3 "$tmp" >&2
+  head -5 "$tmp" >&2
   exit 1
 fi
 
