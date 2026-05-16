@@ -305,7 +305,7 @@ All log output uses structured format: `TIMESTAMP LEVEL [tag] message`.
 
 ### Monitoring
 
-When `metricsPort` is set in `config.yaml`, the bot exposes a Prometheus-compatible `/metrics` endpoint on `127.0.0.1` at that port.
+When `metricsPort` is set in `config.yaml`, the bot exposes a Prometheus-compatible `/metrics` endpoint at that port. By default it binds to `127.0.0.1`. Set `metricsHost: "0.0.0.0"` when the scrape source is reachable only via a non-loopback interface (e.g. Linux when a Prometheus container scrapes via `host.docker.internal` — that resolves to the docker bridge gateway, not loopback like on macOS Docker Desktop). When exposing on `0.0.0.0`, the host firewall must restrict external access.
 
 ```yaml
 metricsPort: 9090
