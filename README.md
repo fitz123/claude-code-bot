@@ -291,10 +291,10 @@ Token resolution accepts either form (env var wins when both are set):
 
 Example (NixOS deploy):
 ```yaml
-telegramTokenService: telegram-bot-token   # Mac fallback (no-op on Linux)
+telegramTokenService: telegram-bot-token   # macOS fallback (ignored when tokenEnv resolves on Linux)
 telegramTokenEnv: TELEGRAM_BOT_TOKEN       # Linux uses this from sops-decrypted env file
 discord:
-  tokenService: discord-bot-token
+  tokenService: discord-bot-token          # macOS fallback (same pattern)
   tokenEnv: DISCORD_BOT_TOKEN
 ```
 
