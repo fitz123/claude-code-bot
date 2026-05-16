@@ -62,6 +62,7 @@ export function loadRawMergedConfig(configPath?: string): Record<string, unknown
 
 interface RawConfig {
   telegramTokenService?: string;
+  telegramTokenEnv?: string;
   agents?: Record<string, unknown>;
   bindings?: unknown[];
   sessionDefaults?: unknown;
@@ -70,6 +71,7 @@ interface RawConfig {
   metricsHost?: string;
   discord?: {
     tokenService?: string;
+    tokenEnv?: string;
     bindings?: unknown[];
   };
   adminChatId?: number;
@@ -79,16 +81,50 @@ interface RawConfig {
   defaultFallbackModel?: unknown;
 }
 
-function resolveKeychainSecret(service: string): string {
-  try {
-    return execFileSync(
-      "security",
-      ["find-generic-password", "-s", service, "-w"],
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-    ).trim();
-  } catch {
-    throw new Error(`Failed to read Keychain service: ${service}`);
+/**
+ * Resolve a secret from either an environment variable (Linux/NixOS) or
+ * the macOS Keychain (legacy Mac workflow). Env var wins if set.
+ *
+ * Designed for cross-platform bot deployment:
+ *   - macOS: `tokenService:` (existing) → security find-generic-password
+ *   - Linux/NixOS: `tokenEnv:` → process.env[envVar] (e.g. sops-nix injected)
+ *   - Both set: env wins (lets NixOS override Keychain for testing)
+ *   - Neither set: throw
+ *
+ * @param opts.service   Keychain service name (macOS fallback)
+ * @param opts.envVar    Env var name (preferred when set)
+ * @param opts.fieldName Human-readable config field name (for error messages)
+ */
+function resolveSecret(opts: {
+  service?: string;
+  envVar?: string;
+  fieldName: string;
+}): string {
+  // 1. Env var wins if set (Linux/NixOS path — preferred for production deploy).
+  // Trim whitespace and treat blank as unset — sops-nix EnvironmentFile and
+  // systemd often leave trailing newlines or accidental quoting that would
+  // otherwise produce a "valid-but-garbage" token that fails much later.
+  if (opts.envVar) {
+    const val = process.env[opts.envVar];
+    if (val !== undefined && val.trim() !== "") {
+      return val.trim();
+    }
   }
+  // 2. Fall back to Keychain (macOS dev workflow — preserves existing behavior)
+  if (opts.service) {
+    try {
+      return execFileSync(
+        "security",
+        ["find-generic-password", "-s", opts.service, "-w"],
+        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+      ).trim();
+    } catch {
+      const envHint = opts.envVar ? ` (env var '${opts.envVar}' also unset)` : "";
+      throw new Error(`Failed to read Keychain service '${opts.service}' for ${opts.fieldName}${envHint}`);
+    }
+  }
+  // 3. Neither configured — config error
+  throw new Error(`${opts.fieldName} requires either a Keychain service name or an env var name`);
 }
 
 export function validateAgent(
@@ -244,10 +280,22 @@ export function validateDiscordBinding(raw: unknown, index: number): DiscordBind
 
 function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string, AgentConfig>): DiscordConfig | undefined {
   if (!raw) return undefined;
-  if (typeof raw.tokenService !== "string") {
+  // Accept either tokenService (Keychain — macOS) or tokenEnv (env var — Linux/NixOS).
+  // At least one must be set.
+  if (raw.tokenService !== undefined && typeof raw.tokenService !== "string") {
     throw new Error("discord.tokenService must be a string");
   }
-  const token = resolveKeychainSecret(raw.tokenService);
+  if (raw.tokenEnv !== undefined && typeof raw.tokenEnv !== "string") {
+    throw new Error("discord.tokenEnv must be a string");
+  }
+  if (!raw.tokenService && !raw.tokenEnv) {
+    throw new Error("discord requires either tokenService (macOS Keychain) or tokenEnv (env var)");
+  }
+  const token = resolveSecret({
+    service: raw.tokenService,
+    envVar: raw.tokenEnv,
+    fieldName: "discord.token",
+  });
   if (!Array.isArray(raw.bindings) || raw.bindings.length === 0) {
     throw new Error("discord.bindings must be a non-empty array");
   }
@@ -344,17 +392,30 @@ export function loadConfig(configPath?: string): BotConfig {
     agents[id] = validateAgent(agentRaw, id, defaultModel, defaultFallbackModel);
   }
 
-  // Resolve Telegram token from Keychain (optional — not needed for Discord-only setups)
+  // Resolve Telegram token from env var (Linux/NixOS) or Keychain (macOS).
+  // Optional — not needed for Discord-only setups.
+  // Explicit type validation (mirrors discord.tokenService/tokenEnv checks):
+  // catches `telegramTokenEnv: 123` early instead of silently falling through.
+  if (raw.telegramTokenService !== undefined && typeof raw.telegramTokenService !== "string") {
+    throw new Error("telegramTokenService must be a string");
+  }
+  if (raw.telegramTokenEnv !== undefined && typeof raw.telegramTokenEnv !== "string") {
+    throw new Error("telegramTokenEnv must be a string");
+  }
   let telegramToken: string | undefined;
-  if (typeof raw.telegramTokenService === "string") {
-    telegramToken = resolveKeychainSecret(raw.telegramTokenService);
+  if (raw.telegramTokenService || raw.telegramTokenEnv) {
+    telegramToken = resolveSecret({
+      service: raw.telegramTokenService,
+      envVar: raw.telegramTokenEnv,
+      fieldName: "telegramToken",
+    });
   }
 
   // Validate Telegram bindings (optional if Discord is configured)
   let bindings: TelegramBinding[] = [];
   if (Array.isArray(raw.bindings) && raw.bindings.length > 0) {
     if (!telegramToken) {
-      throw new Error("Telegram bindings require telegramTokenService");
+      throw new Error("Telegram bindings require telegramTokenService (macOS Keychain) or telegramTokenEnv (env var)");
     }
     bindings = raw.bindings.map((b, i) => {
       const binding = validateBinding(b, i);

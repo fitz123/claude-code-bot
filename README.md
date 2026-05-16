@@ -280,6 +280,26 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
 
 `telegramTokenService` is optional — the bot can run Discord-only.
 
+### Secrets: macOS Keychain vs env vars
+
+Token resolution accepts either form (env var wins when both are set):
+
+| Field | Source | When to use |
+|---|---|---|
+| `telegramTokenService` / `discord.tokenService` | macOS Keychain via `security find-generic-password` | macOS dev workflow (existing) |
+| `telegramTokenEnv` / `discord.tokenEnv` | Environment variable name (read via `process.env`) | Linux / containers / systemd `EnvironmentFile` (preferred for production) |
+
+Example (NixOS deploy):
+```yaml
+telegramTokenService: telegram-bot-token   # macOS fallback (ignored when tokenEnv resolves on Linux)
+telegramTokenEnv: TELEGRAM_BOT_TOKEN       # Linux uses this from sops-decrypted env file
+discord:
+  tokenService: discord-bot-token          # macOS fallback (same pattern)
+  tokenEnv: DISCORD_BOT_TOKEN
+```
+
+If neither is set when Telegram bindings are present (or for Discord config), the bot throws a clear error at startup.
+
 ## Memory architecture
 
 The bot maintains persistent context across sessions through a memory system rooted at the workspace.
