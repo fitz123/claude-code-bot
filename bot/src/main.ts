@@ -25,7 +25,7 @@ async function main(): Promise<void> {
 
   // Start Prometheus metrics server if configured
   if (config.metricsPort !== undefined) {
-    startMetricsServer(config.metricsPort);
+    startMetricsServer(config.metricsPort, config.metricsHost);
   }
 
   // Restore caches from disk (survives restarts)

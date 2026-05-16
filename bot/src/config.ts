@@ -67,6 +67,7 @@ interface RawConfig {
   sessionDefaults?: unknown;
   logLevel?: string;
   metricsPort?: number;
+  metricsHost?: string;
   discord?: {
     tokenService?: string;
     bindings?: unknown[];
@@ -393,6 +394,19 @@ export function loadConfig(configPath?: string): BotConfig {
     metricsPort = raw.metricsPort;
   }
 
+  // Metrics listen host (optional — defaults to "127.0.0.1" in startMetricsServer).
+  // Set to "0.0.0.0" when scrape source is reachable only via a non-loopback
+  // interface (e.g. on Linux when Prometheus container scrapes via
+  // host.docker.internal — that resolves to docker bridge gateway, not loopback).
+  // Firewall must restrict external access separately.
+  let metricsHost: string | undefined;
+  if (raw.metricsHost !== undefined) {
+    if (typeof raw.metricsHost !== "string" || raw.metricsHost.trim() === "") {
+      throw new Error(`Invalid metricsHost: must be a non-empty string`);
+    }
+    metricsHost = raw.metricsHost.trim();
+  }
+
   // adminChatId (optional — used by cron-runner for delivery failure notifications)
   let adminChatId: number | undefined;
   if (raw.adminChatId !== undefined) {
@@ -420,7 +434,7 @@ export function loadConfig(configPath?: string): BotConfig {
     defaultDeliveryThreadId = raw.defaultDeliveryThreadId;
   }
 
-  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, discord, adminChatId, defaultDeliveryChatId, defaultDeliveryThreadId };
+  return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, metricsHost, discord, adminChatId, defaultDeliveryChatId, defaultDeliveryThreadId };
 }
 
 // CLI: validate config

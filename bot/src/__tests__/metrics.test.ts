@@ -248,4 +248,22 @@ describe("metrics HTTP server", () => {
     const res = await fetch(`http://localhost:${addr.port}/other`);
     assert.strictEqual(res.status, 404);
   });
+
+  it("defaults host to 127.0.0.1 when not specified", async () => {
+    const server = startMetricsServer(0);
+    await new Promise((r) => setTimeout(r, 100));
+    const addr = server.address() as { address: string; port: number };
+    assert.strictEqual(addr.address, "127.0.0.1");
+  });
+
+  it("binds to provided host (0.0.0.0 for Linux Docker scrape)", async () => {
+    const server = startMetricsServer(0, "0.0.0.0");
+    await new Promise((r) => setTimeout(r, 100));
+    const addr = server.address() as { address: string; port: number };
+    assert.strictEqual(addr.address, "0.0.0.0");
+
+    // Verify still reachable on loopback even when bound to 0.0.0.0
+    const res = await fetch(`http://127.0.0.1:${addr.port}/metrics`);
+    assert.strictEqual(res.status, 200);
+  });
 });
