@@ -100,11 +100,14 @@ function resolveSecret(opts: {
   envVar?: string;
   fieldName: string;
 }): string {
-  // 1. Env var wins if set (Linux/NixOS path — preferred for production deploy)
+  // 1. Env var wins if set (Linux/NixOS path — preferred for production deploy).
+  // Trim whitespace and treat blank as unset — sops-nix EnvironmentFile and
+  // systemd often leave trailing newlines or accidental quoting that would
+  // otherwise produce a "valid-but-garbage" token that fails much later.
   if (opts.envVar) {
     const val = process.env[opts.envVar];
-    if (val !== undefined && val !== "") {
-      return val;
+    if (val !== undefined && val.trim() !== "") {
+      return val.trim();
     }
   }
   // 2. Fall back to Keychain (macOS dev workflow — preserves existing behavior)
@@ -391,11 +394,19 @@ export function loadConfig(configPath?: string): BotConfig {
 
   // Resolve Telegram token from env var (Linux/NixOS) or Keychain (macOS).
   // Optional — not needed for Discord-only setups.
+  // Explicit type validation (mirrors discord.tokenService/tokenEnv checks):
+  // catches `telegramTokenEnv: 123` early instead of silently falling through.
+  if (raw.telegramTokenService !== undefined && typeof raw.telegramTokenService !== "string") {
+    throw new Error("telegramTokenService must be a string");
+  }
+  if (raw.telegramTokenEnv !== undefined && typeof raw.telegramTokenEnv !== "string") {
+    throw new Error("telegramTokenEnv must be a string");
+  }
   let telegramToken: string | undefined;
-  if (typeof raw.telegramTokenService === "string" || typeof raw.telegramTokenEnv === "string") {
+  if (raw.telegramTokenService || raw.telegramTokenEnv) {
     telegramToken = resolveSecret({
-      service: typeof raw.telegramTokenService === "string" ? raw.telegramTokenService : undefined,
-      envVar: typeof raw.telegramTokenEnv === "string" ? raw.telegramTokenEnv : undefined,
+      service: raw.telegramTokenService,
+      envVar: raw.telegramTokenEnv,
       fieldName: "telegramToken",
     });
   }
@@ -404,7 +415,7 @@ export function loadConfig(configPath?: string): BotConfig {
   let bindings: TelegramBinding[] = [];
   if (Array.isArray(raw.bindings) && raw.bindings.length > 0) {
     if (!telegramToken) {
-      throw new Error("Telegram bindings require telegramTokenService");
+      throw new Error("Telegram bindings require telegramTokenService (macOS Keychain) or telegramTokenEnv (env var)");
     }
     bindings = raw.bindings.map((b, i) => {
       const binding = validateBinding(b, i);
