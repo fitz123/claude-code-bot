@@ -156,7 +156,7 @@ let metricsServer: Server | null = null;
  * Serves /metrics in standard Prometheus text format.
  * Returns the server instance.
  */
-export function startMetricsServer(port: number): Server {
+export function startMetricsServer(port: number, host: string = "127.0.0.1"): Server {
   const server = createServer(async (req, res) => {
     if (req.url === "/metrics" && req.method === "GET") {
       try {
@@ -178,8 +178,8 @@ export function startMetricsServer(port: number): Server {
     log.error("metrics", `Metrics server error: ${err.message}`);
   });
 
-  server.listen(port, "127.0.0.1", () => {
-    log.info("metrics", `Prometheus metrics server listening on 127.0.0.1:${port}`);
+  server.listen(port, host, () => {
+    log.info("metrics", `Prometheus metrics server listening on ${host}:${port}`);
   });
 
   metricsServer = server;

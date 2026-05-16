@@ -90,6 +90,7 @@ export interface BotConfig {
   sessionDefaults: SessionDefaults;
   logLevel?: LogLevel;
   metricsPort?: number;
+  metricsHost?: string;
   discord?: DiscordConfig;
   adminChatId?: number;
   defaultDeliveryChatId?: number;
