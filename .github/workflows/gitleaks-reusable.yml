@@ -46,12 +46,24 @@ jobs:
           # (a generic, safe-to-publish baseline) — that way external
           # contributions are still scanned, just not with corporate
           # patterns we never want in the public repo.
-          if [[ -n "$CONFIG_PAT" ]]; then
-            curl -fsSL \
-              -H "Authorization: token $CONFIG_PAT" \
-              -H "Accept: application/vnd.github.v3.raw" \
-              "https://api.github.com/repos/${{ inputs.config-repo }}/contents/.gitleaks.toml?ref=${{ inputs.config-ref }}" \
-              -o .gitleaks.toml
+          set -euo pipefail
+
+          if [[ -n "${CONFIG_PAT:-}" ]]; then
+            tmp="$(mktemp)"
+            if ! curl -fsSL \
+                 -H "Authorization: token $CONFIG_PAT" \
+                 -H "Accept: application/vnd.github.v3.raw" \
+                 "https://api.github.com/repos/${{ inputs.config-repo }}/contents/.gitleaks.toml?ref=${{ inputs.config-ref }}" \
+                 -o "$tmp"; then
+              echo "FATAL: failed to fetch private gitleaks config from ${{ inputs.config-repo }}@${{ inputs.config-ref }}" >&2
+              exit 1
+            fi
+            if ! grep -qE '^\[\[rules\]\]|^\[extend\]|^\[allowlist\]' "$tmp"; then
+              echo "FATAL: fetched file does not look like a gitleaks TOML config" >&2
+              head -5 "$tmp" >&2
+              exit 1
+            fi
+            mv "$tmp" .gitleaks.toml
             echo "Using private .gitleaks.toml from ${{ inputs.config-repo }}@${{ inputs.config-ref }}"
           elif [[ -f .gitleaks.toml ]]; then
             echo "No CONFIG_PAT (likely a fork PR) — using checked-in .gitleaks.toml baseline"

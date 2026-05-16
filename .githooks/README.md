@@ -25,7 +25,12 @@ Prerequisites:
 
 If you can't reach the private config (external contributor): install still
 succeeds, the hook runs against gitleaks' built-in default rules. You won't
-get the corporate-specific patterns locally, but CI will catch them on the PR.
+get the corporate-specific patterns locally. CI on fork PRs **also** lacks
+access to `CONFIG_PAT` and falls back to the checked-in public baseline
+`.gitleaks.toml` (generic emails, phones, IDs, paths, secrets) — it will
+not catch corporate-only patterns until a maintainer reruns the workflow
+from a trusted context (push to main, or PR opened by someone with
+repo-write access). Plan accordingly when reviewing external contributions.
 
 ## What the hooks do
 
