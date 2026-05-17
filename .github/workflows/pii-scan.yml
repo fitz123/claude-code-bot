@@ -6,6 +6,15 @@ on:
   push:
     branches: [main]
 
+# gitleaks-action@v2 lists PR commits to determine scan scope. In private
+# repos, the default GITHUB_TOKEN does not grant pull-requests:read, so the
+# action returns 403 "Resource not accessible by integration" and fails
+# before scanning. Public repos worked under the more permissive default —
+# private consumers of this reusable workflow need the explicit grant.
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   gitleaks:
     uses: ./.github/workflows/gitleaks-reusable.yml
