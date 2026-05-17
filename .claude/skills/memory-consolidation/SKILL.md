@@ -235,7 +235,7 @@ Phase D substeps run in numerical order, with one exception: the MEMORY.md dedup
    - What was learned or confirmed
    - What memory changes were made (and why)
    - Items noted for manual curation (confidence 0.5–0.9)
-   - Lint findings from Phase B.5: candidates considered, contradictions detected, auto-resolves applied, items deferred to Pending Review
+   - Lint findings from Phase B.5: candidates considered, contradictions detected, auto-resolves applied, items deferred to Pending Review (omit this bullet when `LINT_PHASE_B5_ENABLED=false`, since the accumulators were never populated)
    - Any errors or partial failures encountered
 
    If a diary file for today already exists, append a new section with a timestamp header.
@@ -254,7 +254,7 @@ Phase D substeps run in numerical order, with one exception: the MEMORY.md dedup
    ### Memory Changes
    - Created/Updated memory/auto/filename.md — reason
 
-   ### Lint (Phase B.5)
+   ### Lint (Phase B.5)              # omit this entire block when LINT_PHASE_B5_ENABLED=false
    - Candidates: N, contradictions: N, auto-resolved: N, pending added: N
 
    ### Noted for Review
@@ -265,8 +265,8 @@ Phase D substeps run in numerical order, with one exception: the MEMORY.md dedup
    ```
 
 2. **Update workspace `MEMORY.md` "Pending Review" section.** Gated by `LINT_PHASE_B5_ENABLED`; skip if false.
-   - If the `pending_review` accumulator is non-empty, ensure `MEMORY.md` contains a section titled exactly `## Pending Review (Lint findings)`. Each unresolved item is one bullet in this strict, machine-parseable format (parser regex `^- detected_at=\d{4}-\d{2}-\d{2} `): `- detected_at=YYYY-MM-DD — file-A vs file-B — <single-line reason, max 200 chars>`. Sanitize `<reason>` the same way as `resolution_basis` (strip leading `#`, collapse newlines to `; `, truncate to 200 chars).
-   - Before appending a new bullet, deduplicate: if a bullet for the same unordered `(file-A, file-B)` pair already exists in the section, do NOT append again. Update `pending_added` to count only newly written bullets.
+   - If the `pending_review` accumulator is non-empty, ensure `MEMORY.md` contains a section titled exactly `## Pending Review (Lint findings)`. Each unresolved item is one bullet in this strict, machine-parseable format (parser regex `^- detected_at=\d{4}-\d{2}-\d{2} `): `- detected_at=YYYY-MM-DD — file-A vs file-B — <single-line reason, max 200 chars>`. Sanitize `<reason>` the same way as `resolution_basis` (strip leading `#`, collapse newlines to `; `, truncate to 200 chars) AND additionally replace any em-dash characters (`—`, U+2014) in the reason with a hyphen-space (`- `) so the bullet's three-field structure can be split unambiguously on the literal ` — ` separator.
+   - Before appending a new bullet, deduplicate on the triple `(file-A, file-B, reason)` (unordered file pair, exact reason after sanitization): if an existing bullet matches all three fields, do NOT append again. Two genuinely distinct contradictions between the same pair (different reasons) produce two separate bullets — do not collapse them. Update `pending_added` to count only newly written bullets.
    - If `pending_review` is empty AND no prior unresolved bullets remain in the section, the section MUST be absent from `MEMORY.md` — do NOT leave an empty heading.
    - When the agent or a future run resolves a pending item, the corresponding bullet is removed; when the last bullet is removed, the section heading itself is removed in the same edit. Match the section by its exact title `## Pending Review (Lint findings)` and remove only between that heading and the next `## ` heading or EOF — do not touch unrelated occurrences of the string.
    - This edit uses the standard `safe-edit.sh backup / verify / rollback / clean` flow, with one allowance: when the edit's only effect is removing Pending Review bullets and/or the section heading, `safe-edit.sh verify` may legitimately return `SUSPICIOUS_SHRINK` (the section can be a large fraction of a small `MEMORY.md`). In that specific case, accept the result if (a) the post-edit file still contains the `# Memory Index` heading AND (b) the byte-size of the Pending Review section measured against `MEMORY.md` **before** the edit is applied (from the `## Pending Review (Lint findings)` heading line through the byte immediately preceding the next `## ` heading or EOF) equals `pre_edit_size - post_edit_size` ± 5 bytes. The runner MUST capture both the section bytes and the pre-edit total byte size BEFORE issuing the edit (the pre-edit state is identical to what `safe-edit.sh backup` copies to `${FILEPATH}.consolidation-backup`); do not measure live during/after the write. Otherwise rollback as usual. Document the bypass in the diary Issues section so the audit trail is preserved.
