@@ -4,9 +4,9 @@
 
 ## Feature Flags
 
-- `LINT_PHASE_B5_ENABLED=true` — Trial: 2026-05-17 → 2026-06-17. When false, skip Phase B.5 entirely. Rollback = flip to false (no data migration). See ADR-069.
+- `LINT_PHASE_B5_ENABLED=true` — Trial: 2026-05-17 → 2026-06-17. **The line above is the sole source of truth** — not an environment variable, not external config, not a settings file lookup. To roll back: edit that line to `LINT_PHASE_B5_ENABLED=false`, commit; the next nightly run reads this skill file and respects the new value. No data migration. See ADR-069.
 
-When the flag is false, the skill executes Phases 0/A/B/C/D as before — no cross-file lint, no Pending Review writes to MEMORY.md, no appends to `memory/lint-stats.jsonl`. Phase C still applies the new frontmatter fields (`confidence`, `revisit_if`) when creating or updating files, since those are forward-compatible regardless of the lint pass.
+When the flag value (as read from the line above) is `false`, the skill executes Phases 0/A/B/C/D as before — no cross-file lint, no Pending Review writes to MEMORY.md, no appends to `memory/lint-stats.jsonl`. Phase C still applies the new frontmatter fields (`confidence`, `revisit_if`) when creating or updating files, since those are forward-compatible regardless of the lint pass.
 
 ## Context
 
@@ -113,7 +113,7 @@ If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pi
 
 ### Phase B.5: Cross-file Lint (contradiction detection)
 
-**Gated by `LINT_PHASE_B5_ENABLED`.** During the 2026-05-17 → 2026-06-17 trial window the flag defaults to **enabled**: an unset env var is treated as `true`, and only an explicit `LINT_PHASE_B5_ENABLED=false` skips this entire phase. This is the rollback path — flip to false (no data migration) to abort the trial early. The default does NOT auto-flip after the trial window ends; the trial post-mortem decides whether to land the feature, in which case the default is changed by editing this file. Skipped runs MUST NOT write to `memory/lint-stats.jsonl` or touch the workspace `MEMORY.md` "Pending Review" section.
+**Gated by `LINT_PHASE_B5_ENABLED`** declared in the Feature Flags section at the top of this skill file (line ~7). The flag is read by the skill agent from this file — it is NOT an environment variable, NOT an external config lookup. During the 2026-05-17 → 2026-06-17 trial window the documented value is `true`. This entire phase is skipped only when the documented value reads exactly `LINT_PHASE_B5_ENABLED=false` — the rollback path (no data migration) for aborting the trial early. The documented value does NOT auto-flip after the trial window ends; the trial post-mortem decides whether to land the feature, in which case the value is changed by editing this file. Skipped runs MUST NOT write to `memory/lint-stats.jsonl` or touch the workspace `MEMORY.md` "Pending Review" section.
 
 Cross-file scan of existing `memory/auto/*.md` files for contradictions that the per-fact Phase B check cannot catch (Phase B only compares new vs existing, not existing vs existing).
 
