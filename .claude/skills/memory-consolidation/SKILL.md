@@ -117,9 +117,9 @@ If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pi
 
 Cross-file scan of existing `memory/auto/*.md` files for contradictions that the per-fact Phase B check cannot catch (Phase B only compares new vs existing, not existing vs existing).
 
-Initialize accumulators: `candidates_found = 0`, `contradictions_detected = 0`, `auto_resolved = 0`, `pending_added = 0`, `pending_review = []`.
+Initialize accumulators: `candidates_found = 0`, `contradictions_detected = 0`, `auto_resolved = 0`, `pending_added = 0`, `pending_review = []`. Also initialize `mutations_applied = 0` here — this counter is **shared with Phase C** (do not re-zero on entry to Phase C).
 
-1. **Build lightweight representation.** Iterate `memory/auto/*.md` and for each file extract: `{file, type, name, tags, title_tokens, claim_phrases}`. Source the fields from frontmatter (`type`, `name`, optional `tags`) and the body. Tokenize the `name` slug and the first heading into `title_tokens`. Split the body on bullet boundaries and paragraph breaks to populate `claim_phrases`. Files whose frontmatter contains `do_not_reopen_before` later than today are excluded from the scan entirely.
+1. **Build lightweight representation.** Iterate `memory/auto/*.md` and for each file extract: `{file, type, name, tags, title_tokens, do_not_reopen_before, do_not_reopen_partner}`. Source the fields from frontmatter (`type`, `name`, optional `tags`, the anti-loop pair). Tokenize the `name` slug and the first body heading (or the `description` frontmatter field if no heading exists) into `title_tokens`. Skip stop words (`a, an, the, of, for, with, and, or, to, in, on`) and tokens of length < 3.
 
 2. **Cheap candidate generation FIRST** — do not blindly LLM-judge all `O(n^2)` pairs. For each unordered pair `(A, B)`, count matches across these signals:
    - same `type` field
@@ -128,27 +128,32 @@ Initialize accumulators: `candidates_found = 0`, `contradictions_detected = 0`, 
    - matching normalized predicate phrase in both files: one of `prefers`, `uses`, `hates`, `requires`, `do not`, `never`, `avoid`
    - negation/opposition markers: `not`, `never`, `avoid`, `instead`, or numerically changed value targeting the same entity
    
-   A pair is a **candidate** only if at least two of the above signals match. Increment `candidates_found` for each candidate pair. With ~40 files, false positives are the primary concern; this filter keeps LLM calls bounded.
+   A pair is a **candidate** only if at least two of the above signals match. Each signal contributes at most 1 to the match count regardless of how many tokens/tags overlap. Increment `candidates_found` for each candidate pair. With ~40 files, false positives are the primary concern; this filter keeps LLM calls bounded.
 
-3. **LLM judgment per candidate.** For each candidate pair, ask one in-skill question: "Do these two claims contradict each other, or is one a time-scoped evolution of the other?" Allowed answers: `contradiction` | `evolution` | `unrelated`. Only `contradiction` proceeds to step 4. **Time-scoped changes are NOT contradictions** — a fact like "used X then, uses Y now" is evolution, not contradiction. Increment `contradictions_detected` for each `contradiction` verdict.
+   **Per-pair exclusion (anti-loop).** Skip the pair entirely if EITHER file has frontmatter `do_not_reopen_partner` naming the other AND `do_not_reopen_before` later than today. Exclusion is per-pair, not per-file: a file may still be paired against any other unrelated file. Non-date `do_not_reopen_before` values (semantic conditions) are treated as "always future" — skip the pair until Ninja manually clears the field.
+
+3. **LLM judgment per candidate.** For each candidate pair, ask one in-skill question: "Do these two claims contradict each other, or is one a time-scoped evolution of the other?" Allowed answers: `contradiction` | `evolution` | `unrelated`. Only `contradiction` proceeds to step 4. **Time-scoped changes are NOT contradictions** — a fact like "used X then, uses Y now" is evolution, not contradiction. On malformed LLM output or transient error, treat as `unrelated` and log the failure in the Phase D diary Issues section. Increment `contradictions_detected` for each `contradiction` verdict.
 
 4. **Auto-resolve hierarchy** (apply in order, stop at first match): the rule is `evidence > confidence > recency`.
    a. **Direct evidence wins over inferred.** If exactly one side of the pair has a direct diary or session reference (file:line or session timestamp citation in the last 48 hours' diary entries), that side wins.
-   b. **Higher confidence wins** if `|confidence_A − confidence_B| >= 0.2`.
-   c. **Newer evidence-date wins** if both sides have an `evidence_date` (or frontmatter `updated_at` / `resolved_at`) and the delta is `>= 30 days`.
+   b. **Higher confidence wins** if both sides have a `confidence` field and `|confidence_A − confidence_B| >= 0.2`. If either side lacks `confidence` (legacy files predating the schema), treat it as `0.7` for this comparison only.
+   c. **Newer `resolved_at` wins** if both sides carry `resolved_at` from a prior Phase B.5 cycle and the delta is `>= 30 days`. Files freshly judged this run usually lack `resolved_at` — in that case this rule does not fire and we fall through to (d).
    d. **Otherwise flag for review** — do NOT edit either file. Append `{files:[A,B], reason, detected_at:YYYY-MM-DD}` to `pending_review` and increment `pending_added`.
 
 5. **Apply auto-resolved edits.** For each auto-resolved pair:
-   - **Never silent-delete.** Edit the losing file to replace the contradicting claim with a `(superseded: <one-line reason citing the winner>)` annotation. The losing claim text remains visible as a strikethrough or parenthetical so audit history is preserved.
+   - **Edits MUST use `safe-edit.sh`.** Same `backup` / `verify` / `rollback` / `clean` flow as Phase C, applied to each `memory/auto/*.md` file edited in this step. If `verify` fails after either edit, `rollback` and route the pair to `pending_review` with the reason `(deferred: edit verify failed)`.
+   - **Never silent-delete.** Append ` (superseded YYYY-MM-DD: <one-line reason citing the winner>)` to the losing claim's line — do NOT delete the original text. The annotation lives as a trailing parenthetical on the same line so audit history is preserved.
    - Add anti-loop fields to BOTH files' frontmatter:
      ```yaml
      resolved_at: YYYY-MM-DD
-     resolution_basis: "<reason with file:line evidence>"
+     resolution_basis: "<single-line reason, max 200 chars, no embedded newlines or unescaped quotes>"
      do_not_reopen_before: YYYY-MM-DD  # or semantic condition like "Ninja revisits topic X"
+     do_not_reopen_partner: <other-file-name>  # filename only, no path — names the file this resolution paired against
      ```
-   - Increment `auto_resolved`.
+     Free-text values (`resolution_basis`) MUST be sanitized: single line, max 200 chars, replace embedded newlines with `; `, strip leading `#`, double-quote and escape `"` as `\"`.
+   - Increment `auto_resolved` and `mutations_applied` by 1 per resolved **pair** (the two file edits count as one logical resolution for budget purposes).
 
-6. **Mutation limit is shared with Phase C.** Phase B.5 edits count against the same per-run budget of 5 mutations. If `mutations_applied >= 5` mid-way through Phase B.5, stop applying further auto-resolves; remaining detections go to `pending_review` as `(deferred: mutation limit reached)`.
+6. **Mutation limit is shared with Phase C.** The shared per-run budget is 5 mutations counted on `mutations_applied`. If `mutations_applied >= 5` mid-way through Phase B.5, stop applying further auto-resolves; remaining detections go to `pending_review` with the reason `(deferred: mutation limit reached)`.
 
 7. **Carry accumulators into Phase D.** Pass `candidates_found`, `contradictions_detected`, `auto_resolved`, `pending_added`, and `pending_review` to Phase D for stats and Pending Review writes.
 
@@ -160,10 +165,10 @@ If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pi
 
 ### Phase C: Apply Changes
 
-**Mutation limit: 5 per run.** Each file creation or modification counts as one mutation.
+**Mutation limit: 5 per run, shared with Phase B.5.** Each file creation or modification counts as one mutation. Phase B.5 may have already consumed part of this budget — do NOT re-initialize `mutations_applied` here. If `mutations_applied >= 5` on entry to Phase C, skip Phase C mutations entirely and proceed to Phase D.
 If any mutation fails, stop further mutations immediately (stop-on-failure).
 
-Track: `mutations_applied = 0`, `mutations_failed = 0`.
+Track: `mutations_failed = 0` (continue using `mutations_applied` from Phase B.5; if Phase B.5 was skipped via the feature flag, initialize `mutations_applied = 0` here).
 
 For each approved change (confidence >= 0.9), in priority order (updates before creates):
 
@@ -174,24 +179,22 @@ For each approved change (confidence >= 0.9), in priority order (updates before 
 
 2. **Apply the edit** — update existing `memory/auto/` file, create new one, or update `MEMORY.md` index.
 
-   For `memory/auto/` files, use this frontmatter format. `confidence` and `revisit_if` are persisted on every create or update; the `resolved_at` / `resolution_basis` / `do_not_reopen_before` trio is optional and only added when Phase B.5 resolves a contradiction touching this file.
+   For `memory/auto/` files, use this base frontmatter format on every create or update. Persist `confidence` and `revisit_if` on every write. Do NOT include the optional Phase B.5 fields unless they actually apply (do not copy commented-out lines from the template into new files).
    ```yaml
    ---
    name: topic-slug
    description: One-line description used for relevance matching in future sessions
    type: user|project|reference|feedback
-   confidence: 0.9                          # 0.0-1.0, matches Phase B scoring
-   revisit_if: "Ninja decides to move"      # semantic trigger, like ADR Revisit-if; "Never" valid
-   # Optional, added when resolved by Phase B.5:
-   # resolved_at: 2026-05-18
-   # resolution_basis: "diary 2026-05-15 §3 explicit user statement"
-   # do_not_reopen_before: 2026-08-18
+   confidence: 0.9
+   revisit_if: "Ninja decides to move"
    ---
 
    Body content here. For feedback/project types, include **Why:** and **How to apply:** sections.
    ```
 
-   `revisit_if` is free-text. Useful phrasings: a concrete user-action trigger ("Ninja switches editors"), a date ("after 2026-09-01"), or `"Never"` for facts that are stable by nature (e.g. timezone). `confidence` mirrors the Phase B scoring rubric (1.0 / 0.9 / 0.7 / 0.5 / discarded below 0.5).
+   When Phase B.5 resolves a contradiction touching this file, additionally write the anti-loop trio (`resolved_at`, `resolution_basis`, `do_not_reopen_before`) plus `do_not_reopen_partner` — see Phase B.5 step 5 for the exact YAML and sanitization rules. These fields are absent from files that have never participated in a resolved contradiction.
+
+   `revisit_if` is free-text and must be a single line. Useful phrasings: a concrete user-action trigger ("Ninja switches editors"), a date ("after 2026-09-01"), or `"Never"` for facts that are stable by nature (e.g. timezone). Apply the same sanitization as `resolution_basis` (max 200 chars, no embedded newlines, no leading `#`, escape `"` as `\"`). If Phase B's scoring did not yield a semantic trigger, default to `"Never"`. `confidence` mirrors the Phase B scoring rubric (1.0 / 0.9 / 0.7 / 0.5 / discarded below 0.5). The `revisit_if` field is written for human/agent inspection during interactive sessions; this skill does not read it back.
 
 3. **After editing MEMORY.md:**
    ```bash
@@ -258,17 +261,18 @@ If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pi
    ```
 
 2. **Update workspace `MEMORY.md` "Pending Review" section.** Gated by `LINT_PHASE_B5_ENABLED`; skip if false.
-   - If the `pending_review` accumulator is non-empty, ensure `MEMORY.md` contains a section titled exactly `## Pending Review (Lint findings)`. Each unresolved item is one bullet: `- <date> — file-A vs file-B — <reason>`.
+   - If the `pending_review` accumulator is non-empty, ensure `MEMORY.md` contains a section titled exactly `## Pending Review (Lint findings)`. Each unresolved item is one bullet in this strict, machine-parseable format (parser regex `^- detected_at=\d{4}-\d{2}-\d{2} `): `- detected_at=YYYY-MM-DD — file-A vs file-B — <single-line reason, max 200 chars>`. Sanitize `<reason>` the same way as `resolution_basis` (strip leading `#`, collapse newlines to `; `, truncate to 200 chars).
+   - Before appending a new bullet, deduplicate: if a bullet for the same unordered `(file-A, file-B)` pair already exists in the section, do NOT append again. Update `pending_added` to count only newly written bullets.
    - If `pending_review` is empty AND no prior unresolved bullets remain in the section, the section MUST be absent from `MEMORY.md` — do NOT leave an empty heading.
-   - When the agent or a future run resolves a pending item, the corresponding bullet is removed; when the last bullet is removed, the section heading itself is removed in the same edit.
+   - When the agent or a future run resolves a pending item, the corresponding bullet is removed; when the last bullet is removed, the section heading itself is removed in the same edit. Match the section by its exact title `## Pending Review (Lint findings)` and remove only between that heading and the next `## ` heading or EOF — do not touch unrelated occurrences of the string.
    - This edit uses the standard `safe-edit.sh backup / verify / rollback / clean` flow.
 
 3. **Append a line to `memory/lint-stats.jsonl`.** Gated by `LINT_PHASE_B5_ENABLED`; skip if false. The file is created on first run if absent. Format is one strict JSON object per line, parseable by Python `json.loads` per line:
    ```json
    {"date":"YYYY-MM-DD","candidates_found":N,"contradictions_detected":N,"auto_resolved":N,"pending_added":N,"pending_total":N,"avg_age_days":N}
    ```
-   - `pending_total` is the total bullet count remaining in `MEMORY.md`'s "Pending Review" section after this run's writes.
-   - `avg_age_days` is the mean age in days of all current pending bullets (use `detected_at` for the age basis); if `pending_total == 0`, write `0`.
+   - `pending_total` counts bullets in `MEMORY.md`'s "Pending Review (Lint findings)" section matching the regex `^- detected_at=\d{4}-\d{2}-\d{2} ` between the section heading and the next `## ` heading (or EOF), measured after this run's writes.
+   - `avg_age_days` is the mean age in days of all current pending bullets — parse the `detected_at=YYYY-MM-DD` field of each bullet via the same regex. If `pending_total == 0`, write `0`. If any bullet's `detected_at` fails to parse, count it with age `0` and log the malformed bullet in the diary Issues section.
    - Append-only — never rewrite earlier lines.
 
 4. **Release consolidation lock:**
