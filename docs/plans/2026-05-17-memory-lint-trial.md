@@ -14,7 +14,8 @@ References upstream: ADR-069, beads workspace-txyu, [Karpathy LLM Wiki gist](htt
 grep -q 'LINT_PHASE_B5_ENABLED' .claude/skills/memory-consolidation/SKILL.md && \
 grep -q '### Phase B.5' .claude/skills/memory-consolidation/SKILL.md && \
 grep -q 'evidence > confidence' .claude/skills/memory-consolidation/SKILL.md && \
-grep -q 'resolved_at\|do_not_reopen_before' .claude/skills/memory-consolidation/SKILL.md && \
+grep -q 'resolved_at' .claude/skills/memory-consolidation/SKILL.md && \
+grep -qE 'do_not_reopen.{1,5}is a \*\*list of records\*\*' .claude/skills/memory-consolidation/SKILL.md && \
 grep -q '## Surfacing pending lint items' .claude/rules/platform/memory-protocol.md && \
 echo "All checks passed"
 ```
@@ -59,9 +60,9 @@ Only candidate bundles → LLM judgment. With 40 files, false positives are the 
 (An earlier draft included a "newer evidence-date wins" leg; it was dropped during review — see `evidence > confidence` note above.)
 
 **Anti-loop fields** (added per memory file when resolved):
-- `resolved_at: <date>`
-- `resolution_basis: "<reason with file:line evidence>"`
-- `do_not_reopen_before: <date or semantic condition>`
+- `resolved_at: <date>` — scalar, last resolution touching this file
+- `resolution_basis: "<sanitized single-line reason>"` — scalar
+- `do_not_reopen:` — accumulating list of `{partner, before}` records, one per resolved pair (per-partner cooldown, so resolving A↔C never extends A↔B's window). `before` is a YYYY-MM-DD date; default `today + 90 days`.
 
 **Time-scoped changes are NOT contradictions** ("used X then, uses Y now" is evolution).
 
@@ -83,10 +84,10 @@ What we want:
 
 - **Phase B.5 inserted between Phase B and Phase C.** Steps:
   1. Iterate `memory/auto/*.md` and build a lightweight in-memory representation: `{file, type, name, tags, title_tokens, claim_phrases}` extracted from frontmatter and body. Claim extraction uses bullet/paragraph splits.
-  2. Candidate generation: for each pair of files, only proceed if at least two of these match — same `type` field, overlapping `title_tokens`, overlapping `tags`, or matching normalized predicate ("prefers", "uses", "hates", "requires", "do not"). Files with `do_not_reopen_before` later than today are skipped entirely.
+  2. Candidate generation: for each pair of files, only proceed if at least two of these match — same `type` field, overlapping `title_tokens`, overlapping `tags`, or matching normalized predicate ("prefers", "uses", "hates", "requires", "do not"). Per-pair exclusion: skip a pair if either file's `do_not_reopen` list has a record whose `partner` matches the other file's bare name AND whose `before` date is later than today (per-pair, not global).
   3. For each candidate pair, ask the LLM (in-skill prompt) one question: "Do these two claims contradict, or is one time-scoped evolution of the other?" Return: `contradiction` | `evolution` | `unrelated`. Only `contradiction` proceeds.
   4. For each detected contradiction, attempt auto-resolve using hierarchy: (a) direct diary/session evidence in last 48h wins over inferred; (b) higher confidence wins if delta >= 0.2; (c) otherwise flag for review.
-  5. Auto-resolved: edit the losing file to either remove the contradicting claim or mark it superseded. **Never silent-delete** — always replace with a `(superseded: ...)` annotation. Add `resolved_at`, `resolution_basis`, `do_not_reopen_before` to BOTH files' frontmatter (anti-loop).
+  5. Auto-resolved: edit the losing file to either remove the contradicting claim or mark it superseded. **Never silent-delete** — always replace with a `(superseded: ...)` annotation. Add `resolved_at`, `resolution_basis` (scalars) and append/merge a `{partner, before}` record in the `do_not_reopen` list of BOTH files' frontmatter (anti-loop, per-pair cooldown).
   6. Flagged unresolved: add an entry to a `pending_review` accumulator (used in Phase D).
   7. Respect mutation limit from Phase C (5 per run total across B.5 and C combined).
 
@@ -101,7 +102,9 @@ What we want:
   # Optional, added when resolved by Phase B.5:
   # resolved_at: 2026-05-18
   # resolution_basis: "diary 2026-05-15 §3 explicit user statement"
-  # do_not_reopen_before: 2026-08-18
+  # do_not_reopen:                          # per-pair cooldown list
+  #   - partner: <other-file-name>
+  #     before: 2026-08-18                  # YYYY-MM-DD; default = today + 90 days
   ---
   ```
 
@@ -123,7 +126,7 @@ What we want:
 - [x] Phase B.5 documents candidate generation, LLM judgment, auto-resolve hierarchy (`evidence > confidence`), and anti-loop fields
 - [x] Phase B.5 explicitly excludes time-scoped changes from being treated as contradictions
 - [x] Phase B.5 documents "never silent-delete" — losing claim is replaced with `(superseded: ...)` annotation
-- [x] Phase C frontmatter format documented in SKILL.md now includes `confidence` and `revisit_if` fields (with `resolved_at`, `resolution_basis`, `do_not_reopen_before` as optional)
+- [x] Phase C frontmatter format documented in SKILL.md now includes `confidence` and `revisit_if` fields (with `resolved_at`, `resolution_basis`, and the `do_not_reopen` per-pair list as optional)
 - [x] Phase D documents the workspace `MEMORY.md` "Pending Review" section format and its add/remove rules
 - [x] Phase D documents `memory/lint-stats.jsonl` format with one JSON line per run
 - [x] Phase D diary format documented to use `## [YYYY-MM-DD HH:MM] consolidation | ...` parseable prefix
@@ -144,7 +147,7 @@ What we want:
   - **Aged escalation**: if a pending item is older than 14 days AND no topic-relevant opportunity has arisen, surface it at a natural pause or task end.
   - **One per session max**: never dump multiple items in one message. Pick the most relevant or oldest.
   - **Never interrupt urgency**: if the user is mid-urgent-task, do not derail — wait for natural break.
-  - **After resolution**: update the contradicting memory file(s) with the resolved value, then remove the bullet from the MEMORY.md "Pending Review" section in the same operation. Add `resolved_at` / `resolution_basis` / `do_not_reopen_before` per the consolidation skill's pattern.
+  - **After resolution**: update the contradicting memory file(s) with the resolved value, then remove the bullet from the MEMORY.md "Pending Review" section in the same operation. Add `resolved_at` / `resolution_basis` and append/merge a `{partner, before}` record into the file's `do_not_reopen` list per the consolidation skill's pattern.
 - Section references ADR-069 and beads `workspace-txyu` for trial context.
 
 - [x] `.claude/rules/platform/memory-protocol.md` contains a section titled `## Surfacing pending lint items`
