@@ -113,7 +113,7 @@ If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pi
 
 ### Phase B.5: Cross-file Lint (contradiction detection)
 
-**Gated by `LINT_PHASE_B5_ENABLED`.** During the 2026-05-17 → 2026-06-17 trial window the flag defaults to **enabled**: an unset env var is treated as `true`, and only an explicit `LINT_PHASE_B5_ENABLED=false` skips this entire phase. After 2026-06-17 the default flips back to disabled (unset = skip). This is the rollback path — flip to false (no data migration) to abort the trial early. Skipped runs MUST NOT write to `memory/lint-stats.jsonl` or touch the workspace `MEMORY.md` "Pending Review" section.
+**Gated by `LINT_PHASE_B5_ENABLED`.** During the 2026-05-17 → 2026-06-17 trial window the flag defaults to **enabled**: an unset env var is treated as `true`, and only an explicit `LINT_PHASE_B5_ENABLED=false` skips this entire phase. This is the rollback path — flip to false (no data migration) to abort the trial early. The default does NOT auto-flip after the trial window ends; the trial post-mortem decides whether to land the feature, in which case the default is changed by editing this file. Skipped runs MUST NOT write to `memory/lint-stats.jsonl` or touch the workspace `MEMORY.md` "Pending Review" section.
 
 Cross-file scan of existing `memory/auto/*.md` files for contradictions that the per-fact Phase B check cannot catch (Phase B only compares new vs existing, not existing vs existing).
 
@@ -174,7 +174,7 @@ If refresh returns `STOLEN`, another run has reclaimed the lock — abort the pi
 **Mutation limit: 5 per run, shared with Phase B.5.** Each file creation or modification counts as one mutation. Phase B.5 may have already consumed part of this budget — do NOT re-initialize `mutations_applied` here. If `mutations_applied >= 5` on entry to Phase C, skip Phase C mutations entirely and proceed to Phase D.
 If any mutation fails, stop further mutations immediately (stop-on-failure).
 
-Track: `mutations_failed = 0` (continue using `mutations_applied` from Phase B.5; if Phase B.5 was skipped via the feature flag, initialize `mutations_applied = 0` here).
+Carry `mutations_applied` from Phase B.5 (if Phase B.5 was skipped via the feature flag, initialize `mutations_applied = 0` here).
 
 For each approved change (confidence >= 0.9), in priority order (updates before creates):
 
@@ -193,6 +193,9 @@ For each approved change (confidence >= 0.9), in priority order (updates before 
    type: user|project|reference|feedback
    confidence: 0.9
    revisit_if: "Ninja decides to move"
+   # Optional, user-set only — this skill does not write `tags`, but Phase B.5
+   # reads them as a candidate-generation signal when present:
+   # tags: [editor, tooling]
    ---
 
    Body content here. For feedback/project types, include **Why:** and **How to apply:** sections.
@@ -216,8 +219,8 @@ For each approved change (confidence >= 0.9), in priority order (updates before 
    bash "${CLAUDE_SKILL_DIR}/scripts/safe-edit.sh" clean "${CLAUDE_PROJECT_DIR}/MEMORY.md"
    ```
 
-5. Increment `mutations_applied`. If `mutations_applied >= 5`, stop applying changes.
-   If any mutation fails, increment `mutations_failed` and stop further mutations.
+5. Increment `mutations_applied` ONLY after the edit's `safe-edit.sh verify` succeeded and `clean` completed — matching Phase B.5 step 5's "fire after verify succeeds" rule so a rolled-back edit does NOT consume the shared budget. If `mutations_applied >= 5` after the increment, stop applying changes.
+   If `verify` fails for an edit, `rollback` and stop further mutations (stop-on-failure); the rolled-back edit's slot remains available for future runs.
 
 **Critical: Never modify CLAUDE.md, USER.md, or IDENTITY.md.**
 
@@ -264,7 +267,7 @@ Two adjustments can lower `pending_added` relative to the count carried out of P
    ### Sessions Reviewed
    - [topic]: brief description of what was discussed
 
-   ### Memory Changes
+   ### Memory Changes              # REQUIRED heading — do not rename; Phase B.5 step 1 parses this heading text to populate `recent_diary_mention` (renaming silently breaks the evidence leg of the auto-resolve hierarchy).
    - Created/Updated memory/auto/filename.md — reason
 
    ### Lint (Phase B.5)              # omit this entire block when LINT_PHASE_B5_ENABLED=false
