@@ -4,7 +4,7 @@
 
 30-day trial (2026-05-17 → 2026-06-17) of automated cross-file contradiction detection in memory, with proactive in-conversation surfacing. Adds to existing `memory-consolidation` skill: new Phase B.5 (lint pass), expanded Phase C (frontmatter persistence), expanded Phase D (Pending Review section in workspace MEMORY.md + stats file). Adds platform rule requiring the agent to surface pending items in conversation.
 
-Feature-flagged for instant rollback. Anti-loop fields prevent re-triggering same contradiction nightly. Auto-resolve uses `evidence > confidence > recency` hierarchy (codex-recommended).
+Feature-flagged for instant rollback. Anti-loop fields prevent re-triggering same contradiction nightly. Auto-resolve uses `evidence > confidence` hierarchy (codex-recommended; a "recency" leg was dropped during review because `resolved_at` reflects unrelated prior resolutions and is not a valid freshness proxy for the current claim).
 
 References upstream: ADR-069, beads workspace-txyu, [Karpathy LLM Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) (abstract — no algorithm). Codex provided concrete algorithm.
 
@@ -13,7 +13,7 @@ References upstream: ADR-069, beads workspace-txyu, [Karpathy LLM Wiki gist](htt
 ```bash
 grep -q 'LINT_PHASE_B5_ENABLED' .claude/skills/memory-consolidation/SKILL.md && \
 grep -q '### Phase B.5' .claude/skills/memory-consolidation/SKILL.md && \
-grep -q 'evidence > confidence > recency' .claude/skills/memory-consolidation/SKILL.md && \
+grep -q 'evidence > confidence' .claude/skills/memory-consolidation/SKILL.md && \
 grep -q 'resolved_at\|do_not_reopen_before' .claude/skills/memory-consolidation/SKILL.md && \
 grep -q '## Surfacing pending lint items' .claude/rules/platform/memory-protocol.md && \
 echo "All checks passed"
@@ -54,8 +54,9 @@ Only candidate bundles → LLM judgment. With 40 files, false positives are the 
 **Auto-resolve hierarchy:**
 1. Direct diary/session evidence beats inferred
 2. Else higher confidence wins if `Δ confidence >= 0.2`
-3. Else newer evidence-date wins if `Δ >= 30 days`
-4. Else flag — do not edit
+3. Else flag — do not edit
+
+(An earlier draft included a "newer evidence-date wins" leg; it was dropped during review — see `evidence > confidence` note above.)
 
 **Anti-loop fields** (added per memory file when resolved):
 - `resolved_at: <date>`
@@ -84,7 +85,7 @@ What we want:
   1. Iterate `memory/auto/*.md` and build a lightweight in-memory representation: `{file, type, name, tags, title_tokens, claim_phrases}` extracted from frontmatter and body. Claim extraction uses bullet/paragraph splits.
   2. Candidate generation: for each pair of files, only proceed if at least two of these match — same `type` field, overlapping `title_tokens`, overlapping `tags`, or matching normalized predicate ("prefers", "uses", "hates", "requires", "do not"). Files with `do_not_reopen_before` later than today are skipped entirely.
   3. For each candidate pair, ask the LLM (in-skill prompt) one question: "Do these two claims contradict, or is one time-scoped evolution of the other?" Return: `contradiction` | `evolution` | `unrelated`. Only `contradiction` proceeds.
-  4. For each detected contradiction, attempt auto-resolve using hierarchy: (a) direct diary/session evidence in last 48h wins over inferred; (b) higher confidence wins if delta >= 0.2; (c) newer evidence-date wins if delta >= 30 days; (d) otherwise flag for review.
+  4. For each detected contradiction, attempt auto-resolve using hierarchy: (a) direct diary/session evidence in last 48h wins over inferred; (b) higher confidence wins if delta >= 0.2; (c) otherwise flag for review.
   5. Auto-resolved: edit the losing file to either remove the contradicting claim or mark it superseded. **Never silent-delete** — always replace with a `(superseded: ...)` annotation. Add `resolved_at`, `resolution_basis`, `do_not_reopen_before` to BOTH files' frontmatter (anti-loop).
   6. Flagged unresolved: add an entry to a `pending_review` accumulator (used in Phase D).
   7. Respect mutation limit from Phase C (5 per run total across B.5 and C combined).
@@ -119,7 +120,7 @@ What we want:
 
 - [x] `.claude/skills/memory-consolidation/SKILL.md` contains `LINT_PHASE_B5_ENABLED` feature flag at the top
 - [x] SKILL.md contains a `### Phase B.5` section between Phase B and Phase C
-- [x] Phase B.5 documents candidate generation, LLM judgment, auto-resolve hierarchy (`evidence > confidence > recency`), and anti-loop fields
+- [x] Phase B.5 documents candidate generation, LLM judgment, auto-resolve hierarchy (`evidence > confidence`), and anti-loop fields
 - [x] Phase B.5 explicitly excludes time-scoped changes from being treated as contradictions
 - [x] Phase B.5 documents "never silent-delete" — losing claim is replaced with `(superseded: ...)` annotation
 - [x] Phase C frontmatter format documented in SKILL.md now includes `confidence` and `revisit_if` fields (with `resolved_at`, `resolution_basis`, `do_not_reopen_before` as optional)
