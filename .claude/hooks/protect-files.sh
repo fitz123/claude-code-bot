@@ -40,14 +40,34 @@ while [[ "$FILE_PATH" == *"/.."* ]]; do
   [[ "$FILE_PATH" == "$_prev" ]] && break
 done
 
-# --- 1. Skills — cron-only block (interactive sessions can still edit) ---
-# Match both absolute (*/…) and relative (.claude/skills/…) paths
-if [[ "$FILE_PATH" == */.claude/skills/* ]] || [[ "$FILE_PATH" == .claude/skills/* ]]; then
-  if [ -n "$CRON_NAME" ]; then
-    echo "Blocked: cron '$CRON_NAME' cannot modify skill files: $FILE_PATH" >&2
-    exit 2
-  fi
+# Compute repo-rooted relative path so subsequent globs anchor to the
+# repository root, not to an arbitrary path segment. Without this, a glob
+# like `*/bot/*` would also match `reference/bot/notes.md` (the literal
+# `bot` segment can occur anywhere in the tree). The frontmatter in
+# bot-code-readonly.md is rooted (`bot/**` etc), so the hook must match
+# the same way.
+#
+# Fail-closed on $CLAUDE_PROJECT_DIR — if unset, no bypass and no rooted
+# matching (no $PWD fallback, since $PWD can be agent-controlled whereas
+# CLAUDE_PROJECT_DIR is set by the Claude Code harness from the session's
+# project root). When unset, we strip a leading `/` so absolute paths still
+# enter the relative-pattern case, and rely on the literal pattern strings.
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
+if [ -n "$PROJECT_ROOT" ] && [[ "$FILE_PATH" == "$PROJECT_ROOT"/* ]]; then
+  REL_PATH="${FILE_PATH#"$PROJECT_ROOT"/}"
+else
+  REL_PATH="${FILE_PATH#/}"
 fi
+
+# --- 1. Skills — cron-only block (interactive sessions can still edit) ---
+case "$REL_PATH" in
+  .claude/skills/*)
+    if [ -n "$CRON_NAME" ]; then
+      echo "Blocked: cron '$CRON_NAME' cannot modify skill files: $FILE_PATH" >&2
+      exit 2
+    fi
+    ;;
+esac
 
 # --- 2. Upstream-owned platform files — block ALL sessions ---
 # Mirror of `bot-code-readonly.md` paths frontmatter. Keep these two lists
@@ -60,11 +80,6 @@ fi
 #   1. PROTECT_FILES_BYPASS=1  — explicit opt-out for one-off cases
 #   2. $CLAUDE_PROJECT_DIR contains `/.ralphex/worktrees/`  — ralphex pipeline
 #   3. git remote.origin.url at $CLAUDE_PROJECT_DIR is the upstream repo
-#
-# Fail-closed on $CLAUDE_PROJECT_DIR — if unset, no bypass (no $PWD fallback,
-# since $PWD can be an agent-controlled location whereas CLAUDE_PROJECT_DIR
-# is set by the Claude Code harness from the session's project root).
-PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
 bypass=""
 
 if [ "${PROTECT_FILES_BYPASS:-0}" = "1" ]; then
@@ -87,17 +102,17 @@ if [ -n "$bypass" ]; then
   exit 0
 fi
 
-case "$FILE_PATH" in
-  */bot/*|bot/*) match=1 ;;
-  */.claude/hooks/*|.claude/hooks/*) match=1 ;;
-  */.claude/rules/platform/*|.claude/rules/platform/*) match=1 ;;
-  */.claude/skills/workspace-health/scripts/*|.claude/skills/workspace-health/scripts/*) match=1 ;;
-  */.github/workflows/*|.github/workflows/*) match=1 ;;
-  */.githooks/*|.githooks/*) match=1 ;;
-  */.gitleaks.toml|.gitleaks.toml) match=1 ;;
-  */.gitleaksignore|.gitleaksignore) match=1 ;;
-  */README.md|README.md) match=1 ;;
-  */config.local.yaml.example|config.local.yaml.example) match=1 ;;
+case "$REL_PATH" in
+  bot/*) match=1 ;;
+  .claude/hooks/*) match=1 ;;
+  .claude/rules/platform/*) match=1 ;;
+  .claude/skills/workspace-health/scripts/*) match=1 ;;
+  .github/workflows/*) match=1 ;;
+  .githooks/*) match=1 ;;
+  .gitleaks.toml) match=1 ;;
+  .gitleaksignore) match=1 ;;
+  README.md) match=1 ;;
+  config.local.yaml.example) match=1 ;;
   *) match=0 ;;
 esac
 
