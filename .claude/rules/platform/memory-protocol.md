@@ -14,6 +14,18 @@ The workaround comes from the issue thread (see also [#36636](https://github.com
 
 **Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, workspace `MEMORY.md` exists on disk but never enters the agent's initial context — your memory index becomes invisible to the agent.
 
+## Surfacing pending lint items
+
+When workspace `MEMORY.md` contains a `## Pending Review (Lint findings)` section, the agent **MUST** proactively surface those items in the current conversation. Ninja has stated explicitly that he will not proactively ask — without this rule, the items rot indefinitely. Context: ADR-069 (memory-lint Phase B.5 trial 2026-05-17 → 2026-06-17, beads `workspace-txyu`).
+
+### Surfacing strategy
+
+- **Preferred trigger (topic-related):** when the current conversation's topic naturally relates to a pending item, bring it up inline as part of the relevant answer (e.g., "Кстати, есть unresolved contradiction про X — какой из вариантов актуален?"). Topic-relatedness is the agent's own judgment, not a strict keyword match — err on the side of mentioning when there is a plausible connection.
+- **Aged escalation (>14 days):** if a pending item is older than 14 days AND no topic-relevant opportunity has arisen during the session, surface it at a natural pause or at task end. Do not let aged items sit silent indefinitely.
+- **One per session max:** never dump multiple pending items in a single message or session. Pick the most topic-relevant item, or if none is relevant, the oldest one.
+- **Never interrupt urgency:** if Ninja is mid-urgent-task (incident, time-pressured debugging, mid-deploy), do not derail the flow with a pending item — wait for a natural break or for the urgent work to finish.
+- **After resolution:** once Ninja resolves a contradiction, update the affected memory file(s) under `memory/auto/` with the resolved value AND remove the corresponding bullet from the `## Pending Review (Lint findings)` section in workspace `MEMORY.md` — in the same operation. Add `resolved_at`, `resolution_basis`, and `do_not_reopen_before` to the frontmatter of the affected file(s), matching the `memory-consolidation` skill's anti-loop pattern. If removing the last bullet empties the section, remove the section heading itself (do not leave an empty `## Pending Review (Lint findings)` heading behind).
+
 ## What goes WHERE: rules vs memory
 
 ### Rule (`.claude/rules/custom/`)

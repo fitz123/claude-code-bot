@@ -146,8 +146,8 @@ What we want:
   - **After resolution**: update the contradicting memory file(s) with the resolved value, then remove the bullet from the MEMORY.md "Pending Review" section in the same operation. Add `resolved_at` / `resolution_basis` / `do_not_reopen_before` per the consolidation skill's pattern.
 - Section references ADR-069 and beads `workspace-txyu` for trial context.
 
-- [ ] `.claude/rules/platform/memory-protocol.md` contains a section titled `## Surfacing pending lint items`
-- [ ] Section explicitly states "MUST" requirement to proactively surface
-- [ ] Section lists at least: preferred trigger (topic-related), aged escalation (>14 days), one-per-session max, no-interrupt-urgency, after-resolution actions
-- [ ] Section references ADR-069 for context
-- [ ] No existing content in `memory-protocol.md` is removed or contradicted (additive change)
+- [x] `.claude/rules/platform/memory-protocol.md` contains a section titled `## Surfacing pending lint items`
+- [x] Section explicitly states "MUST" requirement to proactively surface
+- [x] Section lists at least: preferred trigger (topic-related), aged escalation (>14 days), one-per-session max, no-interrupt-urgency, after-resolution actions
+- [x] Section references ADR-069 for context
+- [x] No existing content in `memory-protocol.md` is removed or contradicted (additive change)
