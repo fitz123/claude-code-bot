@@ -46,11 +46,13 @@ function runHookRaw(
 // -------------------------------------------------------------------
 
 describe("protect-files.sh", () => {
+  const PROTECT_ENV = { CLAUDE_PROJECT_DIR: "/workspace" };
+
   it("allows when CRON_NAME is not set", () => {
     const result = runHook(PROTECT_FILES, {
       tool_name: "Edit",
       tool_input: { file_path: "/workspace/.claude/skills/foo/SKILL.md" },
-    });
+    }, PROTECT_ENV);
     assert.equal(result.exitCode, 0);
   });
 
@@ -61,7 +63,7 @@ describe("protect-files.sh", () => {
         tool_name: "Write",
         tool_input: { file_path: "/workspace/memory/notes.md" },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 0);
   });
@@ -75,7 +77,7 @@ describe("protect-files.sh", () => {
           file_path: "/workspace/.claude/skills/workspace-health/SKILL.md",
         },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
@@ -91,7 +93,7 @@ describe("protect-files.sh", () => {
           file_path: "/workspace/.claude/skills/workspace-health/SKILL.md",
         },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
@@ -102,12 +104,12 @@ describe("protect-files.sh", () => {
     const result = runHook(PROTECT_FILES, {
       tool_name: "Write",
       tool_input: {},
-    });
+    }, PROTECT_ENV);
     assert.equal(result.exitCode, 0);
   });
 
   it("blocks on malformed JSON input (fail-closed)", () => {
-    const result = runHookRaw(PROTECT_FILES, "{");
+    const result = runHookRaw(PROTECT_FILES, "{", PROTECT_ENV);
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("failed to parse"));
   });
@@ -122,7 +124,7 @@ describe("protect-files.sh", () => {
             "/workspace/.claude/./skills/workspace-health/SKILL.md",
         },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
@@ -138,7 +140,7 @@ describe("protect-files.sh", () => {
             "/workspace/.claude/notskills/../skills/workspace-health/SKILL.md",
         },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
@@ -153,7 +155,7 @@ describe("protect-files.sh", () => {
           file_path: ".claude/skills/workspace-health/SKILL.md",
         },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
@@ -169,7 +171,7 @@ describe("protect-files.sh", () => {
             "/workspace/.claude//skills/workspace-health/SKILL.md",
         },
       },
-      { CRON_NAME: "nightly-consolidation" },
+      { ...PROTECT_ENV, CRON_NAME: "nightly-consolidation" },
     );
     assert.equal(result.exitCode, 2);
     assert.ok(result.stderr.includes("Blocked"));
