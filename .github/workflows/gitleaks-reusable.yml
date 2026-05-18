@@ -71,6 +71,76 @@ jobs:
             echo "No CONFIG_PAT and no local .gitleaks.toml — falling back to gitleaks defaults"
           fi
 
+      # Pass 1 — scan diffs of every commit in the range.
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pass 2 — scan commit messages.
+      # gitleaks v8 `git` mode (what gitleaks-action runs above) only
+      # inspects diffs; commit-message bodies are NOT scanned. Verified
+      # empirically against gitleaks 8.x. This second pass extracts the
+      # message for every commit in the same range and feeds them to
+      # `gitleaks detect --no-git`. Mirrors the local pre-push hook so
+      # CI and local pre-push have the same coverage.
+      - name: Install gitleaks for commit-message scan
+        if: always()
+        env:
+          GITLEAKS_VERSION: "8.21.4"
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          mkdir -p /tmp/gitleaks-bin
+          tar -xz -C /tmp/gitleaks-bin -f /tmp/gitleaks.tar.gz
+          chmod +x /tmp/gitleaks-bin/gitleaks
+          /tmp/gitleaks-bin/gitleaks version
+
+      - name: Scan commit messages for PII
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+
+          # Determine the commit range to scan based on event type.
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            range="${PR_BASE_SHA}..${PR_HEAD_SHA}"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            zero="0000000000000000000000000000000000000000"
+            if [[ -z "${PUSH_BEFORE:-}" || "$PUSH_BEFORE" == "$zero" ]]; then
+              # New branch push: scan just the head commit.
+              range="$PUSH_AFTER"
+            else
+              range="${PUSH_BEFORE}..${PUSH_AFTER}"
+            fi
+          else
+            echo "Unsupported event '$EVENT_NAME' — skipping commit-message scan."
+            exit 0
+          fi
+
+          # Dump messages for the range to a plain file. The COMMIT-DELIM
+          # marker is just so a multi-commit dump is readable in logs;
+          # gitleaks treats the whole file as opaque text either way.
+          msgdir="$(mktemp -d)"
+          git log --format='%H%n%B%n---COMMIT-DELIM---' "$range" \
+            > "$msgdir/messages.txt"
+
+          if [[ ! -s "$msgdir/messages.txt" ]]; then
+            echo "No commits in range $range — nothing to scan."
+            exit 0
+          fi
+
+          echo "Scanning commit messages in $range with gitleaks..."
+          if [[ -f .gitleaks.toml ]]; then
+            /tmp/gitleaks-bin/gitleaks detect --no-git \
+              --source "$msgdir" --config .gitleaks.toml --redact
+          else
+            /tmp/gitleaks-bin/gitleaks detect --no-git \
+              --source "$msgdir" --redact
+          fi
