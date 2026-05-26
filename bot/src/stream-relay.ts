@@ -120,7 +120,12 @@ export async function sendOutboxFiles(outboxPath: string, platform: PlatformCont
   }
 }
 
-/** Debounce interval for draft updates (ms). Drafts are cosmetic — no rate limits. */
+/**
+ * Debounce interval for draft updates (ms). Drafts ARE subject to Telegram's
+ * per-chat ~1/sec rate limit (issue #117). Retries for sendMessageDraft are
+ * suppressed via createDraftSkipAutoRetryTransformer in telegram-bot.ts, so a
+ * 429 here surfaces once and is swallowed by the fire-and-forget caller.
+ */
 const DRAFT_DEBOUNCE_MS = 300;
 
 /** Max time (ms) to wait for in-flight drafts before final delivery. */

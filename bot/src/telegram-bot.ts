@@ -594,6 +594,25 @@ export const AUTO_RETRY_OPTIONS = {
 } as const;
 
 /**
+ * Build a transformer that runs autoRetry for every Telegram API method EXCEPT
+ * `sendMessageDraft`. Drafts are cosmetic fire-and-forget calls (see
+ * stream-relay.ts) — a retry that fires after Telegram's 3-10s retry_after is
+ * stale by the time it lands (the stream has produced newer text), and 5x
+ * amplification turns one rate-limited draft into five log/metric increments.
+ * Every other method retains the full AUTO_RETRY_OPTIONS retry behavior.
+ * See issue #117.
+ */
+export function createDraftSkipAutoRetryTransformer(): Transformer {
+  const retry = autoRetry(AUTO_RETRY_OPTIONS);
+  return async (prev, method, payload, signal) => {
+    if (method === "sendMessageDraft") {
+      return prev(method, payload, signal);
+    }
+    return retry(prev, method, payload, signal);
+  };
+}
+
+/**
  * Create and configure the Telegram bot.
  */
 export function createTelegramBot(
@@ -612,8 +631,10 @@ export function createTelegramBot(
   // before autoRetry decides whether to retry)
   bot.api.config.use(createApiErrorLoggingTransformer({ bindings: config.bindings }));
 
-  // Auto-retry on rate limits (outermost transformer — retries after inner errors)
-  bot.api.config.use(autoRetry(AUTO_RETRY_OPTIONS));
+  // Auto-retry on rate limits (outermost transformer — retries after inner
+  // errors). `sendMessageDraft` is excluded: drafts are cosmetic fire-and-
+  // forget calls; retries amplify 429 log noise without user-visible benefit.
+  bot.api.config.use(createDraftSkipAutoRetryTransformer());
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
