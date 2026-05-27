@@ -335,7 +335,7 @@ See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metri
 
 #### Telegram API metrics
 
-Two complementary counters track outbound Telegram API traffic. Both increment per-attempt (the inner transformer runs once per autoRetry attempt), so `rate(errors) / rate(calls)` over the same window yields the attempt-level error ratio.
+Two complementary counters track outbound Telegram API traffic. Both increment per-attempt (the inner transformer runs once per autoRetry attempt), so `rate(errors) / rate(calls)` over the same window yields the attempt-level error ratio. Exception: `sendMessageDraft` is excluded from autoRetry (see issue #117), so its counters reflect one increment per logical call — attempt-level and call-level rates coincide for that method.
 
 | Metric | Labels | Description |
 |--------|--------|-------------|
