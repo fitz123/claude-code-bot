@@ -4,7 +4,7 @@
 
 ## Feature Flags
 
-- `LINT_PHASE_B5_ENABLED=true` — Trial: 2026-05-17 → 2026-06-17. **The line above is the sole source of truth** — not an environment variable, not external config, not a settings file lookup. To roll back: edit that line to `LINT_PHASE_B5_ENABLED=false`, commit; the next nightly run reads this skill file and respects the new value. No data migration. See ADR-069.
+- `LINT_PHASE_B5_ENABLED=false` — Trial CONCLUDED 2026-05-28, rolled back. **The line above is the sole source of truth** — not an environment variable, not external config, not a settings file lookup. The 2026-05-17→05-28 trial found Phase B.5 did not earn its keep: 0 contradictions detected across 8 runs (~1500 candidate evaluations), and it structurally missed the one real cross-type contradiction that arose (the candidate filter uses "same type" as a signal, so cross-type drift can't reach the ≥2-signal threshold). The pre-existing narrative "Noted for Review" digest caught that case instead. See ADR-069 (SUPERSEDED) and `reference/tasks/workspace-txyu/retrospective.md`. To re-enable for a future redesign: flip to `true`, commit.
 
 When the flag value (as read from the line above) is `false`, the skill executes Phases 0/A/B/C/D as before — no cross-file lint, no Pending Review writes to MEMORY.md, no appends to `memory/lint-stats.jsonl`. Phase C still applies the new frontmatter fields (`confidence`, `revisit_if`) when creating or updating files, since those are forward-compatible regardless of the lint pass.
 
