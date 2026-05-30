@@ -46,7 +46,7 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 
 - **`provider` field:** `provider?: "claude" | "pi"` on `AgentConfig` (default `"claude"`); `validateAgent` accepts + defaults it.
 - **Splitter:** `string_decoder.StringDecoder`-based accumulator, split ONLY on `\n`.
-- **Spawn args:** `pi --mode rpc --provider openai-codex --model <agent.model || openai-codex/gpt-5.3-codex> [--append-system-prompt <agent.systemPrompt>]`. NO `--max-turns/--add-dir/--effort/--fallback-model` (Pi has none).
+- **Spawn args:** `pi --mode rpc --provider openai-codex --model <agent.model || openai-codex/gpt-5.5> [--append-system-prompt <agent.systemPrompt>]`. NO `--max-turns/--add-dir/--effort/--fallback-model` (Pi has none).
 - **Env:** Pi reads `~/.pi/agent/auth.json`; no `CLAUDE_CODE_OAUTH_TOKEN`.
 - **`parsePiEvent` mapping:** `message_update`/text_delta → `StreamEvent` (`event.delta = {type:"text_delta", text}`); `tool_execution_start` → synthetic `StreamEvent` (`content_block_start` tool_use, drives `sawNonTextBlock`); `turn_end`/`agent_end` → `ResultMessage` (+`session_id`); session header/`get_state` → `SystemInit` (`session_id` for later capture); `auto_retry_start/end` → `RateLimitEvent`; `error` → result-error.
 - **Metrics:** `bot_pi_turn_duration_seconds` (Histogram, `agent_id`, SAME buckets); Counters (`agent_id`) `pi_retry_total` (every `auto_retry_start`), `pi_429_total` (rate-limit sig), `pi_overload_total` (529/5xx sig), `pi_retry_unknown_total` (graceful fallback — wording change still counted).
@@ -60,12 +60,12 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 - [x] run tests — must pass before next task.
 
 ### Task 2: `pi-rpc-protocol.ts` + compliant JSONL splitter [HIGH]
-- [ ] implement newline-only splitter via `string_decoder` (never `\r`/`U+2028`/`U+2029`); export it.
-- [ ] `buildPiSpawnArgs(agent)` (per Technical Details; persona via `--append-system-prompt`, mirroring `cli-protocol.ts:49-59`; prefixed `openai-codex/gpt-5.3-codex` model form).
-- [ ] `buildPiSpawnEnv(agent)`; `spawnPiRpcSession(agent)` → ChildProcess matching `spawnClaudeSession`'s shape (stderr→log).
-- [ ] `buildPiPromptCommand(text)` + `sendPiPrompt(child,text)` (RPC `prompt`); `sendPiSteer(child,text)` (RPC `steer`).
-- [ ] write splitter tests: `U+2028`/`U+2029` inside a JSON string NOT split; `\r\n`/lone `\r` NOT split; only `\n` splits; partial-chunk reassembly across reads.
-- [ ] run tests — must pass before next task.
+- [x] implement newline-only splitter via `string_decoder` (never `\r`/`U+2028`/`U+2029`); export it.
+- [x] `buildPiSpawnArgs(agent)` (per Technical Details; persona via `--append-system-prompt`, mirroring `cli-protocol.ts:49-59`; prefixed `openai-codex/gpt-5.5` model form).
+- [x] `buildPiSpawnEnv(agent)`; `spawnPiRpcSession(agent)` → ChildProcess matching `spawnClaudeSession`'s shape (stderr→log).
+- [x] `buildPiPromptCommand(text)` + `sendPiPrompt(child,text)` (RPC `prompt`); `sendPiSteer(child,text)` (RPC `steer`).
+- [x] write splitter tests: `U+2028`/`U+2029` inside a JSON string NOT split; `\r\n`/lone `\r` NOT split; only `\n` splits; partial-chunk reassembly across reads.
+- [x] run tests — must pass before next task.
 
 ### Task 3: `parsePiEvent` translator (Pi event → StreamLine) [HIGH]
 - [ ] `readPiStream(child)` async generator (stdout → splitter → `JSON.parse` → translate).
