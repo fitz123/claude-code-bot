@@ -75,10 +75,10 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 - [x] run tests — must pass before next task.
 
 ### Task 4: Pi Prometheus metrics in `metrics.ts` [HIGH] (MF3)
-- [ ] register `bot_pi_turn_duration_seconds` (Histogram, `agent_id`, SAME buckets) + the 4 Counters (per Technical Details).
-- [ ] wire `parsePiEvent`'s `auto_retry_start` handling to a classifier: always `pi_retry_total` + exactly one of `pi_429_total`/`pi_overload_total`/`pi_retry_unknown_total` via a defensive `errorMessage` match.
-- [ ] write tests: rate-limit / overload / unrecognized message → correct bucket (+ `pi_retry_total` always).
-- [ ] run tests — must pass before next task.
+- [x] register `bot_pi_turn_duration_seconds` (Histogram, `agent_id`, SAME buckets) + the 4 Counters (per Technical Details).
+- [x] wire `parsePiEvent`'s `auto_retry_start` handling to a classifier: always `pi_retry_total` + exactly one of `pi_429_total`/`pi_overload_total`/`pi_retry_unknown_total` via a defensive `errorMessage` match.
+- [x] write tests: rate-limit / overload / unrecognized message → correct bucket (+ `pi_retry_total` always).
+- [x] run tests — must pass before next task.
 
 ### Task 5: Pin Pi dependency + config example [MED]
 - [ ] `bot/package.json`: add `"@earendil-works/pi-coding-agent": "0.75.3"` (exact pin, version visibility; binary invoked via PATH). Update lockfile if repo convention requires.
