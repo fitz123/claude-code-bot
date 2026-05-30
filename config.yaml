@@ -30,6 +30,8 @@ agents:
     # model / fallbackModel omitted — inherited from defaultModel / defaultFallbackModel
     maxTurns: 250     # safety limit for agentic loops per message (omit for unlimited)
     effort: high      # Claude reasoning effort: low, medium, high (omit for default)
+    # provider: claude  # coding backend: "claude" (default, omit) or "pi" (Pi RPC + OpenAI Codex).
+                        # "pi" routes the agent through the Pi coding agent; "claude" uses `claude -p`.
 
   # Add more agents as needed:
   # coder:

@@ -81,9 +81,9 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 - [x] run tests — must pass before next task.
 
 ### Task 5: Pin Pi dependency + config example [MED]
-- [ ] `bot/package.json`: add `"@earendil-works/pi-coding-agent": "0.75.3"` (exact pin, version visibility; binary invoked via PATH). Update lockfile if repo convention requires.
-- [ ] `config.yaml` (public example): document optional per-agent `provider: claude` (or `pi`) with a short comment.
-- [ ] run tests (no new test needed unless config parsing changes).
+- [x] `bot/package.json`: add `"@earendil-works/pi-coding-agent": "0.75.3"` (exact pin, version visibility; binary invoked via PATH). Update lockfile if repo convention requires.
+- [x] `config.yaml` (public example): document optional per-agent `provider: claude` (or `pi`) with a short comment.
+- [x] run tests (no new test needed unless config parsing changes).
 
 ### Task 6: Verify acceptance criteria [HIGH]
 - [ ] verify the 4 success criteria (provider field defaults claude; `pi-rpc-protocol.ts` exports the splitter + translator; Pi metrics registered+scrapeable; suite green).
