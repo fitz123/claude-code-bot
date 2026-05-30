@@ -1,6 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import type { AgentConfig } from "./types.js";
+import type {
+  AgentConfig,
+  StreamLine,
+  StreamEvent,
+  SystemInit,
+  RateLimitEvent,
+  ResultMessage,
+} from "./types.js";
 import { log } from "./logger.js";
 
 const PI_BIN = "pi";
@@ -156,4 +163,186 @@ function writePiCommand(child: ChildProcess, command: PiRpcCommand): void {
     throw new Error("Pi RPC child process is not available");
   }
   child.stdin.write(`${JSON.stringify(command)}\n`);
+}
+
+/**
+ * A raw Pi RPC event as decoded from a JSONL record. Field access is defensive
+ * (everything optional) because the translator must never throw on an
+ * unexpected/extended event shape — it returns null and the caller skips it.
+ */
+export interface PiRpcEvent {
+  type?: string;
+  sessionId?: string;
+  errorMessage?: string;
+  message?: string;
+  assistantMessageEvent?: {
+    type?: string;
+    text?: string;
+    [key: string]: unknown;
+  };
+  toolName?: string;
+  tool?: { name?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+/**
+ * Translate a single Pi RPC event into the bot's existing 8-variant `StreamLine`
+ * union so the downstream stream-relay/delivery path needs no changes.
+ *
+ * Mapping (per Plan A Technical Details):
+ * - `message_update` w/ `assistantMessageEvent.type === "text_delta"` → `StreamEvent`
+ *   carrying `event.delta = { type: "text_delta", text }` (drives live streaming).
+ * - `tool_execution_start` → synthetic `StreamEvent` shaped as a
+ *   `content_block_start` tool_use block so stream-relay flips `sawNonTextBlock`.
+ * - `turn_end` / `agent_end` → `ResultMessage` (+ `session_id`).
+ * - session header / `get_state` → `SystemInit` (captures the Pi `sessionId`).
+ * - `auto_retry_start` / `auto_retry_end` → `RateLimitEvent` (raw error message
+ *   preserved for the Task 4 retry classifier).
+ * - `error` → error `ResultMessage` (`subtype: "error_during_execution"`).
+ *
+ * Returns null for unknown/ignored events (e.g. `tool_execution_update/end`,
+ * `message_update` deltas that are not text) so the caller skips them.
+ */
+export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLine | null {
+  if (!rawEvent || typeof rawEvent !== "object") {
+    return null;
+  }
+
+  switch (rawEvent.type) {
+    case "message_update": {
+      const inner = rawEvent.assistantMessageEvent;
+      if (inner?.type === "text_delta" && typeof inner.text === "string" && inner.text.length > 0) {
+        const event: StreamEvent = {
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: inner.text },
+          },
+        };
+        return event;
+      }
+      return null;
+    }
+
+    case "tool_execution_start": {
+      const toolName = rawEvent.toolName ?? rawEvent.tool?.name ?? "tool";
+      const event: StreamEvent = {
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          content_block: { type: "tool_use", name: toolName },
+        },
+      };
+      return event;
+    }
+
+    case "turn_end":
+    case "agent_end": {
+      const result: ResultMessage = {
+        type: "result",
+        result: typeof rawEvent.message === "string" ? rawEvent.message : "",
+        session_id: rawEvent.sessionId ?? "",
+      };
+      return result;
+    }
+
+    case "session":
+    case "session_start":
+    case "get_state": {
+      if (typeof rawEvent.sessionId !== "string" || rawEvent.sessionId.length === 0) {
+        return null;
+      }
+      const init: SystemInit = {
+        type: "system",
+        subtype: "init",
+        session_id: rawEvent.sessionId,
+      };
+      return init;
+    }
+
+    case "auto_retry_start":
+    case "auto_retry_end": {
+      const rateLimit: RateLimitEvent = {
+        type: "assistant",
+        subtype: "rate_limit_event",
+        pi_event_type: rawEvent.type,
+        error_message: rawEvent.errorMessage ?? "",
+      };
+      return rateLimit;
+    }
+
+    case "error": {
+      const result: ResultMessage = {
+        type: "result",
+        subtype: "error_during_execution",
+        result: rawEvent.errorMessage ?? rawEvent.message ?? "Pi RPC error",
+        session_id: rawEvent.sessionId ?? "",
+        is_error: true,
+      };
+      return result;
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Async generator yielding translated `StreamLine`s from a Pi RPC child's
+ * stdout: newline-only splitter → `JSON.parse` → `parsePiEvent`. Malformed
+ * JSON records and untranslatable events are skipped (never throw mid-stream).
+ */
+export async function* readPiStream(child: ChildProcess): AsyncGenerator<StreamLine> {
+  if (!child.stdout) {
+    throw new Error("Pi RPC child process stdout is not available");
+  }
+
+  const splitter = new NewlineOnlyJsonlSplitter();
+
+  for await (const chunk of child.stdout) {
+    for (const record of splitter.push(chunk as Buffer)) {
+      const line = parsePiRecord(record);
+      if (line) {
+        yield line;
+      }
+    }
+  }
+
+  for (const record of splitter.end()) {
+    const line = parsePiRecord(record);
+    if (line) {
+      yield line;
+    }
+  }
+}
+
+function parsePiRecord(record: string): StreamLine | null {
+  const trimmed = record.trim();
+  if (!trimmed || !trimmed.startsWith("{")) {
+    return null;
+  }
+
+  let parsed: PiRpcEvent;
+  try {
+    parsed = JSON.parse(trimmed) as PiRpcEvent;
+  } catch {
+    return null;
+  }
+
+  return parsePiEvent(parsed);
+}
+
+/**
+ * Extract streamable text from a translated Pi `StreamLine`, mirroring
+ * `extractTextDelta` from cli-protocol so the relay treats both providers
+ * identically.
+ */
+export function extractPiTextDelta(msg: StreamLine): string | null {
+  if (msg.type === "stream_event") {
+    const event = msg.event;
+    if (event?.delta?.type === "text_delta" && event.delta.text) {
+      return event.delta.text;
+    }
+  }
+  return null;
 }

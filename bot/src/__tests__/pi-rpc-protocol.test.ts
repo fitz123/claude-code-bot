@@ -3,16 +3,20 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
+import { Readable } from "node:stream";
 import {
   NewlineOnlyJsonlSplitter,
   buildPiPromptCommand,
   buildPiSpawnArgs,
   buildPiSpawnEnv,
   buildPiSteerCommand,
+  extractPiTextDelta,
+  parsePiEvent,
+  readPiStream,
   sendPiPrompt,
   sendPiSteer,
 } from "../pi-rpc-protocol.js";
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig, StreamLine } from "../types.js";
 
 const testAgent: AgentConfig = {
   id: "main",
@@ -228,5 +232,198 @@ describe("Pi RPC prompt and steer commands", () => {
       () => sendPiPrompt(createMockChild({ exitCode: 1 }), "hello"),
       /Pi RPC child process is not available/,
     );
+  });
+});
+
+/**
+ * Mirrors the exact `sawNonTextBlock` detection in stream-relay.ts (the consumer):
+ * a stream_event whose `event.type === "content_block_start"` and whose
+ * `content_block.type` is set and not "text" flips the flag.
+ */
+function flipsSawNonTextBlock(msg: StreamLine): boolean {
+  if (msg.type !== "stream_event") {
+    return false;
+  }
+  const ev = msg.event as Record<string, unknown>;
+  if (ev.type !== "content_block_start") {
+    return false;
+  }
+  const block = ev.content_block as Record<string, unknown> | undefined;
+  return Boolean(block?.type && block.type !== "text");
+}
+
+describe("parsePiEvent", () => {
+  it("translates a text_delta message_update into a streamable StreamEvent", () => {
+    const line = parsePiEvent({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", text: "hello" },
+    });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "stream_event");
+    assert.strictEqual(extractPiTextDelta(line), "hello");
+    assert.strictEqual(flipsSawNonTextBlock(line), false);
+  });
+
+  it("ignores non-text message_update deltas", () => {
+    assert.strictEqual(
+      parsePiEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "reasoning_delta", text: "thinking" },
+      }),
+      null,
+    );
+    assert.strictEqual(
+      parsePiEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", text: "" },
+      }),
+      null,
+    );
+  });
+
+  it("translates tool_execution_start so stream-relay flips sawNonTextBlock", () => {
+    const line = parsePiEvent({
+      type: "tool_execution_start",
+      toolName: "bash",
+    });
+
+    assert.ok(line);
+    assert.strictEqual(flipsSawNonTextBlock(line), true);
+    // A tool block carries no streamable text.
+    assert.strictEqual(extractPiTextDelta(line), null);
+  });
+
+  it("falls back to a generic tool name when none is provided", () => {
+    const line = parsePiEvent({ type: "tool_execution_start" });
+
+    assert.ok(line);
+    assert.strictEqual(flipsSawNonTextBlock(line), true);
+  });
+
+  it("translates turn_end into a ResultMessage carrying the session id", () => {
+    const line = parsePiEvent({
+      type: "turn_end",
+      sessionId: "pi-sess-123",
+      message: "done",
+    });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    assert.strictEqual((line as { session_id: string }).session_id, "pi-sess-123");
+    assert.strictEqual((line as { result: string }).result, "done");
+  });
+
+  it("translates agent_end into a ResultMessage", () => {
+    const line = parsePiEvent({ type: "agent_end", sessionId: "pi-sess-9" });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    assert.strictEqual((line as { session_id: string }).session_id, "pi-sess-9");
+  });
+
+  it("translates a session header into a SystemInit capturing the session id", () => {
+    const line = parsePiEvent({ type: "get_state", sessionId: "pi-sess-init" });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "system");
+    const init = line as unknown as Record<string, unknown>;
+    assert.strictEqual(init.subtype, "init");
+    assert.strictEqual(init.session_id, "pi-sess-init");
+  });
+
+  it("ignores a session header that omits the session id", () => {
+    assert.strictEqual(parsePiEvent({ type: "session" }), null);
+  });
+
+  it("translates auto_retry_start into a rate_limit_event preserving the error message", () => {
+    const line = parsePiEvent({
+      type: "auto_retry_start",
+      errorMessage: "429 Too Many Requests",
+    });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "assistant");
+    const rateLimit = line as unknown as Record<string, unknown>;
+    assert.strictEqual(rateLimit.subtype, "rate_limit_event");
+    assert.strictEqual(rateLimit.error_message, "429 Too Many Requests");
+  });
+
+  it("translates an error event into an error ResultMessage", () => {
+    const line = parsePiEvent({ type: "error", errorMessage: "boom" });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    const result = line as unknown as Record<string, unknown>;
+    assert.strictEqual(result.subtype, "error_during_execution");
+    assert.strictEqual(result.result, "boom");
+    assert.strictEqual(result.is_error, true);
+  });
+
+  it("returns null for unknown and malformed events", () => {
+    assert.strictEqual(parsePiEvent({ type: "tool_execution_update" }), null);
+    assert.strictEqual(parsePiEvent({ type: "tool_execution_end" }), null);
+    assert.strictEqual(parsePiEvent({}), null);
+    assert.strictEqual(parsePiEvent(null), null);
+    assert.strictEqual(parsePiEvent(undefined), null);
+  });
+});
+
+describe("readPiStream", () => {
+  function childWithStdout(records: string[]): ChildProcess {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const framed = records.map((r) => `${r}\n`).join("");
+    Object.assign(child, { stdout: Readable.from([Buffer.from(framed)]) });
+    return child;
+  }
+
+  it("yields only translated StreamLines, skipping unknown/malformed records", async () => {
+    const child = childWithStdout([
+      JSON.stringify({ type: "get_state", sessionId: "s1" }),
+      "not json",
+      JSON.stringify({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", text: "hi" },
+      }),
+      JSON.stringify({ type: "tool_execution_update" }),
+      JSON.stringify({ type: "turn_end", sessionId: "s1", message: "ok" }),
+    ]);
+
+    const lines: StreamLine[] = [];
+    for await (const line of readPiStream(child)) {
+      lines.push(line);
+    }
+
+    assert.deepStrictEqual(
+      lines.map((l) => l.type),
+      ["system", "stream_event", "result"],
+    );
+    assert.strictEqual(extractPiTextDelta(lines[1]), "hi");
+  });
+
+  it("handles records split across stdout chunks", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    const record = JSON.stringify({
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", text: "split" },
+    });
+    const framed = Buffer.from(`${record}\n`);
+    const cut = Math.floor(framed.length / 2);
+    Object.assign(child, {
+      stdout: Readable.from([framed.subarray(0, cut), framed.subarray(cut)]),
+    });
+
+    const lines: StreamLine[] = [];
+    for await (const line of readPiStream(child)) {
+      lines.push(line);
+    }
+
+    assert.strictEqual(lines.length, 1);
+    assert.strictEqual(extractPiTextDelta(lines[0]), "split");
+  });
+
+  it("throws when stdout is unavailable", async () => {
+    const child = new EventEmitter() as unknown as ChildProcess;
+    await assert.rejects(readPiStream(child).next(), /stdout is not available/);
   });
 });

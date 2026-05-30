@@ -68,11 +68,11 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 - [x] run tests — must pass before next task.
 
 ### Task 3: `parsePiEvent` translator (Pi event → StreamLine) [HIGH]
-- [ ] `readPiStream(child)` async generator (stdout → splitter → `JSON.parse` → translate).
-- [ ] `parsePiEvent(rawEvent)` per the Technical Details mapping (reconstruct existing `StreamLine` internal shapes).
-- [ ] `extractPiTextDelta(streamLine)` mirroring `extractTextDelta`.
-- [ ] write translation tests: (a) translated `tool_execution_start` flips `sawNonTextBlock` via the `stream-relay` check; (b) `extractPiTextDelta` returns text for a translated `message_update`; (c) `turn_end` → `ResultMessage` with `session_id`.
-- [ ] run tests — must pass before next task.
+- [x] `readPiStream(child)` async generator (stdout → splitter → `JSON.parse` → translate).
+- [x] `parsePiEvent(rawEvent)` per the Technical Details mapping (reconstruct existing `StreamLine` internal shapes).
+- [x] `extractPiTextDelta(streamLine)` mirroring `extractTextDelta`.
+- [x] write translation tests: (a) translated `tool_execution_start` flips `sawNonTextBlock` via the `stream-relay` check; (b) `extractPiTextDelta` returns text for a translated `message_update`; (c) `turn_end` → `ResultMessage` with `session_id`.
+- [x] run tests — must pass before next task.
 
 ### Task 4: Pi Prometheus metrics in `metrics.ts` [HIGH] (MF3)
 - [ ] register `bot_pi_turn_duration_seconds` (Histogram, `agent_id`, SAME buckets) + the 4 Counters (per Technical Details).
