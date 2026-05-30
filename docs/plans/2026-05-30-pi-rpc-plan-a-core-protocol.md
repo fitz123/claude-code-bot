@@ -93,8 +93,24 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 - [x] assert `bot_pi_turn_duration_seconds` + the 4 Pi counters are registered — covered by the `Pi metrics registration` block in metrics.test.ts:322-347 (registry membership + scrape-output assertions), passing.
 
 ### Task 7: Update documentation [HIGH]
-- [ ] add a short `bot/` doc note on the `provider` field + incremental Pi support (Plan A = protocol layer; dispatch is a follow-up).
-- [ ] PR description states: "Plan A of the Pi migration — protocol/types/metrics only, no dispatch, no restart; claude path unchanged."
+- [x] add a short `bot/` doc note on the `provider` field + incremental Pi support (Plan A = protocol layer; dispatch is a follow-up). — added a "Provider backends" subsection to `README.md` (the bot's user-facing config doc) documenting the `provider: claude|pi` field (default claude), the protocol-layer-only scope (dispatch is a follow-up, `provider: pi` has no runtime effect yet), and the Pi binary/auth path; plus listed the 5 Pi Prometheus metrics under Monitoring.
+- [x] PR description states: "Plan A of the Pi migration — protocol/types/metrics only, no dispatch, no restart; claude path unchanged." — canonical PR body captured in the new "## PR Description" section of this plan (opening/merging to public `main` is Ninja-gated per *What Goes Where*).
+
+## PR Description
+
+> Canonical body for the Plan A PR. Opening/merging to public `main` is gated on Ninja (see *What Goes Where* → release-flow); paste this when the PR is raised.
+
+**Plan A of the Pi migration — protocol/types/metrics only, no dispatch, no restart; claude path unchanged.**
+
+Adds a typed, fully-tested Pi RPC protocol layer alongside the existing `claude -p` path, selected per-agent by a new optional `provider: "claude" | "pi"` field (default `"claude"`).
+
+- **Types/config:** `AgentConfig.provider` (defaults `"claude"`); `validateAgent` accepts and defaults it. No existing behavior changes.
+- **Protocol module** (`bot/src/pi-rpc-protocol.ts`, new): newline-only JSONL splitter (`NewlineOnlyJsonlSplitter` — never splits on `\r`/`U+2028`/`U+2029`), spawn/send helpers, and a `parsePiEvent` translator mapping Pi RPC events into the existing 8-variant `StreamLine` union (so `stream-relay.ts` is untouched).
+- **Metrics:** `bot_pi_turn_duration_seconds` + the retry counters (`bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, `bot_pi_retry_unknown_total`), registered and scrapeable now.
+- **Dependency:** pins `@earendil-works/pi-coding-agent@0.75.3`; `config.yaml` documents the optional `provider` field.
+- **Out of scope (follow-ups):** session-manager dispatch + session-id resume (Plan B), cron-runner port (Plan C), and flipping any agent to `provider: pi` (cutover). No agent is routed through Pi by this PR; no bot restart required.
+
+Tests: Plan A suite green (splitter edge cases, `parsePiEvent` translation, retry-classifier buckets); `tsc --noEmit` clean.
 
 ## What Goes Where
 
