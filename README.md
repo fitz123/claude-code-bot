@@ -328,10 +328,10 @@ agents:
   main:
     id: main
     # ...
-    provider: claude   # or "pi"; omit to default to "claude"
+    # provider: claude   # or "pi"; omit to default to "claude"
 ```
 
-Pi support is rolling out incrementally. This stage ships the **protocol layer only**: the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is not wired yet**, so setting `provider: pi` has no runtime effect until the dispatch layer lands; the `claude` path is unchanged. The Pi binary (`@earendil-works/pi-coding-agent`, invoked via `PATH`) reads its auth from `~/.pi/agent/auth.json`.
+Pi support is rolling out incrementally. This stage ships the **protocol layer only**: the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is not wired yet**, so setting `provider: pi` has no runtime effect until the dispatch layer lands; the `claude` path is unchanged. The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; like the Claude path, the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
 
 ### Logging
 

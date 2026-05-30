@@ -81,6 +81,29 @@ describe("NewlineOnlyJsonlSplitter", () => {
     assert.deepStrictEqual(splitter.push(framed.subarray(0, splitAt)), []);
     assert.deepStrictEqual(splitter.push(framed.subarray(splitAt)), [record]);
   });
+
+  it("flushes an unterminated trailing record on end()", () => {
+    const splitter = new NewlineOnlyJsonlSplitter();
+
+    assert.deepStrictEqual(splitter.push(Buffer.from("{\"a\":1")), []);
+    assert.deepStrictEqual(splitter.end(), ["{\"a\":1"]);
+  });
+
+  it("strips a trailing carriage return from the final record on end()", () => {
+    const splitter = new NewlineOnlyJsonlSplitter();
+
+    splitter.push(Buffer.from("{\"a\":1}\r"));
+    assert.deepStrictEqual(splitter.end(), ["{\"a\":1}"]);
+  });
+
+  it("returns no records on end() when nothing is buffered", () => {
+    const splitter = new NewlineOnlyJsonlSplitter();
+
+    assert.deepStrictEqual(splitter.push(Buffer.from("{\"a\":1}\n")), [
+      "{\"a\":1}",
+    ]);
+    assert.deepStrictEqual(splitter.end(), []);
+  });
 });
 
 describe("buildPiSpawnArgs", () => {
@@ -163,6 +186,40 @@ describe("buildPiSpawnEnv", () => {
     const env = buildPiSpawnEnv(testAgent);
 
     assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
+  });
+
+  it("does not double-prepend /opt/homebrew/bin when already present", () => {
+    const oldPath = process.env.PATH;
+
+    try {
+      process.env.PATH = "/opt/homebrew/bin:/usr/bin";
+      const env = buildPiSpawnEnv(testAgent);
+
+      assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+    } finally {
+      if (oldPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = oldPath;
+      }
+    }
+  });
+
+  it("scrubs the CLAUDECODE session marker (parity with the Claude path)", () => {
+    const oldMarker = process.env.CLAUDECODE;
+
+    try {
+      process.env.CLAUDECODE = "1";
+      const env = buildPiSpawnEnv(testAgent);
+
+      assert.strictEqual(env.CLAUDECODE, undefined);
+    } finally {
+      if (oldMarker === undefined) {
+        delete process.env.CLAUDECODE;
+      } else {
+        process.env.CLAUDECODE = oldMarker;
+      }
+    }
   });
 });
 
@@ -322,18 +379,29 @@ describe("parsePiEvent", () => {
     assert.strictEqual((line as { session_id: string }).session_id, "pi-sess-9");
   });
 
-  it("translates a session header into a SystemInit capturing the session id", () => {
-    const line = parsePiEvent({ type: "get_state", sessionId: "pi-sess-init" });
+  it("defaults the result session id to an empty string when absent", () => {
+    const line = parsePiEvent({ type: "turn_end", message: "done" });
 
     assert.ok(line);
-    assert.strictEqual(line.type, "system");
-    const init = line as unknown as Record<string, unknown>;
-    assert.strictEqual(init.subtype, "init");
-    assert.strictEqual(init.session_id, "pi-sess-init");
+    assert.strictEqual((line as { session_id: string }).session_id, "");
+  });
+
+  it("translates every session-header variant into a SystemInit capturing the session id", () => {
+    for (const type of ["session", "session_start", "get_state"]) {
+      const line = parsePiEvent({ type, sessionId: `pi-${type}` });
+
+      assert.ok(line, `expected ${type} to translate`);
+      assert.strictEqual(line.type, "system");
+      const init = line as unknown as Record<string, unknown>;
+      assert.strictEqual(init.subtype, "init");
+      assert.strictEqual(init.session_id, `pi-${type}`);
+    }
   });
 
   it("ignores a session header that omits the session id", () => {
     assert.strictEqual(parsePiEvent({ type: "session" }), null);
+    assert.strictEqual(parsePiEvent({ type: "session_start" }), null);
+    assert.strictEqual(parsePiEvent({ type: "get_state", sessionId: "" }), null);
   });
 
   it("translates auto_retry_start into a rate_limit_event preserving the error message", () => {
@@ -347,6 +415,31 @@ describe("parsePiEvent", () => {
     const rateLimit = line as unknown as Record<string, unknown>;
     assert.strictEqual(rateLimit.subtype, "rate_limit_event");
     assert.strictEqual(rateLimit.error_message, "429 Too Many Requests");
+    // pi_event_type is the discriminator the dispatch layer uses to distinguish
+    // start (counts a retry) from end (does not).
+    assert.strictEqual(rateLimit.pi_event_type, "auto_retry_start");
+  });
+
+  it("translates auto_retry_end into a rate_limit_event tagged with its event type", () => {
+    const line = parsePiEvent({
+      type: "auto_retry_end",
+      errorMessage: "recovered",
+    });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "assistant");
+    const rateLimit = line as unknown as Record<string, unknown>;
+    assert.strictEqual(rateLimit.subtype, "rate_limit_event");
+    assert.strictEqual(rateLimit.error_message, "recovered");
+    assert.strictEqual(rateLimit.pi_event_type, "auto_retry_end");
+  });
+
+  it("defaults the rate_limit_event error message to an empty string when absent", () => {
+    const line = parsePiEvent({ type: "auto_retry_start" });
+
+    assert.ok(line);
+    const rateLimit = line as unknown as Record<string, unknown>;
+    assert.strictEqual(rateLimit.error_message, "");
   });
 
   it("translates an error event into an error ResultMessage", () => {
@@ -358,6 +451,16 @@ describe("parsePiEvent", () => {
     assert.strictEqual(result.subtype, "error_during_execution");
     assert.strictEqual(result.result, "boom");
     assert.strictEqual(result.is_error, true);
+  });
+
+  it("falls back to the message field, then a default, for error result text", () => {
+    const fromMessage = parsePiEvent({ type: "error", message: "no errorMessage here" });
+    assert.ok(fromMessage);
+    assert.strictEqual((fromMessage as { result: string }).result, "no errorMessage here");
+
+    const fromDefault = parsePiEvent({ type: "error" });
+    assert.ok(fromDefault);
+    assert.strictEqual((fromDefault as { result: string }).result, "Pi RPC error");
   });
 
   it("returns null for unknown and malformed events", () => {

@@ -49,7 +49,7 @@ export class NewlineOnlyJsonlSplitter {
       return [];
     }
 
-    const finalRecord = this.buffer;
+    const finalRecord = stripTrailingCarriageReturn(this.buffer);
     this.buffer = "";
     return [finalRecord];
   }
@@ -117,6 +117,9 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   }
 
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  // Parity with the Claude path (cli-protocol.ts): never leak the Claude Code
+  // session marker into a spawned agent subprocess.
+  delete env.CLAUDECODE;
 
   if (!env.PATH?.includes("/opt/homebrew/bin")) {
     env.PATH = `/opt/homebrew/bin:${env.PATH ?? ""}`;
