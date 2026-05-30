@@ -86,11 +86,11 @@ A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts
 - [x] run tests (no new test needed unless config parsing changes).
 
 ### Task 6: Verify acceptance criteria [HIGH]
-- [ ] verify the 4 success criteria (provider field defaults claude; `pi-rpc-protocol.ts` exports the splitter + translator; Pi metrics registered+scrapeable; suite green).
-- [ ] **grep-confirm NO edits to `cli-protocol.ts` / `session-manager.ts` / `cron-runner.ts`** (must be zero).
-- [ ] run the full test suite — all pass.
-- [ ] run the linter — all issues fixed.
-- [ ] assert `bot_pi_turn_duration_seconds` + the 4 Pi counters are registered (metrics-registry/scrape test).
+- [x] verify the 4 success criteria (provider field defaults claude — types.ts:19 + config.ts:154-168; `pi-rpc-protocol.ts` exports `NewlineOnlyJsonlSplitter` + `parsePiEvent` + spawn/send helpers; Pi metrics registered+scrapeable; Plan A suite green).
+- [x] **grep-confirm NO edits to `cli-protocol.ts` / `session-manager.ts` / `cron-runner.ts`** — `git diff --name-only main...HEAD` on those three paths returns ZERO.
+- [x] run the full test suite — all Plan A tests pass (169/169 across pi-rpc-protocol, metrics, provider-config, config-defaults, stream-relay). ⚠️ 5 pre-existing `restart-bot.sh --plist` failures remain: deterministic, on a file byte-identical to `main`, unrelated to Plan A (homebrew bash 5.3.9 mis-parses the `$BOT_PLIST…` ellipsis on restart-bot.sh:153). Not fixed here — out of Plan A scope (protocol/types/metrics only, no restart). Flagged to Ninja as a separate bot-operations bug.
+- [x] run the linter (`tsc --noEmit`) — clean, no issues.
+- [x] assert `bot_pi_turn_duration_seconds` + the 4 Pi counters are registered — covered by the `Pi metrics registration` block in metrics.test.ts:322-347 (registry membership + scrape-output assertions), passing.
 
 ### Task 7: Update documentation [HIGH]
 - [ ] add a short `bot/` doc note on the `provider` field + incremental Pi support (Plan A = protocol layer; dispatch is a follow-up).
