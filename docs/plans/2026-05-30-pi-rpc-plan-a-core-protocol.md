@@ -1,0 +1,117 @@
+# Pi RPC Integration — Plan A (core data layer)
+
+> Generated via the `planning:make` methodology (canonical structure). Scope is LOCKED/approved by Ninja (2026-05-30). Implemented by ralphex. Plan A = protocol/types/metrics/tests layer ONLY; it leaves the existing `claude -p` path fully intact (`provider` defaults to `"claude"`).
+
+## Overview
+
+Add a typed, tested Pi RPC protocol module to the bot so a later plan can dispatch a per-chat session to the Pi coding agent (`pi --mode rpc`, OpenAI Codex provider) ALONGSIDE the existing `claude -p` path, selected per-agent by a new `provider` config field.
+
+- **Problem it solves:** Anthropic moves `claude -p`/Agent SDK off the subscription pool to per-token billing on June 15 2026; the bot must run agents via Pi+Codex instead. This is step 1 (the data layer) of that migration.
+- **Key benefit:** a self-contained, fully-tested protocol module with ZERO behavior change to existing agents — the foundation the dispatch layer (Plan B) builds on.
+- **Integration:** mirrors the shape of `cli-protocol.ts` and translates Pi RPC events into the bot's existing `StreamLine` union, so the stream-relay/Telegram delivery path needs no changes.
+
+## Context (from discovery)
+
+- **Files/components involved:** `bot/src/types.ts` (`AgentConfig`, `StreamLine` 8-variant union), `bot/src/config.ts` (`validateAgent`), NEW `bot/src/pi-rpc-protocol.ts`, `bot/src/metrics.ts` (prom-client registry), `bot/package.json`, `config.yaml` (public example). Reference-only (do NOT modify): `bot/src/cli-protocol.ts` (the claude analog to mirror), `bot/src/stream-relay.ts` (the `StreamLine` consumer).
+- **Related patterns found:** `cli-protocol.ts` is the single module that knows the `claude` binary (8 exported fns; `readStream` uses `node:readline`). `metrics.ts` exports `bot_claude_turn_duration_seconds` (Histogram, label `agent_id`, buckets `[1,5,10,30,60,120,300,600]`) + `bot_session_crashes_total`. `stream-relay.ts` sets `sawNonTextBlock` on a `content_block_start` tool_use and pulls text via `extractTextDelta`.
+- **Dependencies identified:** Pi RPC speaks JSON-Lines over stdio. **CRITICAL gotcha:** `node:readline` is NON-COMPLIANT for Pi RPC because it also splits on `U+2028`/`U+2029` (valid inside JSON strings) → corrupts records. The splitter MUST split ONLY on `\n` (a `StringDecoder` accumulator). Pi events: `message_update` (with `assistantMessageEvent.type === "text_delta"`), `tool_execution_start/update/end`, `turn_end`, `agent_end`, `auto_retry_start/end`, `error`, and a session header / `get_state` carrying the Pi-generated `sessionId`.
+
+## Development Approach
+
+- **Testing approach: Regular (code first, then tests per task)** — matches ralphex's build-then-verify flow and the existing bot test layout (`bot/src/__tests__/*.test.ts`).
+- Complete each task fully (incl. its tests passing) before the next.
+- Small, focused changes; maintain **backward compatibility** — `provider` defaults to `"claude"`, existing agents/tests unchanged.
+- **Every task MUST include new/updated tests** (not optional): unit tests for new/modified functions, both success and error paths.
+- **All tests must pass before starting the next task** — no exceptions.
+- Update this plan file if scope changes during implementation.
+
+## Testing Strategy
+
+- **Unit tests:** required for every task (above). Live under `bot/src/__tests__/*.test.ts` (the `npm test` glob is exactly that path — a test placed elsewhere is NOT run).
+- **No e2e:** the bot has no UI-based e2e suite; this is a backend protocol module. No e2e tests apply to Plan A.
+- Key coverage: the newline-only splitter edge cases (`U+2028`/`U+2029`/`\r`), the `parsePiEvent` translation into each `StreamLine` variant, and the retry-classifier metric buckets.
+
+## Progress Tracking
+
+- mark completed items `[x]` immediately when done
+- add newly discovered tasks with ➕ prefix
+- document blockers with ⚠️ prefix
+- keep this plan in sync with actual work
+
+## Solution Overview
+
+A new `pi-rpc-protocol.ts` provides the Pi-side analog of every `cli-protocol.ts` primitive (spawn, send, read-stream, extract-text), plus a `parsePiEvent` translator that reconstructs the EXISTING `StreamLine` internal shapes from Pi RPC events. The `provider` field selects the path; Plan A wires NO dispatch (that's `session-manager.ts` in Plan B). Pi Prometheus metrics are registered now (consumed by later alert/gate tasks). Design decision: translate INTO the existing 8-variant `StreamLine` union (do not widen it) so `stream-relay.ts` is untouched — minimizing blast radius and keeping the claude path identical.
+
+## Technical Details
+
+- **`provider` field:** `provider?: "claude" | "pi"` on `AgentConfig` (default `"claude"`); `validateAgent` accepts + defaults it.
+- **Splitter:** `string_decoder.StringDecoder`-based accumulator, split ONLY on `\n`.
+- **Spawn args:** `pi --mode rpc --provider openai-codex --model <agent.model || openai-codex/gpt-5.3-codex> [--append-system-prompt <agent.systemPrompt>]`. NO `--max-turns/--add-dir/--effort/--fallback-model` (Pi has none).
+- **Env:** Pi reads `~/.pi/agent/auth.json`; no `CLAUDE_CODE_OAUTH_TOKEN`.
+- **`parsePiEvent` mapping:** `message_update`/text_delta → `StreamEvent` (`event.delta = {type:"text_delta", text}`); `tool_execution_start` → synthetic `StreamEvent` (`content_block_start` tool_use, drives `sawNonTextBlock`); `turn_end`/`agent_end` → `ResultMessage` (+`session_id`); session header/`get_state` → `SystemInit` (`session_id` for later capture); `auto_retry_start/end` → `RateLimitEvent`; `error` → result-error.
+- **Metrics:** `bot_pi_turn_duration_seconds` (Histogram, `agent_id`, SAME buckets); Counters (`agent_id`) `pi_retry_total` (every `auto_retry_start`), `pi_429_total` (rate-limit sig), `pi_overload_total` (529/5xx sig), `pi_retry_unknown_total` (graceful fallback — wording change still counted).
+
+## Implementation Steps
+
+### Task 1: `provider` field in types + config [HIGH]
+- [x] `types.ts`: add `provider?: "claude" | "pi"` to `AgentConfig` (optional; semantic default `"claude"`).
+- [x] `config.ts` `validateAgent`: accept `provider` (`z.enum(["claude","pi"]).optional()` or the existing idiom), default absent → `"claude"`. No other field handling changes.
+- [x] write tests: provider absent → `"claude"`; `"pi"` accepted; invalid value rejected.
+- [x] run tests — must pass before next task.
+
+### Task 2: `pi-rpc-protocol.ts` + compliant JSONL splitter [HIGH]
+- [ ] implement newline-only splitter via `string_decoder` (never `\r`/`U+2028`/`U+2029`); export it.
+- [ ] `buildPiSpawnArgs(agent)` (per Technical Details; persona via `--append-system-prompt`, mirroring `cli-protocol.ts:49-59`; prefixed `openai-codex/gpt-5.3-codex` model form).
+- [ ] `buildPiSpawnEnv(agent)`; `spawnPiRpcSession(agent)` → ChildProcess matching `spawnClaudeSession`'s shape (stderr→log).
+- [ ] `buildPiPromptCommand(text)` + `sendPiPrompt(child,text)` (RPC `prompt`); `sendPiSteer(child,text)` (RPC `steer`).
+- [ ] write splitter tests: `U+2028`/`U+2029` inside a JSON string NOT split; `\r\n`/lone `\r` NOT split; only `\n` splits; partial-chunk reassembly across reads.
+- [ ] run tests — must pass before next task.
+
+### Task 3: `parsePiEvent` translator (Pi event → StreamLine) [HIGH]
+- [ ] `readPiStream(child)` async generator (stdout → splitter → `JSON.parse` → translate).
+- [ ] `parsePiEvent(rawEvent)` per the Technical Details mapping (reconstruct existing `StreamLine` internal shapes).
+- [ ] `extractPiTextDelta(streamLine)` mirroring `extractTextDelta`.
+- [ ] write translation tests: (a) translated `tool_execution_start` flips `sawNonTextBlock` via the `stream-relay` check; (b) `extractPiTextDelta` returns text for a translated `message_update`; (c) `turn_end` → `ResultMessage` with `session_id`.
+- [ ] run tests — must pass before next task.
+
+### Task 4: Pi Prometheus metrics in `metrics.ts` [HIGH] (MF3)
+- [ ] register `bot_pi_turn_duration_seconds` (Histogram, `agent_id`, SAME buckets) + the 4 Counters (per Technical Details).
+- [ ] wire `parsePiEvent`'s `auto_retry_start` handling to a classifier: always `pi_retry_total` + exactly one of `pi_429_total`/`pi_overload_total`/`pi_retry_unknown_total` via a defensive `errorMessage` match.
+- [ ] write tests: rate-limit / overload / unrecognized message → correct bucket (+ `pi_retry_total` always).
+- [ ] run tests — must pass before next task.
+
+### Task 5: Pin Pi dependency + config example [MED]
+- [ ] `bot/package.json`: add `"@earendil-works/pi-coding-agent": "0.75.3"` (exact pin, version visibility; binary invoked via PATH). Update lockfile if repo convention requires.
+- [ ] `config.yaml` (public example): document optional per-agent `provider: claude` (or `pi`) with a short comment.
+- [ ] run tests (no new test needed unless config parsing changes).
+
+### Task 6: Verify acceptance criteria [HIGH]
+- [ ] verify the 4 success criteria (provider field defaults claude; `pi-rpc-protocol.ts` exports the splitter + translator; Pi metrics registered+scrapeable; suite green).
+- [ ] **grep-confirm NO edits to `cli-protocol.ts` / `session-manager.ts` / `cron-runner.ts`** (must be zero).
+- [ ] run the full test suite — all pass.
+- [ ] run the linter — all issues fixed.
+- [ ] assert `bot_pi_turn_duration_seconds` + the 4 Pi counters are registered (metrics-registry/scrape test).
+
+### Task 7: Update documentation [HIGH]
+- [ ] add a short `bot/` doc note on the `provider` field + incremental Pi support (Plan A = protocol layer; dispatch is a follow-up).
+- [ ] PR description states: "Plan A of the Pi migration — protocol/types/metrics only, no dispatch, no restart; claude path unchanged."
+
+## What Goes Where
+
+- **Implementation Steps (above, `[ ]`):** all in-repo — code, tests, docs in `bot/` + the public `config.yaml`.
+- **Post-Completion (no checkboxes — NOT in this plan, handled later):** `session-manager.ts` dispatch branch + session-id persistence/resume + provider-flip invalidation + live `steer` send-path wiring (**Plan B**); `cron-runner.ts` port (**Plan C**); flipping any agent to `provider: pi` + bot restart (cutover tasks); merge to public `main` + upstream sync into the workspace (release-flow, gated on Ninja).
+
+## Success criteria
+
+1. `AgentConfig.provider: "claude"|"pi"` (default claude); `validateAgent` accepts/defaults; no existing behavior changes.
+2. `pi-rpc-protocol.ts` exports the newline-only splitter + `parsePiEvent` translator + spawn/send helpers.
+3. Pi Prometheus metrics registered in `metrics.ts` and scrapeable.
+4. Unit tests cover splitter edge cases + event translation + retry-classifier buckets; full suite green; lint clean.
+
+## Validation Commands
+
+```bash
+cd bot
+npm test
+npm run lint
+```

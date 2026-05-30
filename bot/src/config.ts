@@ -151,6 +151,9 @@ export function validateAgent(
     throw new Error(`Agent "${id}" has invalid fallbackModel (must be a string)`);
   }
   const fallbackModel = (obj.fallbackModel as string | undefined) ?? defaultFallbackModel;
+  if (obj.provider !== undefined && obj.provider !== "claude" && obj.provider !== "pi") {
+    throw new Error(`Agent "${id}" has invalid provider "${String(obj.provider)}" (must be "claude" or "pi")`);
+  }
   return {
     id: String(obj.id ?? id),
     workspaceCwd: obj.workspaceCwd,
@@ -162,6 +165,7 @@ export function validateAgent(
     effort: typeof obj.effort === "string" && ["low", "medium", "high"].includes(obj.effort)
       ? (obj.effort as AgentConfig["effort"])
       : undefined,
+    provider: obj.provider === "pi" ? "pi" : "claude",
   };
 }
 

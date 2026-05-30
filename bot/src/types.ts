@@ -11,6 +11,12 @@ export interface AgentConfig {
   allowedTools?: string[];
   maxTurns?: number;
   effort?: "low" | "medium" | "high";
+  /**
+   * Which coding-agent backend dispatches this agent's sessions.
+   * Optional; semantically defaults to "claude" (the existing `claude -p` path).
+   * "pi" selects the Pi RPC + OpenAI Codex path (wired by a later plan).
+   */
+  provider?: "claude" | "pi";
 }
 
 export interface TopicOverride {
