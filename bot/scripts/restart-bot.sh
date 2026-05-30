@@ -150,7 +150,7 @@ _pred_running_pid() {
 }
 
 validate_plist() {
-  log "Validating plist at $BOT_PLIST…"
+  log "Validating plist at ${BOT_PLIST}…"
   if ! "$PLUTIL_BIN" -lint "$BOT_PLIST" >/dev/null 2>&1; then
     err "plist is malformed: $BOT_PLIST"
     err "run: $PLUTIL_BIN -lint \"$BOT_PLIST\" for details"
@@ -246,7 +246,7 @@ plist_restart() {
     log "Service not currently registered; skipping bootout."
   fi
 
-  log "Bootstrapping from $BOT_PLIST…"
+  log "Bootstrapping from ${BOT_PLIST}…"
   if ! "$LAUNCHCTL_BIN" bootstrap "$DOMAIN" "$BOT_PLIST"; then
     err "launchctl bootstrap failed"
     return 1
