@@ -173,42 +173,111 @@ function writePiCommand(child: ChildProcess, command: PiRpcCommand): void {
 }
 
 /**
- * A raw Pi RPC event as decoded from a JSONL record. Field access is defensive
- * (everything optional) because the translator must never throw on an
- * unexpected/extended event shape — it returns null and the caller skips it.
+ * A raw Pi RPC record (stdout line) as decoded from JSONL — either an agent
+ * event (`type: "turn_end"` etc.) or a command response (`type: "response"`).
+ * Field access is defensive (everything optional) because the translator must
+ * never throw on an unexpected/extended shape — it returns null and the caller
+ * skips it.
  */
 export interface PiRpcEvent {
   type?: string;
   sessionId?: string;
   errorMessage?: string;
-  message?: string;
+  /**
+   * For `turn_end`/`message_*` events this is an `AgentMessage` object (an
+   * AssistantMessage whose `content` is an array of `{type, text}` blocks), NOT
+   * a string. Typed `unknown` so the translator narrows at each use site; the
+   * defensive `error`-event path also reads it when it happens to be a string.
+   */
+  message?: unknown;
+  /** `agent_end` carries every `AgentMessage` generated during the run. */
+  messages?: unknown;
   assistantMessageEvent?: {
     type?: string;
-    text?: string;
+    /** Text chunk for `text_delta` — the Pi RPC field is `delta`, not `text`. */
+    delta?: string;
     [key: string]: unknown;
   };
+  // Command-response correlation fields (records with `type: "response"`).
+  command?: string;
+  success?: boolean;
+  data?: { sessionId?: string; [key: string]: unknown };
+  error?: string;
   toolName?: string;
   tool?: { name?: string; [key: string]: unknown };
   [key: string]: unknown;
 }
 
 /**
+ * Concatenate the text blocks of a Pi `AgentMessage` (AssistantMessage). Pi
+ * emits `turn_end.message` as an object whose `content` is an array of
+ * `{type, text}` blocks — never a bare string. Returns "" for any other shape
+ * so the translator never throws.
+ */
+function extractAssistantText(message: unknown): string {
+  if (!message || typeof message !== "object") {
+    return "";
+  }
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content
+    .filter(
+      (block): block is { text: string } =>
+        Boolean(block) &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "text" &&
+        typeof (block as { text?: unknown }).text === "string",
+    )
+    .map((block) => block.text)
+    .join("");
+}
+
+/**
+ * Extract the run's final assistant text from `agent_end.messages` by
+ * concatenating the text blocks of the LAST assistant message.
+ */
+function extractFinalAssistantText(messages: unknown): string {
+  if (!Array.isArray(messages)) {
+    return "";
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (
+      msg &&
+      typeof msg === "object" &&
+      (msg as { role?: unknown }).role === "assistant"
+    ) {
+      return extractAssistantText(msg);
+    }
+  }
+  return "";
+}
+
+/**
  * Translate a single Pi RPC event into the bot's existing 8-variant `StreamLine`
  * union so the downstream stream-relay/delivery path needs no changes.
  *
- * Mapping (per Plan A Technical Details):
+ * Mapping (per Plan A Technical Details, field shapes per Pi's `docs/rpc.md`):
  * - `message_update` w/ `assistantMessageEvent.type === "text_delta"` → `StreamEvent`
- *   carrying `event.delta = { type: "text_delta", text }` (drives live streaming).
+ *   carrying `event.delta = { type: "text_delta", text }` from the Pi event's
+ *   `assistantMessageEvent.delta` chunk (drives live streaming).
  * - `tool_execution_start` → synthetic `StreamEvent` shaped as a
  *   `content_block_start` tool_use block so stream-relay flips `sawNonTextBlock`.
- * - `turn_end` / `agent_end` → `ResultMessage` (+ `session_id`).
- * - session header / `get_state` → `SystemInit` (captures the Pi `sessionId`).
+ * - `turn_end` / `agent_end` → `ResultMessage`; the result text is reconstructed
+ *   from the assistant message object (Pi sends an `AgentMessage`, never a string).
+ * - `response` → a successful `get_state`/`get_session_stats` reply yields a
+ *   `SystemInit` capturing `data.sessionId` (the ONLY place Pi exposes the
+ *   session id — no event carries it); a failed reply (`success: false`) yields
+ *   an error `ResultMessage` so a rejected command is not silently swallowed.
  * - `auto_retry_start` / `auto_retry_end` → `RateLimitEvent` (raw error message
  *   preserved for the Task 4 retry classifier).
  * - `error` → error `ResultMessage` (`subtype: "error_during_execution"`).
  *
- * Returns null for unknown/ignored events (e.g. `tool_execution_update/end`,
- * `message_update` deltas that are not text) so the caller skips them.
+ * Returns null for unknown/ignored records (e.g. `tool_execution_update/end`,
+ * non-text `message_update` deltas, responses with no session id) so the caller
+ * skips them.
  */
 export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLine | null {
   if (!rawEvent || typeof rawEvent !== "object") {
@@ -218,12 +287,12 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
   switch (rawEvent.type) {
     case "message_update": {
       const inner = rawEvent.assistantMessageEvent;
-      if (inner?.type === "text_delta" && typeof inner.text === "string" && inner.text.length > 0) {
+      if (inner?.type === "text_delta" && typeof inner.delta === "string" && inner.delta.length > 0) {
         const event: StreamEvent = {
           type: "stream_event",
           event: {
             type: "content_block_delta",
-            delta: { type: "text_delta", text: inner.text },
+            delta: { type: "text_delta", text: inner.delta },
           },
         };
         return event;
@@ -247,24 +316,39 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
     case "agent_end": {
       const result: ResultMessage = {
         type: "result",
-        result: typeof rawEvent.message === "string" ? rawEvent.message : "",
+        result:
+          rawEvent.type === "agent_end"
+            ? extractFinalAssistantText(rawEvent.messages)
+            : extractAssistantText(rawEvent.message),
         session_id: rawEvent.sessionId ?? "",
       };
       return result;
     }
 
-    case "session":
-    case "session_start":
-    case "get_state": {
-      if (typeof rawEvent.sessionId !== "string" || rawEvent.sessionId.length === 0) {
-        return null;
+    case "response": {
+      // Command responses are not stream content. Two are actionable: a failed
+      // command surfaces its error, and a successful get_state/get_session_stats
+      // reply carries the Pi-generated session id (no event exposes it).
+      if (rawEvent.success === false) {
+        const result: ResultMessage = {
+          type: "result",
+          subtype: "error_during_execution",
+          result: rawEvent.error ?? "Pi RPC command failed",
+          session_id: "",
+          is_error: true,
+        };
+        return result;
       }
-      const init: SystemInit = {
-        type: "system",
-        subtype: "init",
-        session_id: rawEvent.sessionId,
-      };
-      return init;
+      const sessionId = rawEvent.data?.sessionId;
+      if (typeof sessionId === "string" && sessionId.length > 0) {
+        const init: SystemInit = {
+          type: "system",
+          subtype: "init",
+          session_id: sessionId,
+        };
+        return init;
+      }
+      return null;
     }
 
     case "auto_retry_start":
@@ -279,10 +363,12 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
     }
 
     case "error": {
+      const fallbackMessage =
+        typeof rawEvent.message === "string" ? rawEvent.message : undefined;
       const result: ResultMessage = {
         type: "result",
         subtype: "error_during_execution",
-        result: rawEvent.errorMessage ?? rawEvent.message ?? "Pi RPC error",
+        result: rawEvent.errorMessage ?? fallbackMessage ?? "Pi RPC error",
         session_id: rawEvent.sessionId ?? "",
         is_error: true,
       };

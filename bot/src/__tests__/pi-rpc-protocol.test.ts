@@ -322,7 +322,7 @@ describe("parsePiEvent", () => {
   it("translates a text_delta message_update into a streamable StreamEvent", () => {
     const line = parsePiEvent({
       type: "message_update",
-      assistantMessageEvent: { type: "text_delta", text: "hello" },
+      assistantMessageEvent: { type: "text_delta", delta: "hello" },
     });
 
     assert.ok(line);
@@ -331,18 +331,26 @@ describe("parsePiEvent", () => {
     assert.strictEqual(flipsSawNonTextBlock(line), false);
   });
 
-  it("ignores non-text message_update deltas", () => {
+  it("ignores non-text message_update deltas and the legacy text field", () => {
     assert.strictEqual(
       parsePiEvent({
         type: "message_update",
-        assistantMessageEvent: { type: "reasoning_delta", text: "thinking" },
+        assistantMessageEvent: { type: "thinking_delta", delta: "thinking" },
       }),
       null,
     );
     assert.strictEqual(
       parsePiEvent({
         type: "message_update",
-        assistantMessageEvent: { type: "text_delta", text: "" },
+        assistantMessageEvent: { type: "text_delta", delta: "" },
+      }),
+      null,
+    );
+    // The chunk lives in `delta`, not `text` — a `text` field must not stream.
+    assert.strictEqual(
+      parsePiEvent({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", text: "wrong field" },
       }),
       null,
     );
@@ -367,50 +375,90 @@ describe("parsePiEvent", () => {
     assert.strictEqual(flipsSawNonTextBlock(line), true);
   });
 
-  it("translates turn_end into a ResultMessage carrying the session id", () => {
+  it("translates turn_end into a ResultMessage, reconstructing text from the message object", () => {
+    // Pi sends `turn_end.message` as an AssistantMessage object, never a string.
     const line = parsePiEvent({
       type: "turn_end",
-      sessionId: "pi-sess-123",
-      message: "done",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "hmm" },
+          { type: "text", text: "all " },
+          { type: "text", text: "done" },
+        ],
+      },
     });
 
     assert.ok(line);
     assert.strictEqual(line.type, "result");
-    assert.strictEqual((line as { session_id: string }).session_id, "pi-sess-123");
-    assert.strictEqual((line as { result: string }).result, "done");
+    assert.strictEqual((line as { result: string }).result, "all done");
   });
 
-  it("translates agent_end into a ResultMessage", () => {
-    const line = parsePiEvent({ type: "agent_end", sessionId: "pi-sess-9" });
+  it("translates agent_end into a ResultMessage with the last assistant message text", () => {
+    const line = parsePiEvent({
+      type: "agent_end",
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: [{ type: "text", text: "first" }] },
+        { role: "toolResult", content: [{ type: "text", text: "tool output" }] },
+        { role: "assistant", content: [{ type: "text", text: "final answer" }] },
+      ],
+    });
 
     assert.ok(line);
     assert.strictEqual(line.type, "result");
-    assert.strictEqual((line as { session_id: string }).session_id, "pi-sess-9");
+    assert.strictEqual((line as { result: string }).result, "final answer");
   });
 
-  it("defaults the result session id to an empty string when absent", () => {
-    const line = parsePiEvent({ type: "turn_end", message: "done" });
+  it("yields empty result text (not a crash) for a turn_end with no text blocks", () => {
+    const line = parsePiEvent({
+      type: "turn_end",
+      message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash" }] },
+    });
 
     assert.ok(line);
+    assert.strictEqual((line as { result: string }).result, "");
+    // turn_end carries no session id — that comes from a get_state response.
     assert.strictEqual((line as { session_id: string }).session_id, "");
   });
 
-  it("translates every session-header variant into a SystemInit capturing the session id", () => {
-    for (const type of ["session", "session_start", "get_state"]) {
-      const line = parsePiEvent({ type, sessionId: `pi-${type}` });
+  it("captures the Pi session id from a successful get_state response", () => {
+    const line = parsePiEvent({
+      type: "response",
+      command: "get_state",
+      success: true,
+      data: { sessionId: "pi-sess-123", isStreaming: false },
+    });
 
-      assert.ok(line, `expected ${type} to translate`);
-      assert.strictEqual(line.type, "system");
-      const init = line as unknown as Record<string, unknown>;
-      assert.strictEqual(init.subtype, "init");
-      assert.strictEqual(init.session_id, `pi-${type}`);
-    }
+    assert.ok(line);
+    assert.strictEqual(line.type, "system");
+    const init = line as unknown as Record<string, unknown>;
+    assert.strictEqual(init.subtype, "init");
+    assert.strictEqual(init.session_id, "pi-sess-123");
   });
 
-  it("ignores a session header that omits the session id", () => {
-    assert.strictEqual(parsePiEvent({ type: "session" }), null);
-    assert.strictEqual(parsePiEvent({ type: "session_start" }), null);
-    assert.strictEqual(parsePiEvent({ type: "get_state", sessionId: "" }), null);
+  it("ignores successful responses that carry no session id", () => {
+    assert.strictEqual(parsePiEvent({ type: "response", command: "prompt", success: true }), null);
+    assert.strictEqual(
+      parsePiEvent({ type: "response", command: "get_state", success: true, data: { sessionId: "" } }),
+      null,
+    );
+  });
+
+  it("surfaces a failed command response as an error ResultMessage", () => {
+    const line = parsePiEvent({
+      type: "response",
+      command: "set_model",
+      success: false,
+      error: "Model not found: invalid/model",
+    });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    const result = line as unknown as Record<string, unknown>;
+    assert.strictEqual(result.subtype, "error_during_execution");
+    assert.strictEqual(result.result, "Model not found: invalid/model");
+    assert.strictEqual(result.is_error, true);
   });
 
   it("translates auto_retry_start into a rate_limit_event preserving the error message", () => {
@@ -491,14 +539,17 @@ describe("readPiStream", () => {
 
   it("yields only translated StreamLines, skipping unknown/malformed records", async () => {
     const child = childWithStdout([
-      JSON.stringify({ type: "get_state", sessionId: "s1" }),
+      JSON.stringify({ type: "response", command: "get_state", success: true, data: { sessionId: "s1" } }),
       "not json",
       JSON.stringify({
         type: "message_update",
-        assistantMessageEvent: { type: "text_delta", text: "hi" },
+        assistantMessageEvent: { type: "text_delta", delta: "hi" },
       }),
       JSON.stringify({ type: "tool_execution_update" }),
-      JSON.stringify({ type: "turn_end", sessionId: "s1", message: "ok" }),
+      JSON.stringify({
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      }),
     ]);
 
     const lines: StreamLine[] = [];
@@ -517,7 +568,7 @@ describe("readPiStream", () => {
     const child = new EventEmitter() as unknown as ChildProcess;
     const record = JSON.stringify({
       type: "message_update",
-      assistantMessageEvent: { type: "text_delta", text: "split" },
+      assistantMessageEvent: { type: "text_delta", delta: "split" },
     });
     const framed = Buffer.from(`${record}\n`);
     const cut = Math.floor(framed.length / 2);
