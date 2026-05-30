@@ -155,23 +155,32 @@ describe("buildPiSpawnArgs", () => {
 });
 
 describe("buildPiSpawnEnv", () => {
-  it("removes Claude OAuth token while preserving unrelated env", () => {
+  it("removes Anthropic credentials while preserving unrelated env", () => {
     const oldClaudeToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    const oldApiKey = process.env.ANTHROPIC_API_KEY;
     const oldMarker = process.env.PI_RPC_TEST_MARKER;
 
     try {
       process.env.CLAUDE_CODE_OAUTH_TOKEN = "secret";
+      process.env.ANTHROPIC_API_KEY = "secret";
       process.env.PI_RPC_TEST_MARKER = "keep";
 
       const env = buildPiSpawnEnv(testAgent);
 
       assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+      assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
       assert.strictEqual(env.PI_RPC_TEST_MARKER, "keep");
     } finally {
       if (oldClaudeToken === undefined) {
         delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
       } else {
         process.env.CLAUDE_CODE_OAUTH_TOKEN = oldClaudeToken;
+      }
+
+      if (oldApiKey === undefined) {
+        delete process.env.ANTHROPIC_API_KEY;
+      } else {
+        process.env.ANTHROPIC_API_KEY = oldApiKey;
       }
 
       if (oldMarker === undefined) {

@@ -116,7 +116,11 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
     }
   }
 
+  // A Pi/Codex subprocess authenticates via ~/.pi/agent/auth.json and has no
+  // use for Anthropic credentials — scrub both so they never reach it (matches
+  // cron-runner.ts's sanitization of script subprocesses).
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  delete env.ANTHROPIC_API_KEY;
   // Parity with the Claude path (cli-protocol.ts): never leak the Claude Code
   // session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
