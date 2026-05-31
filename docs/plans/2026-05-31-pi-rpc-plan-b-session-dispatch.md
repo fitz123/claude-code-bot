@@ -150,10 +150,10 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] verify the 6 success criteria from Overview
-- [ ] regression gate: a claude-provider session byte-identical to pre-Plan-B behavior (dispatch, store record, mid-turn inject-file)
-- [ ] grep-confirm `cli-protocol.ts` and `cron-runner.ts` are NOT modified (cron = Plan C)
-- [ ] run full suite: `cd bot && npm test` ; lint: `cd bot && npm run lint`
+- [x] verify the 6 success criteria from Overview (1: parsePiEvent turn_end→null / agent_end→terminal ResultMessage, pi-rpc-protocol.ts:369-382; 2: provider dispatch at spawn/send/read, session-manager.ts:280-282/467-471/506, claude/absent byte-identical; 3: get_state capture → store.setSession:402 → resume via --session, buildPiSpawnArgs:120-122; 4: signal-matched recovery session-manager.ts:319-338 + pi_session_resume_discarded_total metric; 5: steerFn wiring telegram-bot.ts + message-queue.ts:195-206, claude keeps inject-file; 6: suite green + lint clean)
+- [x] regression gate: a claude-provider session byte-identical to pre-Plan-B behavior (dispatch, store record, mid-turn inject-file) — explicit assertions in session-manager.test.ts:1961/1997, session-manager-pi-spawn.test.ts:287, message-queue.test.ts:1002/1037
+- [x] grep-confirm `cli-protocol.ts` and `cron-runner.ts` are NOT modified (cron = Plan C) — both confirmed absent from `git diff --name-only main...HEAD`
+- [x] run full suite: `cd bot && npm test` (1149 pass / 0 fail) ; lint: `cd bot && npm run lint` (clean, exit 0)
 
 ### Task 7: [Final] Update documentation
 
