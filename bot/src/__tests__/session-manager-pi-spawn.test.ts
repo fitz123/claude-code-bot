@@ -9,7 +9,7 @@ import type { AgentConfig, BotConfig, StreamLine } from "../types.js";
 // spy on log.warn and a read of piSessionResumeDiscarded observe its behavior.
 import { log } from "../logger.js";
 import { piSessionResumeDiscarded } from "../metrics.js";
-import { ensureSessionMediaDir, sessionMediaDir } from "../media-store.js";
+import { ensureSessionMediaDir, sessionMediaDir, allocateMediaPath, releaseMediaPath } from "../media-store.js";
 // Real protocol helpers the spawn-path capture needs (parse get_state replies).
 // Resolved here BEFORE mock.module installs the stub, so these are the genuine
 // implementations; the stub below re-exports them so capture parses correctly.
@@ -426,14 +426,16 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
     getStateError = null;
-    // The media-preserved assertion writes into /tmp/bot-media; clear the chat's
-    // dir between runs so a prior run's file can't mask a regression.
+    // The media-preserved assertions write into /tmp/bot-media; clear each
+    // chat's dir between runs so a prior run's file can't mask a regression.
     try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }
+    try { rmSync(sessionMediaDir("pi-inflight"), { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
   afterEach(() => {
     cleanup();
     try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }
+    try { rmSync(sessionMediaDir("pi-inflight"), { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
   it("missing-session signal: discards once, warns once, increments metric, then starts fresh", async () => {
@@ -482,6 +484,53 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
     assert.strictEqual(recoveryWarns.length, 1, "exactly one recovery warning");
     assert.strictEqual((await discardedCount("pi")) - before, 1, "metric incremented exactly once");
 
+    await manager.closeAll();
+  });
+
+  it("resume-recovery preserves the current turn's in-flight media while discarding the stored id", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-inflight", {
+      sessionId: "stored-pi-id",
+      chatId: "pi-inflight",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // The triggering turn already staged a media file under this chat's dir and
+    // it is tracked as in-flight (allocateMediaPath registers it). The fresh Pi
+    // session's prompt will reference this path, so recovery must NOT delete it.
+    const inflightPath = allocateMediaPath("pi-inflight", "photo", ".jpg");
+    writeFileSync(inflightPath, "current turn media");
+    // A leftover from the prior (now-unresumable) session — NOT in-flight. This
+    // SHOULD be swept by the stale cleanup.
+    const stalePath = `${sessionMediaDir("pi-inflight")}/prior-session.jpg`;
+    writeFileSync(stalePath, "stale leftover");
+
+    // Resume fails with the "No session found" signal → recovery fires; the
+    // inline fresh re-spawn then succeeds.
+    piSpawnOutcomes = [{ failStderr: "No session found matching stored-pi-id" }];
+    nextPiSessionId = "fresh-pi-id";
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    const warnSpy = mock.method(log, "warn", () => {});
+    let session;
+    try {
+      session = await manager.getOrCreateSession("pi-inflight", "pi");
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    // Recovery happened: fresh id adopted, stored id discarded (then re-persisted
+    // with the fresh id by the successful spawn).
+    assert.strictEqual(session.sessionId, "fresh-pi-id", "recovered onto the fresh id");
+
+    // The in-flight file for the current turn SURVIVES (the bug fix): the fresh
+    // Pi session's prompt can still reach it.
+    assert.ok(existsSync(inflightPath), "in-flight media for the current turn is preserved across recovery");
+    // The prior-session leftover is swept (it was not in-flight).
+    assert.strictEqual(existsSync(stalePath), false, "prior-session media leftover is removed");
+
+    releaseMediaPath(inflightPath);
     await manager.closeAll();
   });
 

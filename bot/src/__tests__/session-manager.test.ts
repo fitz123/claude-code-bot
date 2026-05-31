@@ -312,6 +312,7 @@ describe("SessionManager", () => {
       child: slowChild,
       sessionId: "race-sid",
       agentId: "main",
+      provider: "claude",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 100000,
@@ -1685,6 +1686,7 @@ describe("SessionManager gracefulShutdown", () => {
       child,
       sessionId: "test-session-" + chatId,
       agentId: "main",
+      provider: "claude",
       queue,
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1894,11 +1896,13 @@ describe("SessionManager provider dispatch", () => {
     chatId: string,
     agentId: string,
     child: ChildProcess,
+    provider: "claude" | "pi" = "claude",
   ): void {
     const session: ActiveSession = {
       child,
       sessionId: `sid-${chatId}`,
       agentId,
+      provider,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1917,7 +1921,7 @@ describe("SessionManager provider dispatch", () => {
     const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
 
     const { child, stdout, stdinWrites } = makeCapturingChild();
-    injectSession(manager, "pi-chat", "pi", child);
+    injectSession(manager, "pi-chat", "pi", child, "pi");
 
     const gen = manager.sendSessionMessage("pi-chat", "pi", "hello pi");
 
@@ -2020,6 +2024,98 @@ describe("SessionManager provider dispatch", () => {
         // consume
       }
     }, /subprocess exited before sending a result/);
+
+    await manager.closeAll();
+  });
+
+  it("dispatches on the spawn-time provider, not a hot-reloaded config (Pi child survives a config flip to claude)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    // A mutable config the manager reloads on demand. The agent "main" is a
+    // claude (absent-provider) agent here; we inject a session pinned to "pi"
+    // (as if it had been spawned under a prior provider setting) and then flip
+    // the config so a fresh read would report claude for "main".
+    let liveConfig: BotConfig = dispatchConfig;
+    const manager = new SessionManager(() => liveConfig, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    // Pin the session to Pi even though config["main"] is a claude agent.
+    injectSession(manager, "flip-chat", "main", child, "pi");
+
+    // Hot-reload: config now (still) reports "main" as a claude agent. A
+    // config-reading dispatch would route this through sendMessage/readStream
+    // and never terminate on a Pi agent_end. Pinned dispatch routes via Pi.
+    liveConfig = {
+      ...dispatchConfig,
+      agents: { ...dispatchConfig.agents, main: { id: "main", workspaceCwd: "/tmp/test-workspace", model: "claude-opus-4-6" } },
+    };
+
+    const gen = manager.sendSessionMessage("flip-chat", "main", "hello");
+
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "pi answer" }] }],
+        }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // Send routed via Pi (a "prompt" command), proving the pinned provider was used.
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "prompt", "must dispatch via Pi (spawn-time provider), not the reloaded claude config");
+
+    // Read routed via readPiStream: the Pi agent_end became the terminal result.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "Pi agent_end terminated the turn");
+    assert.strictEqual(results[0].result, "pi answer");
+
+    await manager.closeAll();
+  });
+
+  it("an active session does not re-read config for provider: a broken hot-reload does not break dispatch", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    // Manager boots on a valid config (constructor validates once), then the
+    // loader starts throwing — modelling a hot-reload that produced a broken
+    // config file. An ALREADY-LIVE session must still dispatch: getOrCreateSession
+    // returns the existing child without reloading, and dispatch keys off the
+    // pinned provider, so no config read happens on the message path.
+    let broken = false;
+    const manager = new SessionManager(() => {
+      if (broken) throw new Error("config reload failed");
+      return dispatchConfig;
+    }, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    injectSession(manager, "broken-cfg-chat", "main", child, "claude");
+
+    broken = true; // any later getFreshConfig() would now throw
+
+    const gen = manager.sendSessionMessage("broken-cfg-chat", "main", "hello");
+
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({ type: "result", result: "ok", session_id: "sid-broken-cfg-chat" }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // The turn completed normally despite the broken loader — no config read on
+    // the dispatch path. Send routed via the claude path (a stream-json user msg).
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "user", "claude dispatch used the pinned provider, no config read");
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "turn completed despite broken config reload");
+    assert.strictEqual(results[0].result, "ok");
 
     await manager.closeAll();
   });

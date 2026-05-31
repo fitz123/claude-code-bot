@@ -68,6 +68,14 @@ export interface ActiveSession {
   child: ChildProcess;
   sessionId: string;
   agentId: string;
+  /**
+   * Provider the child was actually spawned under, pinned at spawn time. Used
+   * for send/read dispatch instead of re-reading config: a hot-reload that
+   * flips the agent's provider must NOT switch the protocol of an already-live
+   * child (which was spawned under the old provider), and a later config that
+   * fails to load must not break dispatch for a session that is still usable.
+   */
+  provider: "claude" | "pi";
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
   /** Idle timeout baked at spawn time from config. */
@@ -248,11 +256,18 @@ export class SessionManager {
 
   /**
    * Perform the Pi graceful resume-recovery action: discard the unresumable
-   * stored id (deletes the store record + wipes the chat media dir), recreate
-   * the media dir for a clean fresh start, log, bump the metric, and return a
-   * fresh (no --session) child. Callers gate this on the at-most-once
-   * `alreadyRetried` flag + the "session not found" signal; this performs only
-   * the discard + fresh re-spawn.
+   * stored id (deletes the store record so a fresh Pi session is spawned), log,
+   * bump the metric, and return a fresh (no --session) child. Callers gate this
+   * on the at-most-once `alreadyRetried` flag + the "session not found" signal;
+   * this performs only the discard + fresh re-spawn.
+   *
+   * Media: the triggering turn's media has ALREADY been staged under this chat's
+   * media dir and is still tracked as in-flight — the fresh Pi session's prompt
+   * will reference those paths. So we must NOT wipe the whole dir (the prior
+   * `destroySession` path did, leaving the prompt pointing at deleted files).
+   * Use `cleanupStaleSessionMedia`, which removes only prior-session leftovers
+   * (including orphans from the failed-resume child) and preserves in-flight
+   * files for the current turn.
    */
   private async discardUnresumablePiSession(
     chatId: string,
@@ -260,21 +275,16 @@ export class SessionManager {
     agent: AgentConfig,
     staleSessionId: string,
   ): Promise<ChildProcess> {
-    // destroySession → closeSession clears restartCounts (so /reconnect can
-    // unblock a circuit-broken chat). A resume-recovery is NOT a clean reconnect:
-    // if this chat had already accumulated crashes, wiping that history would let
-    // a flapping session keep resetting toward zero and never trip the circuit
-    // breaker. Snapshot the count and restore it across the discard so startup
-    // failures stay cumulative.
-    const preservedCrashCount = this.restartCounts.get(chatId);
-    // Discard the unresumable stored id (deletes the store record + wipes the
-    // chat media dir, which is data-destructive by design here).
-    await this.destroySession(chatId);
-    if (preservedCrashCount !== undefined) {
-      this.restartCounts.set(chatId, preservedCrashCount);
-    }
-    // destroySession wiped the media dir; recreate it for the fresh start.
-    ensureSessionMediaDir(chatId);
+    // Discard ONLY the unresumable stored id so a fresh Pi session is spawned.
+    // Deleting the store record directly (instead of destroySession) avoids the
+    // full media-dir wipe; in-flight files for the current turn must survive.
+    // The crash count is intentionally left untouched: a resume-recovery is NOT
+    // a clean reconnect, so a flapping chat keeps advancing toward the circuit
+    // breaker rather than resetting toward zero on every recovery.
+    this.store.deleteSession(chatId);
+    // Purge prior-session leftovers (including any orphan from the failed-resume
+    // child) WITHOUT deleting the file the handler just staged for this turn.
+    try { cleanupStaleSessionMedia(chatId); } catch { /* ignore */ }
     log.warn("session-manager", `could not resume Pi session ${staleSessionId} — starting fresh`);
     piSessionResumeDiscarded.inc({ agent_id: agentId });
     return spawnPiRpcSession(agent, undefined);
@@ -470,6 +480,8 @@ export class SessionManager {
       child,
       sessionId: effectiveSessionId,
       agentId,
+      // Pin the provider the child was actually spawned under (claude when absent).
+      provider: isPi ? "pi" : "claude",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: freshConfig.sessionDefaults.idleTimeoutMs,
@@ -508,10 +520,12 @@ export class SessionManager {
   ): AsyncGenerator<StreamLine> {
     const session = await this.getOrCreateSession(chatId, agentId);
 
-    // Select the dispatch backend for send/read. getOrCreateSession just
-    // validated config, so this reload cannot fail; default to the claude path
-    // when provider is absent. ActiveSession stays provider-agnostic.
-    const isPi = this.getFreshConfig().agents[agentId]?.provider === "pi";
+    // Select the dispatch backend from the provider pinned at spawn time, not a
+    // fresh config read: getOrCreateSession may return an EXISTING live session
+    // without reloading config, so re-reading here could (a) throw on a broken
+    // hot-reloaded config even though the active session is fine, or (b) switch
+    // the protocol for a child spawned under the previous provider setting.
+    const isPi = session.provider === "pi";
 
     // Async channel: queue task pushes lines, generator yields them in real-time
     const buffer: StreamLine[] = [];
