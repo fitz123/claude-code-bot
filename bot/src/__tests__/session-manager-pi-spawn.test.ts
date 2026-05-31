@@ -13,7 +13,7 @@ import { ensureSessionMediaDir, sessionMediaDir, allocateMediaPath, releaseMedia
 // Real protocol helpers the spawn-path capture needs (parse get_state replies).
 // Resolved here BEFORE mock.module installs the stub, so these are the genuine
 // implementations; the stub below re-exports them so capture parses correctly.
-import { NewlineOnlyJsonlSplitter, parsePiEvent } from "../pi-rpc-protocol.js";
+import { NewlineOnlyJsonlSplitter, parsePiRecord } from "../pi-rpc-protocol.js";
 
 const TEST_DIR = "/tmp/minime-test-pi-spawn";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -233,7 +233,7 @@ mock.module("../pi-rpc-protocol.js", {
     },
     // Re-export the genuine parse helpers the capture uses.
     NewlineOnlyJsonlSplitter,
-    parsePiEvent,
+    parsePiRecord,
   },
 });
 

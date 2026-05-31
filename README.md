@@ -59,7 +59,7 @@ Telegram Cloud          Discord Gateway
 
 Both platforms share one Session Manager and use the same stream-relay logic via the `PlatformContext` interface. Each platform provides an adapter that handles platform-specific message I/O (Telegram: grammY Context, Discord: discord.js Channel).
 
-**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while Claude is processing are collected (up to 20) and delivered as a combined followup after the current turn completes.
+**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while a `claude` session is processing are collected (up to 20) and delivered as a combined followup after the current turn completes; a `pi` session instead has each mid-turn message steered into it live via the Pi RPC channel (see [Provider backends](#provider-backends)).
 
 **Context injection:** Each message includes metadata — current time, chat type (DM/group/topic), topic name, sender username, and emoji reactions. The agent knows where it is, when it is, and who it's talking to. Reactions are delivered as messages so the agent can respond to a thumbs-up or a ❤️ without the user typing anything.
 
@@ -330,6 +330,8 @@ agents:
     # ...
     # provider: claude   # or "pi"; omit to default to "claude"
 ```
+
+A `pi` agent must set an explicit, Pi-appropriate `model` (e.g. `model: gpt-5.5`). Unlike a `claude` agent it does **not** inherit the top-level `defaultModel` — that value is Claude-oriented (e.g. `opus`) and the Pi spawn path would otherwise prefix it into a nonsensical `openai-codex/opus` string. The bot refuses to start if a `pi` agent omits `model`.
 
 Pi support is rolling out incrementally. The protocol layer is the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is now wired**: the [Session Manager](#architecture) branches on `agent.provider`, so a chat bound to a `pi` agent spawns via Pi RPC, streams to Telegram/Discord, persists and resumes its session across restarts, and is steerable mid-turn — while the `claude` path stays byte-identical. Specifically, this stage adds:
 

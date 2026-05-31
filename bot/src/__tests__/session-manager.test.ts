@@ -6,6 +6,7 @@ import { Readable, Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
 import { waitForSpawn, outboxDir, type ActiveSession } from "../session-manager.js";
+import { piRetryTotal, piTurnDuration } from "../metrics.js";
 import PQueue from "p-queue";
 
 const TEST_DIR = "/tmp/minime-test-session-manager";
@@ -1830,6 +1831,70 @@ describe("SessionManager gracefulShutdown", () => {
     await taskPromise;
     await shutdownPromise;
   });
+
+  it("steers the shutdown notice into a busy Pi session instead of writing an inject file", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
+
+    const injectDir = `${TEST_DIR}/inject-pi-shutdown`;
+    mkdirSync(injectDir, { recursive: true });
+
+    // Capturing Pi child: the steer command lands on stdin (sendPiSteer writes it).
+    const stdinWrites: string[] = [];
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(chunk, _enc, cb) { stdinWrites.push(chunk.toString()); cb(); } }),
+      pid: 4321,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill() {
+        (child as unknown as Record<string, unknown>).killed = true;
+        (child as unknown as Record<string, unknown>).exitCode = 0;
+        child.emit("exit", 0, "SIGTERM");
+        return true;
+      },
+    });
+    child.emit("spawn");
+
+    const queue = new PQueue({ concurrency: 1 });
+    (manager as unknown as Record<string, Map<string, ActiveSession>>).active.set("pi-busy", {
+      child,
+      sessionId: "sid-pi-busy",
+      agentId: "main",
+      provider: "pi",
+      queue,
+      idleTimer: null,
+      idleTimeoutMs: 60_000,
+      lastActivity: Date.now(),
+      processingStartedAt: Date.now(),
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: `${TEST_DIR}/outbox-pi-busy`,
+      injectDir,
+    });
+
+    // Keep the queue busy so gracefulShutdown has something to await.
+    let resolveTask!: () => void;
+    const taskPromise = queue.add(() => new Promise<void>((r) => { resolveTask = r; }));
+
+    const shutdownPromise = manager.gracefulShutdown(200);
+
+    // Pi path steered the notice into stdin as a `steer` command...
+    assert.strictEqual(stdinWrites.length, 1, "exactly one steer write to the Pi child");
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "steer", "shutdown notice steered (not inject-file) for Pi");
+    assert.ok(sent.message.includes("shutting down"), "steer carries the shutdown notice");
+
+    // ...and did NOT fall back to the claude inject-file mechanism.
+    assert.strictEqual(existsSync(`${injectDir}/pending`), false, "Pi session must not get an inject file");
+
+    resolveTask();
+    await taskPromise;
+    await shutdownPromise;
+  });
 });
 
 describe("SessionManager provider dispatch", () => {
@@ -1958,6 +2023,56 @@ describe("SessionManager provider dispatch", () => {
     const results = lines.filter((l) => l.type === "result");
     assert.strictEqual(results.length, 1, "exactly one terminal result from agent_end");
     assert.strictEqual(results[0].result, "final pi answer");
+
+    await manager.closeAll();
+  });
+
+  it("records Pi read-loop telemetry: one retry per auto_retry_start (not auto_retry_end) + one turn duration", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    // Metrics are global/cumulative — measure this turn's contribution as a delta.
+    const retryCount = async (): Promise<number> =>
+      (await piRetryTotal.get()).values.find((v) => v.labels.agent_id === "pi")?.value ?? 0;
+    const turnDurationCount = async (): Promise<number> =>
+      (await piTurnDuration.get()).values.find(
+        (v) => v.metricName === "bot_pi_turn_duration_seconds_count" && v.labels.agent_id === "pi",
+      )?.value ?? 0;
+    const retryBefore = await retryCount();
+    const durBefore = await turnDurationCount();
+
+    const { child, stdout } = makeCapturingChild();
+    injectSession(manager, "pi-telemetry", "pi", child, "pi");
+
+    // A retry pair (start → end) followed by the terminal agent_end. The read
+    // loop must count the retry exactly once (on auto_retry_start; auto_retry_end
+    // signals recovery and would double-count) and record one turn duration.
+    setTimeout(() => {
+      stdout.push(JSON.stringify({ type: "auto_retry_start", errorMessage: "HTTP 429 rate limit" }) + "\n");
+      stdout.push(JSON.stringify({ type: "auto_retry_end", errorMessage: "HTTP 429 rate limit" }) + "\n");
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
+        }) + "\n",
+      );
+    }, 30);
+
+    for await (const _line of manager.sendSessionMessage("pi-telemetry", "pi", "go")) {
+      void _line;
+    }
+
+    assert.strictEqual(
+      (await retryCount()) - retryBefore,
+      1,
+      "exactly one retry counted (auto_retry_start only; auto_retry_end must not double-count)",
+    );
+    assert.strictEqual(
+      (await turnDurationCount()) - durBefore,
+      1,
+      "exactly one Pi turn duration recorded on the terminal result",
+    );
 
     await manager.closeAll();
   });

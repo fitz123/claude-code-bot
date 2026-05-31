@@ -7,7 +7,7 @@ import { on } from "node:events";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig, AgentConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
-import { spawnPiRpcSession, sendPiPrompt, sendPiSteer, sendPiGetState, readPiStream, parsePiEvent, NewlineOnlyJsonlSplitter, type PiRpcEvent, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, sendPiSteer, sendPiGetState, readPiStream, parsePiRecord, NewlineOnlyJsonlSplitter, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, recordPiRetry, recordPiTurnDuration, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
@@ -44,20 +44,13 @@ function piStartupStderr(child: ChildProcess): string {
 }
 
 /**
- * Parse one raw JSONL record from a Pi child's stdout and, if it is a SystemInit
- * (get_state) record, return its non-empty session_id; otherwise null. Mirrors
- * `parsePiRecord` in pi-rpc-protocol but yields only the id the capture needs.
+ * Parse one raw JSONL record from a Pi child's stdout via the protocol module's
+ * shared `parsePiRecord` (single source of truth for the JSONL framing/guard
+ * rules) and, if it is a SystemInit (get_state) record, return its non-empty
+ * session_id; otherwise null.
  */
 function parsePiSystemInitId(record: string): string | null {
-  const trimmed = record.trim();
-  if (!trimmed.startsWith("{")) return null;
-  let parsed: PiRpcEvent;
-  try {
-    parsed = JSON.parse(trimmed) as PiRpcEvent;
-  } catch {
-    return null;
-  }
-  const line = parsePiEvent(parsed);
+  const line = parsePiRecord(record);
   if (line && line.type === "system" && typeof line.session_id === "string" && line.session_id.length > 0) {
     return line.session_id;
   }

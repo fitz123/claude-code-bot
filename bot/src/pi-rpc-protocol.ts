@@ -501,7 +501,7 @@ export async function* readPiStream(child: ChildProcess): AsyncGenerator<StreamL
   }
 }
 
-function parsePiRecord(record: string): StreamLine | null {
+export function parsePiRecord(record: string): StreamLine | null {
   const trimmed = record.trim();
   if (!trimmed || !trimmed.startsWith("{")) {
     return null;
