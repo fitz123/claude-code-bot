@@ -25,6 +25,21 @@ export type ProcessFn = (
 /** Fire-and-forget cleanup callback (e.g. delete a temp file after processing). */
 export type CleanupFn = () => void;
 
+/**
+ * Provider-aware mid-turn delivery hook, consulted in the busy-turn branch
+ * BEFORE the inject-file path.
+ *
+ * Returns `true` if the message was delivered live to the running session (the
+ * Pi `steer` path): the queue then skips buffering it, since Pi has no inject
+ * hook and no ack mechanism — buffering would re-deliver the message as a
+ * followup when the turn drains.
+ *
+ * Returns `false` for the claude path (or when no live Pi child is available):
+ * the queue falls back to the inject-file mechanism (PreToolUse hook). Omitting
+ * the hook entirely ⇒ always the inject-file path (claude behavior unchanged).
+ */
+export type SteerFn = (chatId: string, agentId: string, text: string) => boolean;
+
 interface ChatQueueState {
   /** Messages pending debounce timer (pre-send) */
   pendingTexts: string[];
@@ -94,14 +109,16 @@ export class MessageQueue {
   private debounceMs: number;
   private queueCap: number;
   private processFn: ProcessFn;
+  private steerFn: SteerFn | null;
 
   constructor(
     processFn: ProcessFn,
-    options?: { debounceMs?: number; queueCap?: number },
+    options?: { debounceMs?: number; queueCap?: number; steerFn?: SteerFn },
   ) {
     this.processFn = processFn;
     this.debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.queueCap = options?.queueCap ?? DEFAULT_QUEUE_CAP;
+    this.steerFn = options?.steerFn ?? null;
   }
 
   private getState(chatId: string, agentId: string): ChatQueueState {
@@ -168,6 +185,24 @@ export class MessageQueue {
         state.collectDropCleanups.splice(0, consumed);
         state.deferredCleanups.push(...consumedCleanups);
         state.injectConsumed = 0;
+      }
+
+      // Provider-aware mid-turn delivery. For Pi, deliver the message live via
+      // `steer` and do NOT buffer it: Pi has no inject hook + no ack, so a
+      // buffered message would be re-delivered as a followup on drain. For the
+      // claude path (or when no live Pi child is available) steerFn returns
+      // false and we fall through to the inject-file mechanism below.
+      if (this.steerFn && this.steerFn(chatId, state.agentId, text)) {
+        // Defer the turn-scoped cleanup: the steered text may reference a temp
+        // file the agent still reads this turn (runs when the turn drains).
+        // Drop the persistent-media drop-cleanup — the agent now owns the file,
+        // exactly like a hook-consumed inject message.
+        if (cleanup) state.deferredCleanups.push(cleanup);
+        log.debug(
+          "message-queue",
+          `Steered mid-turn message for ${chatId} (provider delivery)`,
+        );
+        return;
       }
 
       // Mid-turn collect: buffer the message

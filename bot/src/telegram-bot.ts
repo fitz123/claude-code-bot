@@ -1,9 +1,10 @@
 import { Bot, type Transformer } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
-import { outboxDir, type SessionManager } from "./session-manager.js";
+import { outboxDir, hasExited, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue } from "./message-queue.js";
+import { sendPiSteer } from "./pi-rpc-protocol.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { allocateMediaPath, enforceMediaCap, releaseMediaPath, discardMediaPath } from "./media-store.js";
@@ -638,12 +639,29 @@ export function createTelegramBot(
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
+  // Provider-aware mid-turn delivery. Pi sessions have no PreToolUse inject
+  // hook, so a mid-turn message must be steered live into the running Pi child;
+  // the claude path keeps the inject-file mechanism (steerFn returns false).
+  const steerFn = (chatId: string, agentId: string, text: string): boolean => {
+    if (config.agents[agentId]?.provider !== "pi") return false;
+    const session = sessionManager.getActive(chatId);
+    if (!session || hasExited(session.child)) return false;
+    try {
+      sendPiSteer(session.child, text);
+      return true;
+    } catch (err) {
+      log.warn("telegram-bot", `Pi steer failed for ${chatId}: ${(err as Error).message}`);
+      return false;
+    }
+  };
+
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform, onAgentOwnership) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
       await relayStream(stream, platform, outboxDir(chatId), onAgentOwnership);
     },
+    { steerFn },
   );
 
   // Watchdog touch: notify liveness watchdog on every incoming update

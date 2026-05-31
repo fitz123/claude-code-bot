@@ -142,11 +142,11 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 - Modify: `bot/src/telegram-bot.ts` (~642 — inject `steerFn` at `MessageQueue` construction)
 - Modify: `bot/src/__tests__/message-queue.test.ts`
 
-- [ ] inject a `steerFn(chatId, text)` at `MessageQueue` construction: `const s = sessionManager.getActive(chatId); if (s && !hasExited(s.child)) sendPiSteer(s.child, text)`
-- [ ] make the busy-turn branch (~155-180) provider-aware: `pi` → `steerFn(chatId, text)`; else → existing `writeInject` path (claude unchanged)
-- [ ] thread the chat's provider into the queue (via state alongside `agentId`, or resolved in the callback)
-- [ ] write tests: pi busy-turn message → `steerFn`/`sendPiSteer`; claude busy-turn message → `writeInject` (regression)
-- [ ] run tests — must pass before next task
+- [x] inject a `steerFn(chatId, text)` at `MessageQueue` construction: `const s = sessionManager.getActive(chatId); if (s && !hasExited(s.child)) sendPiSteer(s.child, text)`
+- [x] make the busy-turn branch (~155-180) provider-aware: `pi` → `steerFn(chatId, text)`; else → existing `writeInject` path (claude unchanged)
+- [x] thread the chat's provider into the queue (resolved in the steer callback via `config.agents[agentId].provider`; queue passes `state.agentId` to `steerFn`)
+- [x] write tests: pi busy-turn message → `steerFn`/`sendPiSteer`; claude busy-turn message → `writeInject` (regression)
+- [x] run tests — must pass before next task
 
 ### Task 6: Verify acceptance criteria
 

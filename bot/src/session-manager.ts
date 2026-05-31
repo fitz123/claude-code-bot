@@ -28,7 +28,7 @@ export function outboxDir(chatId: string): string {
 }
 
 /** Check whether a child process has exited (by exit code or signal). */
-function hasExited(child: ChildProcess): boolean {
+export function hasExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
