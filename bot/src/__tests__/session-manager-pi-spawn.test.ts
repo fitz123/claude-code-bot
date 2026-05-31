@@ -48,6 +48,14 @@ const piSpawnCaptures: PiSpawnCapture[] = [];
  */
 let nextPiSessionId: string | null = "pi-generated-id";
 
+/**
+ * When set, the mocked sendPiGetState throws this error — models the
+ * spawn-then-exit race where the child dies after waitForSpawn resolves but
+ * before get_state is written (the real writePiCommand rejects a closed stdin).
+ * Capture must swallow it and fall back to the local id, never escaping spawn.
+ */
+let getStateError: Error | null = null;
+
 /** Create a mock ChildProcess that auto-emits 'spawn' on next tick. */
 function createAutoSpawnChild(): ChildProcess {
   const child = new EventEmitter() as unknown as ChildProcess;
@@ -149,7 +157,9 @@ mock.module("../pi-rpc-protocol.js", {
         ? createAutoSpawnChild()
         : createFailingPiChild(outcome.failStderr);
     },
-    sendPiGetState() {},
+    sendPiGetState() {
+      if (getStateError) throw getStateError;
+    },
     sendPiPrompt() {},
     async *readPiStream(): AsyncGenerator<StreamLine> {
       if (nextPiSessionId !== null) {
@@ -208,6 +218,7 @@ describe("SessionManager Pi session-id capture + resume", () => {
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
+    getStateError = null;
   });
 
   afterEach(() => {
@@ -284,6 +295,30 @@ describe("SessionManager Pi session-id capture + resume", () => {
     await manager.closeAll();
   });
 
+  it("get_state throwing (child died right after spawn) falls back to the local id, not an uncaught throw", async () => {
+    // Spawn succeeds (waitForSpawn resolves on 'spawn'), but the child dies before
+    // get_state is written, so sendPiGetState throws — the spawn-then-exit race.
+    getStateError = new Error("Pi RPC child process is not available");
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+
+    // getOrCreateSession must NOT reject: capture swallows the throw and the
+    // session falls back to the bot's local id.
+    const session = await manager.getOrCreateSession("pi-getstate-fail", "pi");
+
+    assert.strictEqual(piSpawnCaptures.length, 1, "one Pi spawn, no recovery loop");
+    assert.ok(session.sessionId.length > 0, "session keeps a usable local id");
+
+    const store = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(
+      store.getSession("pi-getstate-fail")?.sessionId,
+      session.sessionId,
+      "the local id is persisted",
+    );
+
+    await manager.closeAll();
+  });
+
   it("claude path bot-generates --session-id and never issues get_state (regression)", async () => {
     const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
     const session = await manager.getOrCreateSession("claude-chat", "main");
@@ -323,6 +358,7 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
+    getStateError = null;
     // The media-preserved assertion writes into /tmp/bot-media; clear the chat's
     // dir between runs so a prior run's file can't mask a regression.
     try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }

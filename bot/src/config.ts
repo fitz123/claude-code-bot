@@ -143,6 +143,14 @@ export function validateAgent(
   if (obj.model !== undefined && typeof obj.model !== "string") {
     throw new Error(`Agent "${id}" has invalid model (must be a string)`);
   }
+  // A Pi agent must not inherit the fleet-wide defaultModel: it is Claude-oriented
+  // (e.g. "opus"), and the Pi spawn path would prefix it into a nonsensical
+  // "openai-codex/opus" model string. Require an explicit, Pi-appropriate model.
+  if (obj.model === undefined && obj.provider === "pi") {
+    throw new Error(
+      `Agent "${id}" uses provider "pi" and must set an explicit model (the top-level defaultModel is Claude-oriented); e.g. model: "gpt-5.5"`,
+    );
+  }
   const model = obj.model ?? defaultModel;
   if (typeof model !== "string") {
     throw new Error(`Agent "${id}" missing model (and no top-level defaultModel set)`);

@@ -47,6 +47,36 @@ describe("validateAgent provider field", () => {
     );
   });
 
+  it("rejects a pi agent with no explicit model (must not inherit the Claude defaultModel)", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", provider: "pi" },
+        "coder",
+        "opus", // Claude-oriented top-level defaultModel
+      ),
+      /Agent "coder" uses provider "pi" and must set an explicit model/,
+    );
+  });
+
+  it("accepts a pi agent with an explicit model and does not apply defaultModel", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "pi" },
+      "coder",
+      "opus",
+    );
+    assert.strictEqual(agent.model, "gpt-5.5");
+    assert.strictEqual(agent.provider, "pi");
+  });
+
+  it("a claude agent still inherits the top-level defaultModel (regression)", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x", provider: "claude" },
+      "main",
+      "claude-opus-4-7",
+    );
+    assert.strictEqual(agent.model, "claude-opus-4-7");
+  });
+
   it("does not change other field handling when provider is set", () => {
     const agent = validateAgent(
       {

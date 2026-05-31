@@ -191,6 +191,14 @@ export class SessionManager {
     try {
       sendPiGetState(child);
       return await Promise.race([readSystemInitSessionId(stream), timeout]);
+    } catch (err) {
+      // get_state can throw if the child died between waitForSpawn resolving and
+      // this write (a spawn-then-exit race): sendPiGetState rejects a closed
+      // stdin. Swallow it — capture is best-effort. The session stays usable on
+      // its local id and a dead child surfaces through normal crash recovery on
+      // the next message, rather than as an uncaught rejection out of spawn.
+      log.warn("session-manager", `Pi get_state capture failed: ${(err as Error).message}`);
+      return null;
     } finally {
       if (timer) clearTimeout(timer);
       // Stop the generator so child.stdout is handed off cleanly to the next
