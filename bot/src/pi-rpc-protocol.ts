@@ -161,6 +161,9 @@ export interface PiStartupDiagnostics {
   piStartupStderr?: () => string;
 }
 
+/** Cap on buffered startup stderr (the classifier only needs the startup tail). */
+const PI_STARTUP_STDERR_CAP = 64 * 1024;
+
 export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string): ChildProcess {
   const child = spawn(PI_BIN, buildPiSpawnArgs(agent, resumeSessionId), {
     env: buildPiSpawnEnv(agent),
@@ -171,10 +174,15 @@ export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string):
   // Buffer startup stderr so the spawn caller can classify a resume failure
   // (Pi prints `No session found matching <id>` and exits 1 when handed a stale
   // --session). Keep the existing log.warn so stderr stays visible in logs.
+  // Cap the buffer: the only consumer is the startup classifier, and the signal
+  // it matches appears in the first chunk(s); without a cap a long-lived, chatty
+  // Pi session would accumulate all stderr in memory for the child's lifetime.
   let stderrBuffer = "";
   child.stderr?.on("data", (chunk: Buffer | string) => {
     const raw = chunk.toString();
-    stderrBuffer += raw;
+    if (stderrBuffer.length < PI_STARTUP_STDERR_CAP) {
+      stderrBuffer += raw;
+    }
     const text = raw.trimEnd();
     if (text) {
       log.warn("pi-rpc", text);

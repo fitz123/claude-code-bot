@@ -3,10 +3,11 @@ import { createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { on } from "node:events";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig, AgentConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
-import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream, parsePiEvent, NewlineOnlyJsonlSplitter, type PiRpcEvent, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
@@ -43,15 +44,22 @@ function piStartupStderr(child: ChildProcess): string {
 }
 
 /**
- * Drive a translated Pi stream until the first SystemInit record and return its
- * session_id, or null if the generator ends without one. Used by the spawn-path
- * get_state capture to read exactly the id record.
+ * Parse one raw JSONL record from a Pi child's stdout and, if it is a SystemInit
+ * (get_state) record, return its non-empty session_id; otherwise null. Mirrors
+ * `parsePiRecord` in pi-rpc-protocol but yields only the id the capture needs.
  */
-async function readSystemInitSessionId(stream: AsyncGenerator<StreamLine>): Promise<string | null> {
-  for await (const line of stream) {
-    if (line.type === "system" && typeof line.session_id === "string" && line.session_id.length > 0) {
-      return line.session_id;
-    }
+function parsePiSystemInitId(record: string): string | null {
+  const trimmed = record.trim();
+  if (!trimmed.startsWith("{")) return null;
+  let parsed: PiRpcEvent;
+  try {
+    parsed = JSON.parse(trimmed) as PiRpcEvent;
+  } catch {
+    return null;
+  }
+  const line = parsePiEvent(parsed);
+  if (line && line.type === "system" && typeof line.session_id === "string" && line.session_id.length > 0) {
+    return line.session_id;
   }
   return null;
 }
@@ -183,27 +191,50 @@ export class SessionManager {
    * id, and a later resume that can't match falls to Task 4 recovery.
    */
   private async capturePiSessionId(child: ChildProcess): Promise<string | null> {
-    const stream = readPiStream(child);
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), STARTUP_TIMEOUT_MS);
-    });
+    const stdout = child.stdout;
+    // No stdout, or the child already died during/just-after spawn: nothing to
+    // read. Return null so the caller falls back to the local id (or, if the
+    // child exited, classifies the failure for recovery via hasExited).
+    if (!stdout || hasExited(child)) return null;
+
+    // Read stdout directly with an abortable listener rather than an
+    // async-generator over stdout.iterator(): a generator early-return/timeout
+    // leaves a queued return() blocked behind a pending next() on an
+    // alive-but-idle stdout (destroyOnReturn:false never forces it to settle),
+    // which would wedge session creation forever. `on(...)` removes its stdout
+    // listeners synchronously on abort/return, and `close` ends the read when
+    // the stream closes; a child 'exit' aborts promptly as a backstop.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), STARTUP_TIMEOUT_MS);
+    const onExit = () => controller.abort();
+    child.once("exit", onExit);
+    const splitter = new NewlineOnlyJsonlSplitter();
     try {
       sendPiGetState(child);
-      return await Promise.race([readSystemInitSessionId(stream), timeout]);
+      for await (const [chunk] of on(stdout, "data", { signal: controller.signal, close: ["close"] })) {
+        for (const record of splitter.push(chunk as Buffer)) {
+          const id = parsePiSystemInitId(record);
+          if (id) return id;
+        }
+      }
+      return null;
     } catch (err) {
-      // get_state can throw if the child died between waitForSpawn resolving and
-      // this write (a spawn-then-exit race): sendPiGetState rejects a closed
-      // stdin. Swallow it — capture is best-effort. The session stays usable on
-      // its local id and a dead child surfaces through normal crash recovery on
-      // the next message, rather than as an uncaught rejection out of spawn.
-      log.warn("session-manager", `Pi get_state capture failed: ${(err as Error).message}`);
+      // Aborted (timeout or child exit) is an expected best-effort end: the
+      // session stays usable on its local id. Otherwise sendPiGetState may have
+      // thrown on a closed stdin (a spawn-then-exit race) — swallow it too, but
+      // log, so a dead child surfaces via normal crash recovery on the next
+      // message rather than as an uncaught rejection out of spawn.
+      if (!controller.signal.aborted) {
+        log.warn("session-manager", `Pi get_state capture failed: ${(err as Error).message}`);
+      }
       return null;
     } finally {
-      if (timer) clearTimeout(timer);
-      // Stop the generator so child.stdout is handed off cleanly to the next
-      // reader (readPiStream uses destroyOnReturn:false, so stdout survives).
-      await stream.return(undefined);
+      clearTimeout(timer);
+      child.removeListener("exit", onExit);
+      controller.abort();
+      // Hand stdout back idle (no flowing listeners) so the next per-message
+      // readPiStream takes over cleanly; buffered chunks survive the pause.
+      stdout.pause();
     }
   }
 
@@ -229,9 +260,19 @@ export class SessionManager {
     agent: AgentConfig,
     staleSessionId: string,
   ): Promise<ChildProcess> {
+    // destroySession → closeSession clears restartCounts (so /reconnect can
+    // unblock a circuit-broken chat). A resume-recovery is NOT a clean reconnect:
+    // if this chat had already accumulated crashes, wiping that history would let
+    // a flapping session keep resetting toward zero and never trip the circuit
+    // breaker. Snapshot the count and restore it across the discard so startup
+    // failures stay cumulative.
+    const preservedCrashCount = this.restartCounts.get(chatId);
     // Discard the unresumable stored id (deletes the store record + wipes the
     // chat media dir, which is data-destructive by design here).
     await this.destroySession(chatId);
+    if (preservedCrashCount !== undefined) {
+      this.restartCounts.set(chatId, preservedCrashCount);
+    }
     // destroySession wiped the media dir; recreate it for the fresh start.
     ensureSessionMediaDir(chatId);
     log.warn("session-manager", `could not resume Pi session ${staleSessionId} — starting fresh`);

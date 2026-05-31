@@ -10,6 +10,10 @@ import type { AgentConfig, BotConfig, StreamLine } from "../types.js";
 import { log } from "../logger.js";
 import { piSessionResumeDiscarded } from "../metrics.js";
 import { ensureSessionMediaDir, sessionMediaDir } from "../media-store.js";
+// Real protocol helpers the spawn-path capture needs (parse get_state replies).
+// Resolved here BEFORE mock.module installs the stub, so these are the genuine
+// implementations; the stub below re-exports them so capture parses correctly.
+import { NewlineOnlyJsonlSplitter, parsePiEvent } from "../pi-rpc-protocol.js";
 
 const TEST_DIR = "/tmp/minime-test-pi-spawn";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -205,19 +209,30 @@ mock.module("../pi-rpc-protocol.js", {
       if ("failStderr" in outcome) return createFailingPiChild(outcome.failStderr);
       return createSpawnThenExitChild(outcome.spawnThenExitStderr);
     },
-    sendPiGetState() {
+    sendPiGetState(child: ChildProcess) {
       if (getStateError) throw getStateError;
-    },
-    sendPiPrompt() {},
-    async *readPiStream(child: ChildProcess): AsyncGenerator<StreamLine> {
-      // A child that spawned then died (createSpawnThenExitChild) emits no
-      // records — its stdout already ended. Force capture to return null so the
-      // post-spawn resume-failure path is exercised.
-      if ((child as unknown as { __resumeFailed?: boolean }).__resumeFailed) return;
+      // capturePiSessionId reads child.stdout directly (abortable), so model Pi's
+      // get_state reply by pushing the real JSONL record onto stdout. `null`
+      // models a process that answers without a session id: end the stream so
+      // capture returns promptly (close ends the read) instead of timing out.
+      const stdout = child.stdout as Readable | undefined;
+      if (!stdout) return;
       if (nextPiSessionId !== null) {
-        yield { type: "system", subtype: "init", session_id: nextPiSessionId };
+        stdout.push(
+          JSON.stringify({ type: "response", success: true, data: { sessionId: nextPiSessionId } }) + "\n",
+        );
+      } else {
+        stdout.push(null);
       }
     },
+    sendPiPrompt() {},
+    async *readPiStream(): AsyncGenerator<StreamLine> {
+      // Message-path reader (unused by the spawn-path capture, which now reads
+      // child.stdout directly). Present so session-manager's import resolves.
+    },
+    // Re-export the genuine parse helpers the capture uses.
+    NewlineOnlyJsonlSplitter,
+    parsePiEvent,
   },
 });
 
@@ -518,6 +533,46 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
     // The final failure feeds the normal crash backoff (restart count increments).
     const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
     assert.strictEqual(restartCounts.get("pi-doomed"), 1, "second failure increments the crash count");
+  });
+
+  it("preserves an accumulated crash count across a resume-recovery discard", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-flap", {
+      sessionId: "stored-pi-id",
+      chatId: "pi-flap",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // Resume fails with the signal; the inline fresh re-spawn then succeeds.
+    piSpawnOutcomes = [{ failStderr: "No session found matching stored-pi-id" }];
+    nextPiSessionId = "fresh-pi-id";
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    // Seed a prior crash history. The recovery discard routes through
+    // destroySession → closeSession, which clears restartCounts; the fix must
+    // restore the count so a flapping chat keeps advancing toward the circuit
+    // breaker instead of resetting to zero on every recovery. (prevCrashCount=1
+    // triggers a ~5s crash backoff before the spawn — expected.)
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    restartCounts.set("pi-flap", 1);
+
+    const warnSpy = mock.method(log, "warn", () => {});
+    let session;
+    try {
+      session = await manager.getOrCreateSession("pi-flap", "pi");
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    assert.strictEqual(session.sessionId, "fresh-pi-id", "recovered onto the fresh id");
+    assert.strictEqual(
+      restartCounts.get("pi-flap"),
+      1,
+      "prior crash count survives the recovery discard (not reset to 0)",
+    );
+
+    await manager.closeAll();
   });
 
   it("non-matching startup failure: no discard, stored id + media preserved, normal backoff", async () => {
