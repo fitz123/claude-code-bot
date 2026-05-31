@@ -6,7 +6,7 @@ import { join } from "node:path";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
-import { spawnPiRpcSession, sendPiPrompt, readPiStream } from "./pi-rpc-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
@@ -30,6 +30,20 @@ export function outboxDir(chatId: string): string {
 /** Check whether a child process has exited (by exit code or signal). */
 function hasExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
+}
+
+/**
+ * Drive a translated Pi stream until the first SystemInit record and return its
+ * session_id, or null if the generator ends without one. Used by the spawn-path
+ * get_state capture to read exactly the id record.
+ */
+async function readSystemInitSessionId(stream: AsyncGenerator<StreamLine>): Promise<string | null> {
+  for await (const line of stream) {
+    if (line.type === "system" && typeof line.session_id === "string" && line.session_id.length > 0) {
+      return line.session_id;
+    }
+  }
+  return null;
 }
 
 export interface ActiveSession {
@@ -148,6 +162,34 @@ export class SessionManager {
   }
 
   /**
+   * Capture the Pi-minted session id by issuing get_state and reading the single
+   * SystemInit record it produces, then stopping the generator. Pi (unlike the
+   * claude path, where the bot pre-assigns --session-id) mints its own id and
+   * exposes it ONLY through a get_state response. Honors the single-consumer
+   * contract: this is the lone reader of child.stdout during spawn and is fully
+   * stopped (generator.return) before any sendSessionMessage opens its own fresh
+   * readPiStream. Returns null on timeout or if no id surfaces (e.g. the process
+   * went idle without a system record) — the session stays usable on its local
+   * id, and a later resume that can't match falls to Task 4 recovery.
+   */
+  private async capturePiSessionId(child: ChildProcess): Promise<string | null> {
+    const stream = readPiStream(child);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), STARTUP_TIMEOUT_MS);
+    });
+    try {
+      sendPiGetState(child);
+      return await Promise.race([readSystemInitSessionId(stream), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      // Stop the generator so child.stdout is handed off cleanly to the next
+      // reader (readPiStream uses destroyOnReturn:false, so stdout survives).
+      await stream.return(undefined);
+    }
+  }
+
+  /**
    * Get or create a session for a given chatId.
    * If a session exists in memory with a live process, reuse it.
    * If a session exists in store but process is dead, respawn with --resume.
@@ -222,11 +264,11 @@ export class SessionManager {
     ensureSessionMediaDir(chatId);
 
     // Spawn the agent subprocess. Pi dispatches via the Pi RPC protocol; the
-    // claude/absent path is byte-identical to before. (Pi resume — passing the
-    // captured session id — is wired by a later task; here a Pi spawn always
-    // starts fresh.)
+    // claude/absent path is byte-identical to before. For Pi, only a genuine
+    // resume points --session at the stored (Pi-minted) id; a fresh start omits
+    // it (an unknown id makes Pi exit with "No session found matching").
     const child = agent.provider === "pi"
-      ? spawnPiRpcSession(agent)
+      ? spawnPiRpcSession(agent, resume ? sessionId : undefined)
       : spawnClaudeSession({
           agent,
           sessionId,
@@ -267,6 +309,19 @@ export class SessionManager {
     // Pipe stderr to log file
     this.setupStderrLogging(chatId, child);
 
+    // For Pi, the session id is minted by the Pi process — capture it now via
+    // get_state (the only place Pi exposes it) so it can be persisted and used
+    // to --session-resume after a restart. The claude/absent path keeps the
+    // bot-generated id untouched. Falls back to the local id if capture yields
+    // nothing (session stays functional; a later resume just can't target it).
+    let effectiveSessionId = sessionId;
+    if (agent.provider === "pi") {
+      const piSessionId = await this.capturePiSessionId(child);
+      if (piSessionId) {
+        effectiveSessionId = piSessionId;
+      }
+    }
+
     // Restart/crash count accumulates via setupCrashRecovery and survives
     // active.delete(). Reset to 0 for fresh sessions (no existing, no resume).
     const restartCount = this.restartCounts.get(chatId) ?? 0;
@@ -276,7 +331,7 @@ export class SessionManager {
 
     const session: ActiveSession = {
       child,
-      sessionId,
+      sessionId: effectiveSessionId,
       agentId,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,

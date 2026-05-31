@@ -112,12 +112,12 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 - Modify: `bot/src/__tests__/pi-rpc-protocol.test.ts`
 - Modify: `bot/src/__tests__/session-manager.test.ts`
 
-- [ ] add `buildGetStateCommand()` + `sendPiGetState(child)` (writes `{type:"get_state"}`)
-- [ ] extend `buildPiSpawnArgs(agent, resumeSessionId?)` → push `--session <id>` iff present; thread through `spawnPiRpcSession(agent, resumeSessionId?)`
-- [ ] session-manager Pi spawn: open ONE `readPiStream(child)`, `sendPiGetState`, read until the `SystemInit` record, capture `session_id` → `ActiveSession.sessionId` + `store.setSession`, then STOP that generator (single-consumer contract: per-message `readPiStream` created fresh, prior generator fully drained)
-- [ ] resume path: stored Pi session → spawn with `resumeSessionId = stored.sessionId`
-- [ ] write tests (spawn path via `mock.module` stub of pi-rpc-protocol exports): `buildPiSpawnArgs` adds `--session` iff resume id; get_state SystemInit captured + persisted; single-consumer read terminates cleanly; claude path still bot-generates `--session-id` (regression)
-- [ ] run tests — must pass before next task
+- [x] add `buildGetStateCommand()` + `sendPiGetState(child)` (writes `{type:"get_state"}`)
+- [x] extend `buildPiSpawnArgs(agent, resumeSessionId?)` → push `--session <id>` iff present; thread through `spawnPiRpcSession(agent, resumeSessionId?)`
+- [x] session-manager Pi spawn: open ONE `readPiStream(child)`, `sendPiGetState`, read until the `SystemInit` record, capture `session_id` → `ActiveSession.sessionId` + `store.setSession`, then STOP that generator (single-consumer contract: per-message `readPiStream` created fresh, prior generator fully drained)
+- [x] resume path: stored Pi session → spawn with `resumeSessionId = stored.sessionId`
+- [x] write tests (spawn path via `mock.module` stub of pi-rpc-protocol exports): `buildPiSpawnArgs` adds `--session` iff resume id; get_state SystemInit captured + persisted; single-consumer read terminates cleanly; claude path still bot-generates `--session-id` (regression)
+- [x] run tests — must pass before next task
 
 ### Task 4: Graceful resume-recovery (Pi-path, signal-matched, inline, at-most-once)
 

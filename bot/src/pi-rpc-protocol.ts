@@ -24,7 +24,17 @@ export interface PiSteerCommand {
   message: string;
 }
 
-export type PiRpcCommand = PiPromptCommand | PiSteerCommand;
+/**
+ * `get_state` is a no-argument RPC command whose successful `response` is the
+ * ONLY place Pi exposes the session id it minted (no agent event carries it).
+ * Issued once right after spawn to capture + persist that id for `--session`
+ * resume across restarts.
+ */
+export interface PiGetStateCommand {
+  type: "get_state";
+}
+
+export type PiRpcCommand = PiPromptCommand | PiSteerCommand | PiGetStateCommand;
 
 /**
  * Pi RPC uses strict JSONL framing: LF is the only record delimiter.
@@ -92,7 +102,7 @@ function normalizePiModel(model: string | undefined): string {
   return trimmed.includes("/") ? trimmed : `${PI_PROVIDER}/${trimmed}`;
 }
 
-export function buildPiSpawnArgs(agent: AgentConfig): string[] {
+export function buildPiSpawnArgs(agent: AgentConfig, resumeSessionId?: string): string[] {
   const args = [
     "--mode", "rpc",
     "--provider", PI_PROVIDER,
@@ -101,6 +111,14 @@ export function buildPiSpawnArgs(agent: AgentConfig): string[] {
 
   if (agent.systemPrompt) {
     args.push("--append-system-prompt", agent.systemPrompt);
+  }
+
+  // Pi mints its own session id (the bot cannot pre-assign one as it does for
+  // claude via --session-id). When resuming a stored session, point Pi at the
+  // captured id with --session; on a fresh start, omit it entirely (passing an
+  // unknown id makes Pi exit 1 with "No session found matching").
+  if (resumeSessionId) {
+    args.push("--session", resumeSessionId);
   }
 
   return args;
@@ -132,8 +150,8 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   return env;
 }
 
-export function spawnPiRpcSession(agent: AgentConfig): ChildProcess {
-  const child = spawn(PI_BIN, buildPiSpawnArgs(agent), {
+export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string): ChildProcess {
+  const child = spawn(PI_BIN, buildPiSpawnArgs(agent, resumeSessionId), {
     env: buildPiSpawnEnv(agent),
     cwd: agent.workspaceCwd,
     stdio: ["pipe", "pipe", "pipe"],
@@ -157,12 +175,25 @@ export function buildPiSteerCommand(text: string): PiSteerCommand {
   return { type: "steer", message: text };
 }
 
+export function buildGetStateCommand(): PiGetStateCommand {
+  return { type: "get_state" };
+}
+
 export function sendPiPrompt(child: ChildProcess, text: string): void {
   writePiCommand(child, buildPiPromptCommand(text));
 }
 
 export function sendPiSteer(child: ChildProcess, text: string): void {
   writePiCommand(child, buildPiSteerCommand(text));
+}
+
+/**
+ * Issue a `get_state` command. Its successful `response` carries the Pi-minted
+ * session id, which `parsePiEvent` surfaces as a `SystemInit` — the bot's only
+ * hook for capturing + persisting that id for resume.
+ */
+export function sendPiGetState(child: ChildProcess): void {
+  writePiCommand(child, buildGetStateCommand());
 }
 
 function writePiCommand(child: ChildProcess, command: PiRpcCommand): void {
@@ -393,13 +424,19 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
  * JSON records and untranslatable events are skipped (never throw mid-stream).
  */
 export async function* readPiStream(child: ChildProcess): AsyncGenerator<StreamLine> {
-  if (!child.stdout) {
+  const stdout = child.stdout;
+  if (!stdout) {
     throw new Error("Pi RPC child process stdout is not available");
   }
 
   const splitter = new NewlineOnlyJsonlSplitter();
 
-  for await (const chunk of child.stdout) {
+  // destroyOnReturn:false honors the single-consumer handoff contract: the
+  // spawn-path get_state capture opens this generator, reads the one SystemInit
+  // record, then calls generator.return() to stop. A default async iterator would
+  // destroy child.stdout on that early return, breaking every later
+  // sendSessionMessage (each opens a fresh readPiStream on the same stdout).
+  for await (const chunk of stdout.iterator({ destroyOnReturn: false })) {
     for (const record of splitter.push(chunk as Buffer)) {
       const line = parsePiRecord(record);
       if (line) {

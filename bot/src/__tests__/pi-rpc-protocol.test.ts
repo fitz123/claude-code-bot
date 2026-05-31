@@ -6,6 +6,7 @@ import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
 import {
   NewlineOnlyJsonlSplitter,
+  buildGetStateCommand,
   buildPiPromptCommand,
   buildPiSpawnArgs,
   buildPiSpawnEnv,
@@ -13,6 +14,7 @@ import {
   extractPiTextDelta,
   parsePiEvent,
   readPiStream,
+  sendPiGetState,
   sendPiPrompt,
   sendPiSteer,
 } from "../pi-rpc-protocol.js";
@@ -152,6 +154,19 @@ describe("buildPiSpawnArgs", () => {
     assert.ok(!args.includes("--effort"));
     assert.ok(!args.includes("--add-dir"));
   });
+
+  it("appends --session with the resume session id when one is provided", () => {
+    const args = buildPiSpawnArgs(testAgent, "pi-sess-resume");
+    const idx = args.indexOf("--session");
+
+    assert.notStrictEqual(idx, -1, "should include --session on resume");
+    assert.strictEqual(args[idx + 1], "pi-sess-resume");
+  });
+
+  it("omits --session on a fresh start (no resume id, or a blank one)", () => {
+    assert.ok(!buildPiSpawnArgs(testAgent).includes("--session"), "no arg => fresh start");
+    assert.ok(!buildPiSpawnArgs(testAgent, "").includes("--session"), "blank id => fresh start");
+  });
 });
 
 describe("buildPiSpawnEnv", () => {
@@ -254,6 +269,27 @@ describe("Pi RPC prompt and steer commands", () => {
     assert.deepStrictEqual(buildPiSteerCommand("stop"), {
       type: "steer",
       message: "stop",
+    });
+  });
+
+  it("builds a no-argument get_state command object", () => {
+    assert.deepStrictEqual(buildGetStateCommand(), { type: "get_state" });
+  });
+
+  it("writes get_state commands to stdin", () => {
+    const chunks: Buffer[] = [];
+    const stdin = new Writable({
+      write(chunk, _enc, cb) {
+        chunks.push(Buffer.from(chunk));
+        cb();
+      },
+    });
+    const child = createMockChild({ stdin });
+
+    sendPiGetState(child);
+
+    assert.deepStrictEqual(JSON.parse(Buffer.concat(chunks).toString().trim()), {
+      type: "get_state",
     });
   });
 
@@ -650,5 +686,46 @@ describe("readPiStream", () => {
   it("throws when stdout is unavailable", async () => {
     const child = new EventEmitter() as unknown as ChildProcess;
     await assert.rejects(readPiStream(child).next(), /stdout is not available/);
+  });
+
+  it("does not destroy stdout on early return, so a second consumer can resume (single-consumer handoff)", async () => {
+    // Models the spawn-path get_state capture: read exactly the SystemInit
+    // record, stop the generator, then open a FRESH readPiStream on the SAME
+    // child for the first sendSessionMessage. The first generator must leave
+    // child.stdout intact (destroyOnReturn:false) or the handoff breaks.
+    const stdout = new Readable({ read() {} });
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { stdout });
+
+    // First consumer: the get_state capture reads one SystemInit then stops.
+    const first = readPiStream(child);
+    stdout.push(
+      JSON.stringify({
+        type: "response",
+        command: "get_state",
+        success: true,
+        data: { sessionId: "pi-handoff-1" },
+      }) + "\n",
+    );
+    const r1 = await first.next();
+    assert.strictEqual(r1.done, false);
+    assert.strictEqual(r1.value.type, "system");
+    assert.strictEqual((r1.value as { session_id: string }).session_id, "pi-handoff-1");
+    await first.return(undefined);
+
+    assert.strictEqual(stdout.destroyed, false, "early return must NOT destroy stdout");
+
+    // Second consumer: a fresh readPiStream keeps reading the same stdout.
+    const second = readPiStream(child);
+    stdout.push(
+      JSON.stringify({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "after handoff" },
+      }) + "\n",
+    );
+    const r2 = await second.next();
+    assert.strictEqual(r2.done, false);
+    assert.strictEqual(extractPiTextDelta(r2.value), "after handoff");
+    await second.return(undefined);
   });
 });
