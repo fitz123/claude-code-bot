@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import PQueue from "p-queue";
-import type { SessionState, StreamLine, BotConfig } from "./types.js";
+import type { SessionState, StreamLine, BotConfig, AgentConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
@@ -208,6 +208,38 @@ export class SessionManager {
   }
 
   /**
+   * True when a Pi child exited with the "stored session not found" signal
+   * (exit 1 + matching stderr) — the trigger for graceful resume-recovery.
+   */
+  private isPiResumeNotFound(child: ChildProcess): boolean {
+    return child.exitCode === 1 && /No session found matching/.test(piStartupStderr(child));
+  }
+
+  /**
+   * Perform the Pi graceful resume-recovery action: discard the unresumable
+   * stored id (deletes the store record + wipes the chat media dir), recreate
+   * the media dir for a clean fresh start, log, bump the metric, and return a
+   * fresh (no --session) child. Callers gate this on the at-most-once
+   * `alreadyRetried` flag + the "session not found" signal; this performs only
+   * the discard + fresh re-spawn.
+   */
+  private async discardUnresumablePiSession(
+    chatId: string,
+    agentId: string,
+    agent: AgentConfig,
+    staleSessionId: string,
+  ): Promise<ChildProcess> {
+    // Discard the unresumable stored id (deletes the store record + wipes the
+    // chat media dir, which is data-destructive by design here).
+    await this.destroySession(chatId);
+    // destroySession wiped the media dir; recreate it for the fresh start.
+    ensureSessionMediaDir(chatId);
+    log.warn("session-manager", `could not resume Pi session ${staleSessionId} — starting fresh`);
+    piSessionResumeDiscarded.inc({ agent_id: agentId });
+    return spawnPiRpcSession(agent, undefined);
+  }
+
+  /**
    * Get or create a session for a given chatId.
    * If a session exists in memory with a live process, reuse it.
    * If a session exists in store but process is dead, respawn with --resume.
@@ -308,10 +340,45 @@ export class SessionManager {
     let effectiveSessionId = sessionId;
     let alreadyRetried = false;
 
-    // Verify the subprocess actually started.
+    // Verify the subprocess started — and for Pi, capture its minted session id.
+    // A real `pi` handed a stale --session does NOT fail at spawn: Node emits
+    // 'spawn' before all other events, so waitForSpawn RESOLVES, and only THEN
+    // does Pi print "No session found matching" and exit 1. So a resume failure
+    // surfaces during the get_state capture (the child is already dead by then),
+    // NOT as a spawn rejection. Detect that here and throw into the shared catch,
+    // which classifies BOTH a spawn rejection and a post-spawn startup exit the
+    // same way: the "session not found" signal → one inline fresh start;
+    // anything else → crash-backoff.
     for (;;) {
       try {
         await waitForSpawn(child, STARTUP_TIMEOUT_MS);
+
+        // Prevent EPIPE from becoming uncaughtException when the subprocess
+        // dies — wired before any capture write so a racing child death on the
+        // get_state stdin write is logged, not thrown.
+        child.stdin?.on("error", (err) => {
+          log.error("session-manager", `stdin error for chat ${chatId}: ${err.message}`);
+        });
+
+        // For Pi, the session id is minted by the process — capture it now via
+        // get_state (the only place Pi exposes it) so it can be persisted and
+        // used to --session-resume after a restart. The claude/absent path keeps
+        // its bot-generated id untouched.
+        if (isPi) {
+          const piSessionId = await this.capturePiSessionId(child);
+          if (piSessionId) {
+            // Capture succeeded — the process is alive and answered get_state.
+            effectiveSessionId = piSessionId;
+          } else if (hasExited(child)) {
+            // No id AND the child already exited: it spawned but died during
+            // startup (e.g. a stale --session). Throw into the shared catch for
+            // classification (recovery vs backoff), same as a spawn rejection.
+            throw new Error(`Pi subprocess exited during startup: code=${child.exitCode}`);
+          }
+          // Else: no id but the child is still alive — capture timed out or the
+          // process went idle without a SystemInit. The session stays functional
+          // on its local id (a later resume just can't target it).
+        }
         break;
       } catch (err) {
         // Ensure child is dead before inspecting/throwing.
@@ -324,24 +391,11 @@ export class SessionManager {
         // only once: discard the unresumable stored session and start fresh
         // INLINE (no recursion into getOrCreateSession, no --session). Any other
         // failure — and any second failure — falls through to crash-backoff.
-        if (
-          isPi &&
-          effectiveResume &&
-          !alreadyRetried &&
-          child.exitCode === 1 &&
-          /No session found matching/.test(piStartupStderr(child))
-        ) {
+        if (isPi && effectiveResume && !alreadyRetried && this.isPiResumeNotFound(child)) {
           alreadyRetried = true;
-          // Discard the unresumable stored id (deletes the store record + wipes
-          // the chat media dir, which is data-destructive by design here).
-          await this.destroySession(chatId);
-          // destroySession wiped the media dir; recreate it for the fresh start.
-          ensureSessionMediaDir(chatId);
-          log.warn("session-manager", `could not resume Pi session ${sessionId} — starting fresh`);
-          piSessionResumeDiscarded.inc({ agent_id: agentId });
+          child = await this.discardUnresumablePiSession(chatId, agentId, agent, sessionId);
           effectiveResume = false;
           effectiveSessionId = randomUUID();
-          child = spawnPiRpcSession(agent, undefined);
           continue;
         }
 
@@ -361,25 +415,8 @@ export class SessionManager {
       }
     }
 
-    // Prevent EPIPE from becoming uncaughtException when subprocess dies
-    child.stdin?.on("error", (err) => {
-      log.error("session-manager", `stdin error for chat ${chatId}: ${err.message}`);
-    });
-
-    // Pipe stderr to log file
+    // Pipe stderr to log file (on the child that ultimately started).
     this.setupStderrLogging(chatId, child);
-
-    // For Pi, the session id is minted by the Pi process — capture it now via
-    // get_state (the only place Pi exposes it) so it can be persisted and used
-    // to --session-resume after a restart. The claude/absent path keeps the
-    // bot-generated id untouched. Falls back to the local id if capture yields
-    // nothing (session stays functional; a later resume just can't target it).
-    if (isPi) {
-      const piSessionId = await this.capturePiSessionId(child);
-      if (piSessionId) {
-        effectiveSessionId = piSessionId;
-      }
-    }
 
     // Restart/crash count accumulates via setupCrashRecovery and survives
     // active.delete(). Reset to 0 for fresh sessions (no existing, no resume).

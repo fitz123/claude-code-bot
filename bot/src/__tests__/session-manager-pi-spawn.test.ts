@@ -89,13 +89,17 @@ function createAutoSpawnChild(): ChildProcess {
 
 /**
  * Per-spawn outcomes consumed FIFO by the mocked spawnPiRpcSession. Empty → the
- * default "ok" auto-spawn, so the Task 3 capture/resume tests are unaffected. A
- * `{ failStderr }` entry models a Pi process that fails startup: it never emits
- * 'spawn', exits 1, and exposes `failStderr` via the same piStartupStderr
- * accessor the real spawnPiRpcSession installs (Pi prints `No session found
- * matching <id>` and exits 1 when handed a stale --session).
+ * default "ok" auto-spawn, so the Task 3 capture/resume tests are unaffected.
+ *  - `{ failStderr }` models a Pi process that fails BEFORE 'spawn' (it never
+ *    emits 'spawn', exits 1 → waitForSpawn rejects). This is the rare edge path.
+ *  - `{ spawnThenExitStderr }` models the REAL `pi` timing for a stale --session:
+ *    it execs cleanly (emits 'spawn', so waitForSpawn RESOLVES) and only THEN
+ *    exits 1. The resume failure surfaces during the get_state capture, not as a
+ *    spawn rejection — the production path the recovery must actually cover.
+ * Both expose their stderr via the same piStartupStderr accessor the real
+ * spawnPiRpcSession installs (Pi prints `No session found matching <id>`).
  */
-type PiSpawnOutcome = "ok" | { failStderr: string };
+type PiSpawnOutcome = "ok" | { failStderr: string } | { spawnThenExitStderr: string };
 let piSpawnOutcomes: PiSpawnOutcome[] = [];
 
 /** A Pi child that fails startup (no 'spawn', exit 1) with buffered stderr. */
@@ -132,6 +136,50 @@ function createFailingPiChild(failStderr: string): ChildProcess {
   return child;
 }
 
+/**
+ * A Pi child that execs successfully (emits 'spawn', so waitForSpawn RESOLVES)
+ * and only THEN exits 1 with buffered stderr — the REAL `pi` timing for a stale
+ * --session. Node guarantees 'spawn' fires before all other events, so the
+ * resume failure does NOT reach the waitForSpawn catch; it surfaces when the
+ * get_state capture finds the child already dead. Marked `__resumeFailed` so the
+ * mocked readPiStream yields no SystemInit (a dead process emits no records),
+ * forcing capture to return null.
+ */
+function createSpawnThenExitChild(failStderr: string): ChildProcess {
+  const child = new EventEmitter() as unknown as ChildProcess;
+  const stdout = new Readable({ read() {} });
+  const stderr = new Readable({ read() {} });
+  const stdin = new Writable({ write(_chunk, _enc, cb) { cb(); } });
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    stdin,
+    pid: Math.floor(Math.random() * 100000),
+    exitCode: null,
+    signalCode: null,
+    killed: false,
+    kill() {
+      (child as unknown as Record<string, unknown>).killed = true;
+      return true;
+    },
+  });
+
+  (child as unknown as { piStartupStderr: () => string }).piStartupStderr = () => failStderr;
+  (child as unknown as { __resumeFailed: boolean }).__resumeFailed = true;
+
+  // Real timing: 'spawn' fires first (waitForSpawn resolves and drops its exit
+  // listener), THEN exit 1. Set exitCode synchronously alongside the spawn emit
+  // so hasExited(child) is already true by the time the capture completes.
+  process.nextTick(() => {
+    child.emit("spawn");
+    (child as unknown as Record<string, unknown>).exitCode = 1;
+    child.emit("exit", 1, null);
+  });
+
+  return child;
+}
+
 // ---------------------------------------------------------------------------
 // Mock BOTH protocol modules BEFORE importing session-manager so the mocks are
 // in place when session-manager's static imports resolve. The spawn path needs
@@ -153,15 +201,19 @@ mock.module("../pi-rpc-protocol.js", {
     spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string) {
       piSpawnCaptures.push({ agent, resumeSessionId });
       const outcome = piSpawnOutcomes.shift() ?? "ok";
-      return outcome === "ok"
-        ? createAutoSpawnChild()
-        : createFailingPiChild(outcome.failStderr);
+      if (outcome === "ok") return createAutoSpawnChild();
+      if ("failStderr" in outcome) return createFailingPiChild(outcome.failStderr);
+      return createSpawnThenExitChild(outcome.spawnThenExitStderr);
     },
     sendPiGetState() {
       if (getStateError) throw getStateError;
     },
     sendPiPrompt() {},
-    async *readPiStream(): AsyncGenerator<StreamLine> {
+    async *readPiStream(child: ChildProcess): AsyncGenerator<StreamLine> {
+      // A child that spawned then died (createSpawnThenExitChild) emits no
+      // records — its stdout already ended. Force capture to return null so the
+      // post-spawn resume-failure path is exercised.
+      if ((child as unknown as { __resumeFailed?: boolean }).__resumeFailed) return;
       if (nextPiSessionId !== null) {
         yield { type: "system", subtype: "init", session_id: nextPiSessionId };
       }
@@ -523,5 +575,111 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
     // Existing crash backoff still applies.
     const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
     assert.strictEqual(restartCounts.get("pi-keep"), 1, "non-matching failure increments the crash count");
+  });
+
+  // The tests above drive failure via createFailingPiChild, which never emits
+  // 'spawn' — an edge that a real exec'd binary cannot produce. The tests below
+  // use createSpawnThenExitChild, which mirrors REAL `pi` timing: it execs
+  // (emits 'spawn', so waitForSpawn RESOLVES) and only THEN exits 1. This is the
+  // production path the recovery must cover — the failure surfaces during the
+  // get_state capture, not as a spawn rejection.
+
+  it("real pi timing (spawn then exit 1 with the signal): recovery still fires", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-real", {
+      sessionId: "stored-pi-id",
+      chatId: "pi-real",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // The resume spawn execs then exits 1 with the signal (real timing); the
+    // inline fresh re-spawn then succeeds and get_state mints a new id.
+    piSpawnOutcomes = [{ spawnThenExitStderr: "No session found matching stored-pi-id" }];
+    nextPiSessionId = "fresh-pi-id";
+
+    const before = await discardedCount("pi");
+    const warnCalls: unknown[][] = [];
+    const warnSpy = mock.method(log, "warn", (...args: unknown[]) => { warnCalls.push(args); });
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    let session;
+    try {
+      session = await manager.getOrCreateSession("pi-real", "pi");
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    // Exactly two spawns: the failed resume, then ONE inline fresh start — even
+    // though waitForSpawn RESOLVED for the failed resume (this is the bug fix).
+    assert.strictEqual(piSpawnCaptures.length, 2, "resume spawn + one inline fresh re-spawn");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, "stored-pi-id", "first spawn resumed the stored id");
+    assert.strictEqual(piSpawnCaptures[1].resumeSessionId, undefined, "recovery spawn starts fresh (no --session)");
+
+    assert.strictEqual(session.sessionId, "fresh-pi-id", "recovered session adopts the new Pi id");
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("pi-real")?.sessionId, "fresh-pi-id", "fresh id persisted");
+
+    const recoveryWarns = warnCalls.filter(
+      (a) =>
+        a[0] === "session-manager" &&
+        typeof a[1] === "string" &&
+        (a[1] as string).includes("could not resume Pi session stored-pi-id — starting fresh"),
+    );
+    assert.strictEqual(recoveryWarns.length, 1, "exactly one recovery warning");
+    assert.strictEqual((await discardedCount("pi")) - before, 1, "metric incremented exactly once");
+
+    await manager.closeAll();
+  });
+
+  it("real pi timing (spawn then exit 1 with a non-matching error): no discard, crash count increments", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-real-keep", {
+      sessionId: "keep-pi-id",
+      chatId: "pi-real-keep",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // Execs then exits 1, but NOT with the "No session found" signal → no recovery.
+    piSpawnOutcomes = [{ spawnThenExitStderr: "codex: authentication token expired" }];
+
+    const before = await discardedCount("pi");
+    const warnCalls: unknown[][] = [];
+    const warnSpy = mock.method(log, "warn", (...args: unknown[]) => { warnCalls.push(args); });
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    try {
+      await assert.rejects(
+        () => manager.getOrCreateSession("pi-real-keep", "pi"),
+        /exited during startup/,
+        "a non-matching post-spawn exit propagates as a startup error",
+      );
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    // Exactly one spawn — no inline recovery re-spawn.
+    assert.strictEqual(piSpawnCaptures.length, 1, "no recovery spawn for a non-matching failure");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, "keep-pi-id", "the resume attempt used the stored id");
+
+    // No discard: stored id preserved.
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("pi-real-keep")?.sessionId, "keep-pi-id", "stored id preserved");
+
+    const recoveryWarns = warnCalls.filter(
+      (a) =>
+        a[0] === "session-manager" &&
+        typeof a[1] === "string" &&
+        (a[1] as string).includes("could not resume Pi session"),
+    );
+    assert.strictEqual(recoveryWarns.length, 0, "no recovery warning for a non-matching failure");
+    assert.strictEqual((await discardedCount("pi")) - before, 0, "metric not incremented");
+
+    // A post-spawn startup exit must still feed crash backoff (the bug fix also
+    // closes the gap where a spawned-then-died child created a session with no
+    // crash count and could tight-loop).
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    assert.strictEqual(restartCounts.get("pi-real-keep"), 1, "post-spawn startup exit increments the crash count");
   });
 });
