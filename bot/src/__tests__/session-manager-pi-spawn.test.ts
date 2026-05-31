@@ -226,6 +226,7 @@ mock.module("../pi-rpc-protocol.js", {
       }
     },
     sendPiPrompt() {},
+    sendPiSteer() {},
     async *readPiStream(): AsyncGenerator<StreamLine> {
       // Message-path reader (unused by the spawn-path capture, which now reads
       // child.stdout directly). Present so session-manager's import resolves.

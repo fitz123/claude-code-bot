@@ -331,8 +331,11 @@ function extractFinalAssistantText(messages: unknown): string {
  *   first turn — only `agent_end` is terminal.
  * - `response` → a successful `get_state`/`get_session_stats` reply yields a
  *   `SystemInit` capturing `data.sessionId` (the ONLY place Pi exposes the
- *   session id — no event carries it); a failed reply (`success: false`) yields
- *   an error `ResultMessage` so a rejected command is not silently swallowed.
+ *   session id — no event carries it). A failed reply (`success: false`) is
+ *   correlated by `command`: a failed `prompt` yields an error `ResultMessage`
+ *   (the turn cannot proceed), but a failed side-command (`steer`, `get_state`,
+ *   `set_model`, …) returns null + logs — mapping it to a terminal result would
+ *   truncate the in-flight prompt turn whose stdout it shares.
  * - `auto_retry_start` / `auto_retry_end` → `RateLimitEvent` (raw error message
  *   preserved for the Task 4 retry classifier).
  * - `error` → error `ResultMessage` (`subtype: "error_during_execution"`).
@@ -390,18 +393,37 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
     }
 
     case "response": {
-      // Command responses are not stream content. Two are actionable: a failed
-      // command surfaces its error, and a successful get_state/get_session_stats
-      // reply carries the Pi-generated session id (no event exposes it).
+      // Command responses are side-channel replies, NOT prompt-turn stream
+      // content. The terminal event of a prompt turn is `agent_end` (or a
+      // top-level `error`). A `response` shares the same stdout the active turn
+      // is reading, so it must be correlated by `command` before being treated
+      // as terminal:
+      //  - a failed `prompt` response IS terminal — the prompt was rejected, so
+      //    no `agent_end` will ever arrive; surface it as an error result so the
+      //    turn ends now instead of hanging until the activity timeout.
+      //  - a failed side-command response (`steer`, `get_state`, `set_model`, …)
+      //    must NOT be mapped to a terminal result: a mid-turn `steer` rejection
+      //    would otherwise truncate the in-flight response (and the steered
+      //    message has already been dropped from the queue). Log + return null so
+      //    the failure is visible without ending the turn.
+      // A successful `get_state`/`get_session_stats` reply carries the Pi-minted
+      // session id (no event exposes it) and is captured below.
       if (rawEvent.success === false) {
-        const result: ResultMessage = {
-          type: "result",
-          subtype: "error_during_execution",
-          result: rawEvent.error ?? "Pi RPC command failed",
-          session_id: "",
-          is_error: true,
-        };
-        return result;
+        if (rawEvent.command === "prompt") {
+          const result: ResultMessage = {
+            type: "result",
+            subtype: "error_during_execution",
+            result: rawEvent.error ?? "Pi RPC command failed",
+            session_id: "",
+            is_error: true,
+          };
+          return result;
+        }
+        log.warn(
+          "pi-rpc",
+          `Pi RPC command failed (ignored in stream): command=${rawEvent.command ?? "unknown"} error=${rawEvent.error ?? "(none)"}`,
+        );
+        return null;
       }
       const sessionId = rawEvent.data?.sessionId;
       if (typeof sessionId === "string" && sessionId.length > 0) {

@@ -7,10 +7,10 @@ import { on } from "node:events";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig, AgentConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
-import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream, parsePiEvent, NewlineOnlyJsonlSplitter, type PiRpcEvent, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, sendPiSteer, sendPiGetState, readPiStream, parsePiEvent, NewlineOnlyJsonlSplitter, type PiRpcEvent, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
-import { recordResultMetrics, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
+import { recordResultMetrics, recordPiRetry, recordPiTurnDuration, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
 import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
 import { ensureSessionMediaDir, cleanupSessionMediaDir, cleanupStaleSessionMedia } from "./media-store.js";
 
@@ -603,10 +603,26 @@ export class SessionManager {
           }, RESPONSE_ACTIVITY_TIMEOUT_MS);
         };
         resetActivityTimer();
+        // Pi turns carry no duration_ms in their result (only the Claude CLI
+        // does), so measure wall-clock from the prompt send for the Pi-specific
+        // histogram. processingStartedAt is reset to null after the loop, so
+        // capture it now while it is still set.
+        const turnStartedAt = session.processingStartedAt ?? Date.now();
         const stream = isPi ? readPiStream(session.child) : readStream(session.child);
         for await (const line of stream) {
           resetActivityTimer();
           push(line);
+          // Pi auto-retry telemetry: increment once per retry on auto_retry_start
+          // (auto_retry_end signals recovery — counting it too would double-count).
+          if (
+            isPi &&
+            line.type === "assistant" &&
+            line.subtype === "rate_limit_event" &&
+            line.pi_event_type === "auto_retry_start"
+          ) {
+            const errorMessage = typeof line.error_message === "string" ? line.error_message : undefined;
+            recordPiRetry(session.agentId, errorMessage);
+          }
           if (line.type === "result") {
             gotResult = true;
             session.lastSuccessAt = Date.now();
@@ -614,6 +630,9 @@ export class SessionManager {
             // Reset crash backoff on successful response
             this.restartCounts.set(chatId, 0);
             recordResultMetrics(session.agentId, line);
+            if (isPi) {
+              recordPiTurnDuration(session.agentId, (Date.now() - turnStartedAt) / 1000);
+            }
             break;
           }
         }
@@ -745,13 +764,23 @@ export class SessionManager {
   async gracefulShutdown(timeoutMs: number): Promise<void> {
     const busySessions: { chatId: string; startedAt: number }[] = [];
 
+    const shutdownNotice =
+      "[System: Bot is shutting down for restart. Do NOT attempt to restart the bot — the restart is already in progress. Wrap up your current task.]";
     for (const [chatId, session] of this.active) {
       if (session.processingStartedAt !== null) {
-        // Inject shutdown notification so the agent knows not to re-trigger restart
+        // Deliver the shutdown notice through the provider's mid-turn channel.
+        // Pi has no PreToolUse inject hook (the inject file would never be read),
+        // so steer it live into the running Pi child; the claude path keeps the
+        // inject-file mechanism. Pinned provider, not config — never switch the
+        // protocol of an already-live child.
         try {
-          writeInjectFile(session.injectDir, [
-            "[System: Bot is shutting down for restart. Do NOT attempt to restart the bot — the restart is already in progress. Wrap up your current task.]",
-          ]);
+          if (session.provider === "pi") {
+            if (!hasExited(session.child)) {
+              sendPiSteer(session.child, shutdownNotice);
+            }
+          } else {
+            writeInjectFile(session.injectDir, [shutdownNotice]);
+          }
         } catch { /* best-effort */ }
         busySessions.push({ chatId, startedAt: session.processingStartedAt });
       }

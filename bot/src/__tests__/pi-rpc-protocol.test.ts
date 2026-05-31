@@ -537,20 +537,40 @@ describe("parsePiEvent", () => {
     );
   });
 
-  it("surfaces a failed command response as an error ResultMessage", () => {
+  it("surfaces a failed prompt response as a terminal error ResultMessage", () => {
     const line = parsePiEvent({
       type: "response",
-      command: "set_model",
+      command: "prompt",
       success: false,
-      error: "Model not found: invalid/model",
+      error: "prompt rejected",
     });
 
     assert.ok(line);
     assert.strictEqual(line.type, "result");
     const result = line as unknown as Record<string, unknown>;
     assert.strictEqual(result.subtype, "error_during_execution");
-    assert.strictEqual(result.result, "Model not found: invalid/model");
+    assert.strictEqual(result.result, "prompt rejected");
     assert.strictEqual(result.is_error, true);
+  });
+
+  it("ignores a failed side-command response so it cannot truncate the active turn", () => {
+    // A mid-turn `steer` rejection shares the active prompt turn's stdout.
+    // Mapping it to a terminal result would end the in-flight response early, so
+    // it must be ignored (returned null) rather than surfaced as a result.
+    assert.strictEqual(
+      parsePiEvent({ type: "response", command: "steer", success: false, error: "no active turn" }),
+      null,
+    );
+    assert.strictEqual(
+      parsePiEvent({ type: "response", command: "set_model", success: false, error: "Model not found" }),
+      null,
+    );
+    // A failed response with no command field is also ignored (cannot correlate
+    // it to the prompt; ignoring is safer than truncating an active turn).
+    assert.strictEqual(
+      parsePiEvent({ type: "response", success: false, error: "mystery failure" }),
+      null,
+    );
   });
 
   it("translates auto_retry_start into a rate_limit_event preserving the error message", () => {
