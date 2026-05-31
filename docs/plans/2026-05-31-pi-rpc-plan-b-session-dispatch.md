@@ -128,12 +128,12 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 - Modify: `bot/src/__tests__/session-manager.test.ts`
 - Modify: `bot/src/__tests__/metrics.test.ts`
 
-- [ ] `spawnPiRpcSession`: buffer startup stderr (keep `log.warn`) and expose stderr+exit for the caller to inspect
-- [ ] add metric `pi_session_resume_discarded_total` (prom-client, already wired)
-- [ ] spawn catch (Pi branch, resuming only, LOCAL `alreadyRetried` flag): if `!alreadyRetried && exitCode===1 && /No session found matching/.test(stderr)` → `destroySession(chatId)` + INLINE single `spawnPiRpcSession`+`waitForSpawn` fresh (no `--session`) + `log.warn("could not resume Pi session <id> — starting fresh")` + metric inc. NO recursive `getOrCreateSession`.
-- [ ] second failure throws into the normal catch (increments `restartCounts`); non-matching failures preserve BOTH stored id AND media dir
-- [ ] write tests: missing-session signal → exactly ONE `destroySession` + ONE warn + metric inc, then success; both spawns fail identically → exactly ONE destroySession + ONE warn then a THROWN error, NO loop; non-matching failure → NO discard, stored id + media dir preserved, existing backoff
-- [ ] run tests — must pass before next task
+- [x] `spawnPiRpcSession`: buffer startup stderr (keep `log.warn`) and expose stderr+exit for the caller to inspect
+- [x] add metric `pi_session_resume_discarded_total` (prom-client, already wired)
+- [x] spawn catch (Pi branch, resuming only, LOCAL `alreadyRetried` flag): if `!alreadyRetried && exitCode===1 && /No session found matching/.test(stderr)` → `destroySession(chatId)` + INLINE single `spawnPiRpcSession`+`waitForSpawn` fresh (no `--session`) + `log.warn("could not resume Pi session <id> — starting fresh")` + metric inc. NO recursive `getOrCreateSession`.
+- [x] second failure throws into the normal catch (increments `restartCounts`); non-matching failures preserve BOTH stored id AND media dir
+- [x] write tests: missing-session signal → exactly ONE `destroySession` + ONE warn + metric inc, then success; both spawns fail identically → exactly ONE destroySession + ONE warn then a THROWN error, NO loop; non-matching failure → NO discard, stored id + media dir preserved, existing backoff
+- [x] run tests — must pass before next task
 
 ### Task 5: Mid-turn steer wiring for Pi (message-queue)
 

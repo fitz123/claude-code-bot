@@ -1,10 +1,15 @@
 import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { Readable, Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { AgentConfig, BotConfig, StreamLine } from "../types.js";
+// Real (un-mocked) modules — the SAME singletons session-manager imports, so a
+// spy on log.warn and a read of piSessionResumeDiscarded observe its behavior.
+import { log } from "../logger.js";
+import { piSessionResumeDiscarded } from "../metrics.js";
+import { ensureSessionMediaDir, sessionMediaDir } from "../media-store.js";
 
 const TEST_DIR = "/tmp/minime-test-pi-spawn";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -74,6 +79,51 @@ function createAutoSpawnChild(): ChildProcess {
   return child;
 }
 
+/**
+ * Per-spawn outcomes consumed FIFO by the mocked spawnPiRpcSession. Empty → the
+ * default "ok" auto-spawn, so the Task 3 capture/resume tests are unaffected. A
+ * `{ failStderr }` entry models a Pi process that fails startup: it never emits
+ * 'spawn', exits 1, and exposes `failStderr` via the same piStartupStderr
+ * accessor the real spawnPiRpcSession installs (Pi prints `No session found
+ * matching <id>` and exits 1 when handed a stale --session).
+ */
+type PiSpawnOutcome = "ok" | { failStderr: string };
+let piSpawnOutcomes: PiSpawnOutcome[] = [];
+
+/** A Pi child that fails startup (no 'spawn', exit 1) with buffered stderr. */
+function createFailingPiChild(failStderr: string): ChildProcess {
+  const child = new EventEmitter() as unknown as ChildProcess;
+  const stdout = new Readable({ read() {} });
+  const stderr = new Readable({ read() {} });
+  const stdin = new Writable({ write(_chunk, _enc, cb) { cb(); } });
+
+  Object.assign(child, {
+    stdout,
+    stderr,
+    stdin,
+    pid: Math.floor(Math.random() * 100000),
+    exitCode: null,
+    signalCode: null,
+    killed: false,
+    kill() {
+      (child as unknown as Record<string, unknown>).killed = true;
+      return true;
+    },
+  });
+
+  // Mirror spawnPiRpcSession: expose buffered startup stderr so the spawn-failure
+  // classifier can match Pi's "No session found matching" signal.
+  (child as unknown as { piStartupStderr: () => string }).piStartupStderr = () => failStderr;
+
+  // Fail startup: exit 1, never 'spawn' → waitForSpawn rejects with code=1.
+  process.nextTick(() => {
+    (child as unknown as Record<string, unknown>).exitCode = 1;
+    child.emit("exit", 1, null);
+  });
+
+  return child;
+}
+
 // ---------------------------------------------------------------------------
 // Mock BOTH protocol modules BEFORE importing session-manager so the mocks are
 // in place when session-manager's static imports resolve. The spawn path needs
@@ -94,7 +144,10 @@ mock.module("../pi-rpc-protocol.js", {
   namedExports: {
     spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string) {
       piSpawnCaptures.push({ agent, resumeSessionId });
-      return createAutoSpawnChild();
+      const outcome = piSpawnOutcomes.shift() ?? "ok";
+      return outcome === "ok"
+        ? createAutoSpawnChild()
+        : createFailingPiChild(outcome.failStderr);
     },
     sendPiGetState() {},
     sendPiPrompt() {},
@@ -153,6 +206,7 @@ describe("SessionManager Pi session-id capture + resume", () => {
     mkdirSync(TEST_DIR, { recursive: true });
     claudeSpawnCaptures.length = 0;
     piSpawnCaptures.length = 0;
+    piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
   });
 
@@ -251,5 +305,187 @@ describe("SessionManager Pi session-id capture + resume", () => {
     assert.strictEqual(piSpawnCaptures.length, 0, "claude path must not spawn a Pi process");
 
     await manager.closeAll();
+  });
+});
+
+describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
+  /** Current value of the discard metric for an agent (0 if never set). */
+  async function discardedCount(agentId: string): Promise<number> {
+    const metric = await piSessionResumeDiscarded.get();
+    const entry = metric.values.find((v) => v.labels.agent_id === agentId);
+    return entry?.value ?? 0;
+  }
+
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+    claudeSpawnCaptures.length = 0;
+    piSpawnCaptures.length = 0;
+    piSpawnOutcomes = [];
+    nextPiSessionId = "pi-generated-id";
+    // The media-preserved assertion writes into /tmp/bot-media; clear the chat's
+    // dir between runs so a prior run's file can't mask a regression.
+    try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  afterEach(() => {
+    cleanup();
+    try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it("missing-session signal: discards once, warns once, increments metric, then starts fresh", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-stale", {
+      sessionId: "stored-pi-id",
+      chatId: "pi-stale",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // The resume spawn fails with Pi's "No session found" signal; the inline
+    // fresh re-spawn then succeeds and get_state mints a new id.
+    piSpawnOutcomes = [{ failStderr: "No session found matching stored-pi-id" }];
+    nextPiSessionId = "fresh-pi-id";
+
+    const before = await discardedCount("pi");
+    const warnCalls: unknown[][] = [];
+    const warnSpy = mock.method(log, "warn", (...args: unknown[]) => { warnCalls.push(args); });
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    let session;
+    try {
+      session = await manager.getOrCreateSession("pi-stale", "pi");
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    // Exactly two spawns: the failed resume, then ONE inline fresh start.
+    assert.strictEqual(piSpawnCaptures.length, 2, "resume spawn + one inline fresh re-spawn");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, "stored-pi-id", "first spawn resumed the stored id");
+    assert.strictEqual(piSpawnCaptures[1].resumeSessionId, undefined, "recovery spawn starts fresh (no --session)");
+
+    // The recovered session is live on the freshly-captured id, and it's persisted.
+    assert.strictEqual(session.sessionId, "fresh-pi-id", "recovered session adopts the new Pi id");
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("pi-stale")?.sessionId, "fresh-pi-id", "fresh id persisted");
+
+    // Exactly one discard warning + one metric increment.
+    const recoveryWarns = warnCalls.filter(
+      (a) =>
+        a[0] === "session-manager" &&
+        typeof a[1] === "string" &&
+        (a[1] as string).includes("could not resume Pi session stored-pi-id — starting fresh"),
+    );
+    assert.strictEqual(recoveryWarns.length, 1, "exactly one recovery warning");
+    assert.strictEqual((await discardedCount("pi")) - before, 1, "metric incremented exactly once");
+
+    await manager.closeAll();
+  });
+
+  it("both spawns fail: discards once, warns once, then throws — no loop", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-doomed", {
+      sessionId: "stored-pi-id",
+      chatId: "pi-doomed",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // Resume fails with the signal; the inline fresh re-spawn ALSO fails. The
+    // second failure must propagate (no third spawn, no recursion).
+    piSpawnOutcomes = [
+      { failStderr: "No session found matching stored-pi-id" },
+      { failStderr: "still broken on the fresh start" },
+    ];
+
+    const before = await discardedCount("pi");
+    const warnCalls: unknown[][] = [];
+    const warnSpy = mock.method(log, "warn", (...args: unknown[]) => { warnCalls.push(args); });
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    try {
+      await assert.rejects(
+        () => manager.getOrCreateSession("pi-doomed", "pi"),
+        /exited during startup/,
+        "the second (fresh) failure propagates as a startup error",
+      );
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    // At-most-once: exactly two spawn attempts (resume + one fresh), no loop.
+    assert.strictEqual(piSpawnCaptures.length, 2, "exactly two spawns — recovery does not loop");
+    assert.strictEqual(piSpawnCaptures[1].resumeSessionId, undefined, "recovery spawn was a fresh start");
+
+    // The discard + warn + metric ran exactly once despite the fresh start failing.
+    const recoveryWarns = warnCalls.filter(
+      (a) =>
+        a[0] === "session-manager" &&
+        typeof a[1] === "string" &&
+        (a[1] as string).includes("could not resume Pi session stored-pi-id — starting fresh"),
+    );
+    assert.strictEqual(recoveryWarns.length, 1, "exactly one recovery warning");
+    assert.strictEqual((await discardedCount("pi")) - before, 1, "metric incremented exactly once");
+
+    // The final failure feeds the normal crash backoff (restart count increments).
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    assert.strictEqual(restartCounts.get("pi-doomed"), 1, "second failure increments the crash count");
+  });
+
+  it("non-matching startup failure: no discard, stored id + media preserved, normal backoff", async () => {
+    const store = new SessionStore(TEST_STORE_PATH);
+    store.setSession("pi-keep", {
+      sessionId: "keep-pi-id",
+      chatId: "pi-keep",
+      agentId: "pi",
+      lastActivity: Date.now(),
+    });
+
+    // A media file from a prior turn — a non-recovery failure must preserve it so
+    // a later successful resume can still reference it.
+    const mediaDir = ensureSessionMediaDir("pi-keep");
+    const mediaFile = `${mediaDir}/prior-turn.jpg`;
+    writeFileSync(mediaFile, "keep me");
+
+    // Resume fails, but NOT with the "No session found" signal → no recovery.
+    piSpawnOutcomes = [{ failStderr: "codex: authentication token expired" }];
+
+    const before = await discardedCount("pi");
+    const warnCalls: unknown[][] = [];
+    const warnSpy = mock.method(log, "warn", (...args: unknown[]) => { warnCalls.push(args); });
+
+    const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
+    try {
+      await assert.rejects(
+        () => manager.getOrCreateSession("pi-keep", "pi"),
+        /exited during startup/,
+        "a non-matching failure propagates unchanged",
+      );
+    } finally {
+      warnSpy.mock.restore();
+    }
+
+    // Exactly one spawn — no inline recovery re-spawn.
+    assert.strictEqual(piSpawnCaptures.length, 1, "no recovery spawn for a non-matching failure");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, "keep-pi-id", "the resume attempt used the stored id");
+
+    // No discard: stored id preserved (NOT deleted), media dir preserved.
+    const storeAfter = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(storeAfter.getSession("pi-keep")?.sessionId, "keep-pi-id", "stored id preserved");
+    assert.ok(existsSync(mediaFile), "media file preserved on a non-recovery failure");
+
+    // No recovery warning, metric untouched.
+    const recoveryWarns = warnCalls.filter(
+      (a) =>
+        a[0] === "session-manager" &&
+        typeof a[1] === "string" &&
+        (a[1] as string).includes("could not resume Pi session"),
+    );
+    assert.strictEqual(recoveryWarns.length, 0, "no recovery warning for a non-matching failure");
+    assert.strictEqual((await discardedCount("pi")) - before, 0, "metric not incremented");
+
+    // Existing crash backoff still applies.
+    const restartCounts = (manager as unknown as Record<string, Map<string, number>>).restartCounts;
+    assert.strictEqual(restartCounts.get("pi-keep"), 1, "non-matching failure increments the crash count");
   });
 });
