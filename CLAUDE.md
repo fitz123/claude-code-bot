@@ -3,6 +3,7 @@
 @USER.md
 @IDENTITY.md
 @MEMORY.md
+@reference/governance/decisions.md
 
 ## Critical Rules
 

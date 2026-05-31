@@ -1,6 +1,8 @@
 #!/bin/bash
 # protect-files.sh — PreToolUse hook
-# Blocks writes to protected skill files (for crons/autonomous agents only).
+# Blocks writes to:
+#   1) Skill files — cron/autonomous sessions only (interactive can still edit)
+#   2) Upstream-owned platform files — ALL sessions (bot-code-readonly enforcement)
 
 # Fail-closed: if jq is missing, block rather than bypass
 if ! command -v jq &>/dev/null; then
@@ -38,13 +40,86 @@ while [[ "$FILE_PATH" == *"/.."* ]]; do
   [[ "$FILE_PATH" == "$_prev" ]] && break
 done
 
-# Protected: skill files (read-only for crons/autonomous agents)
-# Match both absolute (*/…) and relative (.claude/skills/…) paths
-if [[ "$FILE_PATH" == */.claude/skills/* ]] || [[ "$FILE_PATH" == .claude/skills/* ]]; then
-  if [ -n "$CRON_NAME" ]; then
-    echo "Blocked: cron '$CRON_NAME' cannot modify skill files: $FILE_PATH" >&2
-    exit 2
+# Compute repo-rooted relative path so subsequent globs anchor to the
+# repository root, not to an arbitrary path segment. Without this, a glob
+# like `*/bot/*` would also match `reference/bot/notes.md` (the literal
+# `bot` segment can occur anywhere in the tree). The frontmatter in
+# bot-code-readonly.md is rooted (`bot/**` etc), so the hook must match
+# the same way.
+#
+# Fail-closed on $CLAUDE_PROJECT_DIR — if unset, no bypass and no rooted
+# matching (no $PWD fallback, since $PWD can be agent-controlled whereas
+# CLAUDE_PROJECT_DIR is set by the Claude Code harness from the session's
+# project root). When unset, we strip a leading `/` so absolute paths still
+# enter the relative-pattern case, and rely on the literal pattern strings.
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
+if [ -n "$PROJECT_ROOT" ] && [[ "$FILE_PATH" == "$PROJECT_ROOT"/* ]]; then
+  REL_PATH="${FILE_PATH#"$PROJECT_ROOT"/}"
+else
+  REL_PATH="${FILE_PATH#/}"
+fi
+
+# --- 1. Skills — cron-only block (interactive sessions can still edit) ---
+case "$REL_PATH" in
+  .claude/skills/*)
+    if [ -n "$CRON_NAME" ]; then
+      echo "Blocked: cron '$CRON_NAME' cannot modify skill files: $FILE_PATH" >&2
+      exit 2
+    fi
+    ;;
+esac
+
+# --- 2. Upstream-owned platform files — block ALL sessions ---
+# Mirror of `bot-code-readonly.md` paths frontmatter. Keep these two lists
+# in lockstep — the rule is the doc, the hook is the enforcement. If you
+# legitimately need to change one of these files: do it in upstream
+# (fitz123/claude-code-bot) → PR → merge → `git fetch upstream && git merge`.
+
+# Bypass paths where editing these files IS the intended workflow.
+# Three triggers — all log to stderr so bypass is visible in transcripts:
+#   1. PROTECT_FILES_BYPASS=1  — explicit opt-out for one-off cases
+#   2. $CLAUDE_PROJECT_DIR contains `/.ralphex/worktrees/`  — ralphex pipeline
+#   3. git remote.origin.url at $CLAUDE_PROJECT_DIR is the upstream repo
+bypass=""
+
+if [ "${PROTECT_FILES_BYPASS:-0}" = "1" ]; then
+  bypass="env PROTECT_FILES_BYPASS=1"
+elif [ -n "$PROJECT_ROOT" ]; then
+  if [[ "$PROJECT_ROOT" == */.ralphex/worktrees/* ]]; then
+    bypass="ralphex worktree ($PROJECT_ROOT)"
+  else
+    origin_url="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)"
+    case "$origin_url" in
+      *fitz123/claude-code-bot.git|*fitz123/claude-code-bot|*fitz123/claude-code-bot/)
+        bypass="upstream dev repo (origin=$origin_url)"
+        ;;
+    esac
   fi
+fi
+
+if [ -n "$bypass" ]; then
+  echo "protect-files: bypass active — $bypass" >&2
+  exit 0
+fi
+
+case "$REL_PATH" in
+  bot/*) match=1 ;;
+  .claude/hooks/*) match=1 ;;
+  .claude/rules/platform/*) match=1 ;;
+  .claude/skills/workspace-health/scripts/*) match=1 ;;
+  .github/workflows/*) match=1 ;;
+  .githooks/*) match=1 ;;
+  .gitleaks.toml) match=1 ;;
+  .gitleaksignore) match=1 ;;
+  README.md) match=1 ;;
+  config.local.yaml.example) match=1 ;;
+  *) match=0 ;;
+esac
+
+if [ "$match" = "1" ]; then
+  echo "BLOCKED by protect-files: '$FILE_PATH' is upstream-owned (see .claude/rules/platform/bot-code-readonly.md)." >&2
+  echo "Change it in fitz123/claude-code-bot via PR, then 'git fetch upstream && git merge upstream/main'." >&2
+  exit 2
 fi
 
 exit 0
