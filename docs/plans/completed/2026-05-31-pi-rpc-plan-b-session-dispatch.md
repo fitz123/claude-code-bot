@@ -160,9 +160,9 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 **Files:**
 - Modify: `README.md` (repo ROOT — NOT bot/README.md)
 
-- [ ] short note: translator multi-turn fix + provider dispatch + get_state session-id capture + graceful resume-recovery + Pi steer; claude path unchanged
-- [ ] PR description: "Plan B — dispatch wiring; turn_end multi-turn truncation fix; get_state session-id capture + resume; graceful resume-recovery (replaces migration-only MF4); Pi mid-turn steer; claude path unchanged; coder PoC unblocked after merge"
-- [ ] move this plan to `docs/plans/completed/`
+- [x] short note: translator multi-turn fix + provider dispatch + get_state session-id capture + graceful resume-recovery + Pi steer; claude path unchanged (README.md "Provider backends" + "Monitoring" sections updated: dispatch-wired status, 4-bullet feature summary, `bot_pi_session_resume_discarded_total` metric)
+- [x] PR description: "Plan B — dispatch wiring; turn_end multi-turn truncation fix; get_state session-id capture + resume; graceful resume-recovery (replaces migration-only MF4); Pi mid-turn steer; claude path unchanged; coder PoC unblocked after merge"
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 *Items requiring manual intervention — no checkboxes, informational only*
