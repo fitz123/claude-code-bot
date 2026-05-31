@@ -610,6 +610,14 @@ export function makeSteerFn(
     const session = sessionManager.getActive(chatId);
     if (!session || hasExited(session.child)) return false;
     if (session.provider !== "pi") return false;
+    // Only steer when a Pi turn is actively processing. After `agent_end`,
+    // session-manager clears `processingStartedAt` while MessageQueue.busy can
+    // still be true (relay/cleanup of the final response is finishing). A
+    // message arriving in that window must NOT be steered: the Pi child has no
+    // active turn, Pi may reject the steer, and the parser drops failed
+    // side-command responses (pi-rpc-protocol.ts) — losing the message.
+    // Returning false buffers it so the queue drains it as a normal followup.
+    if (session.processingStartedAt === null) return false;
     try {
       sendPiSteer(session.child, text);
       return true;

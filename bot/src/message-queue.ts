@@ -67,6 +67,16 @@ interface ChatQueueState {
   /** Whether a message is currently being processed */
   busy: boolean;
 
+  /**
+   * Number of mid-turn messages steered live to the provider during the
+   * current turn (Pi path). Reset to 0 at each turn start. Bounds live steers
+   * by `queueCap` so an authorized-chat flood cannot push unbounded messages
+   * into the Pi child's stdin / work queue — the same protection the claude
+   * collect buffer provides. Overflow falls through to the (also capped)
+   * collect-buffer path and is delivered as a followup or dropped.
+   */
+  steerCount: number;
+
   /** Latest platform context for sending responses */
   latestPlatform: PlatformContext | null;
 
@@ -134,6 +144,7 @@ export class MessageQueue {
         collectDropCleanups: [],
         deferredCleanups: [],
         busy: false,
+        steerCount: 0,
         latestPlatform: null,
         agentId,
         injectConsumed: 0,
@@ -192,7 +203,20 @@ export class MessageQueue {
       // buffered message would be re-delivered as a followup on drain. For the
       // claude path (or when no live Pi child is available) steerFn returns
       // false and we fall through to the inject-file mechanism below.
-      if (this.steerFn && this.steerFn(chatId, state.agentId, text)) {
+      //
+      // Cap live steers per turn at `queueCap`: an unbounded steer path would
+      // remove the flood protection the claude collect buffer provides (each
+      // steer writes to the Pi child's stdin / work queue). Past the cap we do
+      // NOT consult steerFn — we fall through to the (also capped) collect
+      // buffer, which delivers the overflow as a followup or drops it. The
+      // claude path never increments steerCount (steerFn returns false), so it
+      // is unaffected by this guard.
+      if (
+        this.steerFn &&
+        state.steerCount < this.queueCap &&
+        this.steerFn(chatId, state.agentId, text)
+      ) {
+        state.steerCount++;
         // Defer the turn-scoped cleanup: the steered text may reference a temp
         // file the agent still reads this turn (runs when the turn drains).
         // Drop the persistent-media drop-cleanup — the agent now owns the file,
@@ -267,6 +291,8 @@ export class MessageQueue {
     const dropCleanups = state.pendingDropCleanups.splice(0);
     state.debounceTimer = null;
     state.busy = true;
+    // New turn → fresh per-turn steer budget.
+    state.steerCount = 0;
 
     const combinedText = texts.length === 1 ? texts[0] : texts.join("\n\n");
 
@@ -373,6 +399,8 @@ export class MessageQueue {
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
+      // New turn → fresh per-turn steer budget.
+      state.steerCount = 0;
       log.debug(
         "message-queue",
         `Draining ${collected.length} collected message(s) for ${chatId}`,

@@ -1092,6 +1092,77 @@ describe("MessageQueue provider-aware steer", () => {
 
     queue.clearAll();
   });
+
+  it("caps live steers per turn at queueCap and falls back to the collect buffer for overflow (pi)", async () => {
+    const mock = createMockProcess();
+    let steerCalls = 0;
+    const steerFn = () => { steerCalls++; return true; };
+    // queueCap=2: at most 2 live steers per turn, overflow buffered (and re-
+    // delivered as a followup), past 2*queueCap dropped.
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 2, steerFn });
+    const platform = mockPlatform();
+
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "initial", platform);
+    await wait(60);
+
+    // Five mid-turn messages: 2 steered live, 2 buffered (cap), 1 dropped.
+    queue.enqueue(INJECT_CHAT, "pi-agent", "s1", platform);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "s2", platform);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "b1", platform);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "b2", platform);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "drop", platform);
+
+    // Only queueCap (2) messages steered live — the flood is bounded.
+    assert.strictEqual(steerCalls, 2, "live steers are capped at queueCap per turn");
+    assert.strictEqual(queue.getCollectCount(INJECT_CHAT), 2, "overflow buffered up to queueCap");
+
+    // Drain: the 2 buffered overflow messages are delivered as a followup.
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(80);
+
+    // calls[0] = "initial"; calls[1] = buffered followup (b1+b2 combined).
+    assert.strictEqual(mock.calls.length, 2, "buffered overflow drains as one followup; dropped message is gone");
+    assert.ok(mock.calls[1].text.includes("b1"));
+    assert.ok(mock.calls[1].text.includes("b2"));
+    assert.ok(!mock.calls[1].text.includes("drop"), "the over-cap message was dropped, not delivered");
+
+    queue.clearAll();
+  });
+
+  it("resets the per-turn steer budget on each new turn (pi)", async () => {
+    const mock = createMockProcess();
+    let steerCalls = 0;
+    const steerFn = () => { steerCalls++; return true; };
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 2, steerFn });
+    const platform = mockPlatform();
+
+    // Turn 1: exhaust the steer budget, then leave one buffered message so a
+    // second turn (drain) runs after this one completes.
+    mock.setBlocking(true);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "initial", platform);
+    await wait(60);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "s1", platform);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "s2", platform);
+    queue.enqueue(INJECT_CHAT, "pi-agent", "buffered", platform);
+    assert.strictEqual(steerCalls, 2, "turn 1 steer budget exhausted at queueCap");
+
+    // Finish turn 1 → drain "buffered" as turn 2 (blocks again).
+    mock.unblock();
+    await wait(60);
+
+    // Turn 2 is now processing (the buffered followup). Its steer budget reset,
+    // so a fresh mid-turn message steers again rather than being capped.
+    queue.enqueue(INJECT_CHAT, "pi-agent", "s3", platform);
+    assert.strictEqual(steerCalls, 3, "steer budget reset for the new turn");
+
+    mock.setBlocking(false);
+    mock.unblock();
+    await wait(80);
+
+    queue.clearAll();
+  });
 });
 
 // -------------------------------------------------------------------

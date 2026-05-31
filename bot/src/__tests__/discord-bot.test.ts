@@ -561,10 +561,14 @@ function makeLiveChild(): FakeChild {
   };
 }
 
-function fakeManager(provider: "claude" | "pi" | null, child: FakeChild): Pick<SessionManager, "getActive"> {
+function fakeManager(
+  provider: "claude" | "pi" | null,
+  child: FakeChild,
+  processingStartedAt: number | null = Date.now(),
+): Pick<SessionManager, "getActive"> {
   return {
     getActive: (_chatId: string) =>
-      (provider === null ? undefined : ({ child, provider } as unknown)) as never,
+      (provider === null ? undefined : ({ child, provider, processingStartedAt } as unknown)) as never,
   };
 }
 
@@ -595,6 +599,16 @@ describe("makeSteerFn (discord)", () => {
     const child = makeLiveChild();
     child.exitCode = 0;
     const steerFn = makeSteerFn(fakeManager("pi", child));
+    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
+    assert.strictEqual(child.stdin.writes.length, 0);
+  });
+
+  it("returns false when a pinned-pi session is not actively processing (idle window after agent_end)", () => {
+    // processingStartedAt === null: session-manager has cleared it after
+    // agent_end but MessageQueue.busy may still be true. Steering here would
+    // hand the message to an idle Pi child and lose it; buffer instead.
+    const child = makeLiveChild();
+    const steerFn = makeSteerFn(fakeManager("pi", child, null));
     assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
     assert.strictEqual(child.stdin.writes.length, 0);
   });
