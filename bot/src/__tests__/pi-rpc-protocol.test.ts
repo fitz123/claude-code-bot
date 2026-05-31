@@ -375,23 +375,23 @@ describe("parsePiEvent", () => {
     assert.strictEqual(flipsSawNonTextBlock(line), true);
   });
 
-  it("translates turn_end into a ResultMessage, reconstructing text from the message object", () => {
-    // Pi sends `turn_end.message` as an AssistantMessage object, never a string.
-    const line = parsePiEvent({
-      type: "turn_end",
-      message: {
-        role: "assistant",
-        content: [
-          { type: "thinking", thinking: "hmm" },
-          { type: "text", text: "all " },
-          { type: "text", text: "done" },
-        ],
-      },
-    });
-
-    assert.ok(line);
-    assert.strictEqual(line.type, "result");
-    assert.strictEqual((line as { result: string }).result, "all done");
+  it("treats turn_end as a non-terminal per-turn boundary (returns null)", () => {
+    // turn_end fires once per turn; only agent_end is terminal. Mapping turn_end
+    // to a ResultMessage would truncate a multi-turn (tool-using) response at its
+    // first turn, so turn_end must translate to null regardless of its content.
+    assert.strictEqual(
+      parsePiEvent({
+        type: "turn_end",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "hmm" },
+            { type: "text", text: "partial turn text" },
+          ],
+        },
+      }),
+      null,
+    );
   });
 
   it("translates agent_end into a ResultMessage with the last assistant message text", () => {
@@ -410,16 +410,72 @@ describe("parsePiEvent", () => {
     assert.strictEqual((line as { result: string }).result, "final answer");
   });
 
-  it("yields empty result text (not a crash) for a turn_end with no text blocks", () => {
+  it("yields empty result text (not a crash) for an agent_end with no assistant text", () => {
     const line = parsePiEvent({
-      type: "turn_end",
-      message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash" }] },
+      type: "agent_end",
+      messages: [{ role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash" }] }],
     });
 
     assert.ok(line);
     assert.strictEqual((line as { result: string }).result, "");
-    // turn_end carries no session id — that comes from a get_state response.
+    // agent_end here carries no top-level sessionId — that comes from get_state.
     assert.strictEqual((line as { session_id: string }).session_id, "");
+  });
+
+  it("multi-turn sequence (2x turn_end + 1x agent_end) terminates exactly once with the FINAL text", () => {
+    // Verified live sequence: a tool-using response fires turn_end per turn, then
+    // a single agent_end. Only agent_end is terminal, and it carries the final answer.
+    const sequence = [
+      {
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "let me check" }] },
+      },
+      {
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "still working" }] },
+      },
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: "do the thing" },
+          { role: "assistant", content: [{ type: "text", text: "let me check" }] },
+          { role: "toolResult", content: [{ type: "text", text: "tool output" }] },
+          { role: "assistant", content: [{ type: "text", text: "the final answer" }] },
+        ],
+      },
+    ];
+
+    const lines = sequence.map((e) => parsePiEvent(e));
+    const terminals = lines.filter((l) => l?.type === "result");
+
+    assert.strictEqual(terminals.length, 1);
+    assert.strictEqual((terminals[0] as { result: string }).result, "the final answer");
+    // The two turn_end boundaries do not terminate.
+    assert.strictEqual(lines[0], null);
+    assert.strictEqual(lines[1], null);
+  });
+
+  it("single-turn sequence (1x turn_end + 1x agent_end) terminates exactly once", () => {
+    const sequence = [
+      {
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "quick answer" }] },
+      },
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: [{ type: "text", text: "quick answer" }] },
+        ],
+      },
+    ];
+
+    const lines = sequence.map((e) => parsePiEvent(e));
+    const terminals = lines.filter((l) => l?.type === "result");
+
+    assert.strictEqual(terminals.length, 1);
+    assert.strictEqual((terminals[0] as { result: string }).result, "quick answer");
+    assert.strictEqual(lines[0], null);
   });
 
   it("captures the Pi session id from a successful get_state response", () => {
@@ -546,9 +602,14 @@ describe("readPiStream", () => {
         assistantMessageEvent: { type: "text_delta", delta: "hi" },
       }),
       JSON.stringify({ type: "tool_execution_update" }),
+      // A non-terminal turn_end is filtered out by the stream (returns null).
       JSON.stringify({
         type: "turn_end",
-        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+        message: { role: "assistant", content: [{ type: "text", text: "mid" }] },
+      }),
+      JSON.stringify({
+        type: "agent_end",
+        messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
       }),
     ]);
 
@@ -562,6 +623,7 @@ describe("readPiStream", () => {
       ["system", "stream_event", "result"],
     );
     assert.strictEqual(extractPiTextDelta(lines[1]), "hi");
+    assert.strictEqual((lines[2] as { result: string }).result, "ok");
   });
 
   it("handles records split across stdout chunks", async () => {

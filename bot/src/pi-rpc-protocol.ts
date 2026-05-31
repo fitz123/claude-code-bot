@@ -265,8 +265,13 @@ function extractFinalAssistantText(messages: unknown): string {
  *   `assistantMessageEvent.delta` chunk (drives live streaming).
  * - `tool_execution_start` → synthetic `StreamEvent` shaped as a
  *   `content_block_start` tool_use block so stream-relay flips `sawNonTextBlock`.
- * - `turn_end` / `agent_end` → `ResultMessage`; the result text is reconstructed
- *   from the assistant message object (Pi sends an `AgentMessage`, never a string).
+ * - `agent_end` → terminal `ResultMessage`; the result text is the FINAL assistant
+ *   message text reconstructed from `agent_end.messages`. `agent_end` fires exactly
+ *   once at the very end of a run.
+ * - `turn_end` → `null`. It is a per-turn boundary that fires once PER turn, so a
+ *   multi-turn (tool-using) response emits several `turn_end`s before its single
+ *   `agent_end`. Treating `turn_end` as terminal truncates such responses at their
+ *   first turn — only `agent_end` is terminal.
  * - `response` → a successful `get_state`/`get_session_stats` reply yields a
  *   `SystemInit` capturing `data.sessionId` (the ONLY place Pi exposes the
  *   session id — no event carries it); a failed reply (`success: false`) yields
@@ -313,13 +318,15 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
     }
 
     case "turn_end":
+      // Per-turn boundary, NOT terminal. A multi-turn (tool-using) response fires
+      // turn_end once per turn; the run only truly ends at agent_end (fires once).
+      // Mapping turn_end to a ResultMessage truncates such responses at turn 1.
+      return null;
+
     case "agent_end": {
       const result: ResultMessage = {
         type: "result",
-        result:
-          rawEvent.type === "agent_end"
-            ? extractFinalAssistantText(rawEvent.messages)
-            : extractAssistantText(rawEvent.message),
+        result: extractFinalAssistantText(rawEvent.messages),
         session_id: rawEvent.sessionId ?? "",
       };
       return result;

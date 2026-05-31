@@ -88,10 +88,10 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 - Modify: `bot/src/pi-rpc-protocol.ts` (`parsePiEvent`, ~315-326)
 - Modify: `bot/src/__tests__/pi-rpc-protocol.test.ts`
 
-- [ ] split the shared case: `turn_end` → `null`; keep `agent_end` → `ResultMessage` via `extractFinalAssistantText(rawEvent.messages)`
-- [ ] confirm `extractFinalAssistantText` returns the correct final text for the real `agent_end.messages` shape (adjust if labels differ); verify THROUGH `parsePiEvent` output, do not import the private helper
-- [ ] write tests (verified sequences): multi-turn (2× turn_end + 1× agent_end) → exactly ONE terminal `ResultMessage` (from agent_end) with the FINAL text; single-turn → one terminal; `turn_end` alone → null
-- [ ] run tests — must pass before next task
+- [x] split the shared case: `turn_end` → `null`; keep `agent_end` → `ResultMessage` via `extractFinalAssistantText(rawEvent.messages)`
+- [x] confirm `extractFinalAssistantText` returns the correct final text for the real `agent_end.messages` shape (adjust if labels differ); verify THROUGH `parsePiEvent` output, do not import the private helper
+- [x] write tests (verified sequences): multi-turn (2× turn_end + 1× agent_end) → exactly ONE terminal `ResultMessage` (from agent_end) with the FINAL text; single-turn → one terminal; `turn_end` alone → null
+- [x] run tests — must pass before next task
 
 ### Task 2: Provider dispatch branch in session-manager
 
