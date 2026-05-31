@@ -6,10 +6,10 @@ import { join } from "node:path";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
-import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream } from "./pi-rpc-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, sendPiGetState, readPiStream, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
-import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
+import { recordResultMetrics, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
 import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
 import { ensureSessionMediaDir, cleanupSessionMediaDir, cleanupStaleSessionMedia } from "./media-store.js";
 
@@ -30,6 +30,16 @@ export function outboxDir(chatId: string): string {
 /** Check whether a child process has exited (by exit code or signal). */
 function hasExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
+}
+
+/**
+ * Read the startup stderr buffered on a Pi child by `spawnPiRpcSession`. Returns
+ * "" for a claude child (no accessor) or before any stderr arrived. Used by the
+ * spawn-failure classifier to detect Pi's "No session found matching" signal.
+ */
+function piStartupStderr(child: ChildProcess): string {
+  const reader = (child as unknown as PiStartupDiagnostics).piStartupStderr;
+  return typeof reader === "function" ? reader() : "";
 }
 
 /**
@@ -267,7 +277,8 @@ export class SessionManager {
     // claude/absent path is byte-identical to before. For Pi, only a genuine
     // resume points --session at the stored (Pi-minted) id; a fresh start omits
     // it (an unknown id makes Pi exit with "No session found matching").
-    const child = agent.provider === "pi"
+    const isPi = agent.provider === "pi";
+    let child = isPi
       ? spawnPiRpcSession(agent, resume ? sessionId : undefined)
       : spawnClaudeSession({
           agent,
@@ -278,27 +289,68 @@ export class SessionManager {
           injectDir: injectPath,
         });
 
-    // Verify the subprocess actually started
-    try {
-      await waitForSpawn(child, STARTUP_TIMEOUT_MS);
-    } catch (err) {
-      // Ensure child is dead before throwing
-      if (!hasExited(child) && !child.killed) {
-        child.kill("SIGKILL");
+    // Graceful Pi resume-recovery state (signal-matched, inline, at-most-once):
+    // Pi flushes a session to disk only after agent_end/SIGTERM, so a restart
+    // MID-turn legitimately yields "No session found matching". Rather than
+    // crash-loop a chat to BLOCKED on a stale stored id, discard it and start
+    // fresh EXACTLY once. `effectiveResume` flips false after the discard so the
+    // fresh spawn's media handling matches a fresh start; `alreadyRetried` caps
+    // the recovery at one attempt (any second failure falls through to backoff).
+    let effectiveResume = resume;
+    let effectiveSessionId = sessionId;
+    let alreadyRetried = false;
+
+    // Verify the subprocess actually started.
+    for (;;) {
+      try {
+        await waitForSpawn(child, STARTUP_TIMEOUT_MS);
+        break;
+      } catch (err) {
+        // Ensure child is dead before inspecting/throwing.
+        if (!hasExited(child) && !child.killed) {
+          child.kill("SIGKILL");
+        }
+
+        // Pi-only graceful resume-recovery. Only when resuming, only on the
+        // specific "session not found" signal (exit 1 + matching stderr), and
+        // only once: discard the unresumable stored session and start fresh
+        // INLINE (no recursion into getOrCreateSession, no --session). Any other
+        // failure — and any second failure — falls through to crash-backoff.
+        if (
+          isPi &&
+          effectiveResume &&
+          !alreadyRetried &&
+          child.exitCode === 1 &&
+          /No session found matching/.test(piStartupStderr(child))
+        ) {
+          alreadyRetried = true;
+          // Discard the unresumable stored id (deletes the store record + wipes
+          // the chat media dir, which is data-destructive by design here).
+          await this.destroySession(chatId);
+          // destroySession wiped the media dir; recreate it for the fresh start.
+          ensureSessionMediaDir(chatId);
+          log.warn("session-manager", `could not resume Pi session ${sessionId} — starting fresh`);
+          piSessionResumeDiscarded.inc({ agent_id: agentId });
+          effectiveResume = false;
+          effectiveSessionId = randomUUID();
+          child = spawnPiRpcSession(agent, undefined);
+          continue;
+        }
+
+        // No session will be created to own files just downloaded for this turn;
+        // wipe the dir so they don't sit around until the next startup/cap eviction.
+        // Skip when resuming: the stored session record stays intact, so a later
+        // successful resume will continue the same conversation history — and that
+        // history may reference files already in this dir from prior turns.
+        if (!effectiveResume) {
+          try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
+        }
+        // Increment crash count so startup failures contribute to backoff
+        const count = (this.restartCounts.get(chatId) ?? 0) + 1;
+        this.restartCounts.set(chatId, count);
+        log.error("session-manager", `Startup failure for chat ${chatId} (crash #${count}): ${(err as Error).message}`);
+        throw err;
       }
-      // No session will be created to own files just downloaded for this turn;
-      // wipe the dir so they don't sit around until the next startup/cap eviction.
-      // Skip when resuming: the stored session record stays intact, so a later
-      // successful resume will continue the same conversation history — and that
-      // history may reference files already in this dir from prior turns.
-      if (!resume) {
-        try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
-      }
-      // Increment crash count so startup failures contribute to backoff
-      const count = (this.restartCounts.get(chatId) ?? 0) + 1;
-      this.restartCounts.set(chatId, count);
-      log.error("session-manager", `Startup failure for chat ${chatId} (crash #${count}): ${(err as Error).message}`);
-      throw err;
     }
 
     // Prevent EPIPE from becoming uncaughtException when subprocess dies
@@ -314,8 +366,7 @@ export class SessionManager {
     // to --session-resume after a restart. The claude/absent path keeps the
     // bot-generated id untouched. Falls back to the local id if capture yields
     // nothing (session stays functional; a later resume just can't target it).
-    let effectiveSessionId = sessionId;
-    if (agent.provider === "pi") {
+    if (isPi) {
       const piSessionId = await this.capturePiSessionId(child);
       if (piSessionId) {
         effectiveSessionId = piSessionId;

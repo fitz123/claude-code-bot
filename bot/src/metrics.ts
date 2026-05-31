@@ -86,6 +86,12 @@ export const piRetryUnknownTotal = new client.Counter({
   labelNames: ["agent_id"] as const,
 });
 
+export const piSessionResumeDiscarded = new client.Counter({
+  name: "bot_pi_session_resume_discarded_total",
+  help: "Pi resume attempts discarded after the stored session id was not found (graceful fresh start)",
+  labelNames: ["agent_id"] as const,
+});
+
 // --- Telegram API errors ---
 
 export const telegramApiErrors = new client.Counter({

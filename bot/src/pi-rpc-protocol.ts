@@ -150,6 +150,17 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   return env;
 }
 
+/**
+ * Startup diagnostics stashed on a Pi child by `spawnPiRpcSession` so the spawn
+ * caller can classify a startup failure WITHOUT re-piping stderr. `piStartupStderr()`
+ * returns the stderr buffered since spawn — the spawn caller matches it against
+ * `No session found matching` to detect an unresumable stored session (and start
+ * fresh once). The exit code is read directly from `child.exitCode`.
+ */
+export interface PiStartupDiagnostics {
+  piStartupStderr?: () => string;
+}
+
 export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string): ChildProcess {
   const child = spawn(PI_BIN, buildPiSpawnArgs(agent, resumeSessionId), {
     env: buildPiSpawnEnv(agent),
@@ -157,12 +168,19 @@ export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string):
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  // Buffer startup stderr so the spawn caller can classify a resume failure
+  // (Pi prints `No session found matching <id>` and exits 1 when handed a stale
+  // --session). Keep the existing log.warn so stderr stays visible in logs.
+  let stderrBuffer = "";
   child.stderr?.on("data", (chunk: Buffer | string) => {
-    const text = chunk.toString().trimEnd();
+    const raw = chunk.toString();
+    stderrBuffer += raw;
+    const text = raw.trimEnd();
     if (text) {
       log.warn("pi-rpc", text);
     }
   });
+  (child as unknown as PiStartupDiagnostics).piStartupStderr = () => stderrBuffer;
 
   return child;
 }

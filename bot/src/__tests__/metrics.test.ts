@@ -19,6 +19,7 @@ import {
   pi429Total,
   piOverloadTotal,
   piRetryUnknownTotal,
+  piSessionResumeDiscarded,
   telegramApiErrors,
   telegramApiCalls,
   sessionsActive,
@@ -319,6 +320,26 @@ describe("recordPiTurnDuration", () => {
   });
 });
 
+describe("piSessionResumeDiscarded", () => {
+  async function bucketValue(agentId: string): Promise<number> {
+    const metric = await piSessionResumeDiscarded.get();
+    const entry = metric.values.find((v) => v.labels.agent_id === agentId);
+    return entry?.value ?? 0;
+  }
+
+  it("increments per agent_id when a Pi resume is discarded", async () => {
+    piSessionResumeDiscarded.inc({ agent_id: "pi" });
+    assert.strictEqual(await bucketValue("pi"), 1);
+    assert.strictEqual(await bucketValue("other"), 0);
+  });
+
+  it("accumulates across multiple discards for the same agent", async () => {
+    piSessionResumeDiscarded.inc({ agent_id: "pi" });
+    piSessionResumeDiscarded.inc({ agent_id: "pi" });
+    assert.strictEqual(await bucketValue("pi"), 2);
+  });
+});
+
 describe("Pi metrics registration", () => {
   it("registers all Pi metrics on the default registry", () => {
     const names = client.register.getMetricsAsArray().map((m) => m.name);
@@ -328,6 +349,7 @@ describe("Pi metrics registration", () => {
       "bot_pi_429_total",
       "bot_pi_overload_total",
       "bot_pi_retry_unknown_total",
+      "bot_pi_session_resume_discarded_total",
     ]) {
       assert.ok(names.includes(name), `expected ${name} to be registered`);
     }
@@ -336,6 +358,7 @@ describe("Pi metrics registration", () => {
   it("exposes Pi metrics in the scrape output", async () => {
     recordPiRetry("main", "429 rate limit");
     recordPiTurnDuration("main", 5);
+    piSessionResumeDiscarded.inc({ agent_id: "main" });
 
     const body = await client.register.metrics();
     assert.ok(body.includes("bot_pi_turn_duration_seconds"));
@@ -343,6 +366,7 @@ describe("Pi metrics registration", () => {
     assert.ok(body.includes("bot_pi_429_total"));
     assert.ok(body.includes("bot_pi_overload_total"));
     assert.ok(body.includes("bot_pi_retry_unknown_total"));
+    assert.ok(body.includes("bot_pi_session_resume_discarded_total"));
   });
 });
 
