@@ -59,7 +59,7 @@ Telegram Cloud          Discord Gateway
 
 Both platforms share one Session Manager and use the same stream-relay logic via the `PlatformContext` interface. Each platform provides an adapter that handles platform-specific message I/O (Telegram: grammY Context, Discord: discord.js Channel).
 
-**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while Claude is processing are collected (up to 20) and delivered as a combined followup after the current turn completes.
+**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while a `claude` session is processing are collected (up to 20) and delivered as a combined followup after the current turn completes; a `pi` session instead has each mid-turn message steered into it live via the Pi RPC channel (see [Provider backends](#provider-backends)).
 
 **Context injection:** Each message includes metadata — current time, chat type (DM/group/topic), topic name, sender username, and emoji reactions. The agent knows where it is, when it is, and who it's talking to. Reactions are delivered as messages so the agent can respond to a thumbs-up or a ❤️ without the user typing anything.
 
@@ -321,7 +321,7 @@ Each agent runs through a coding-agent backend selected by the optional per-agen
 | `provider` | Backend | Status |
 |---|---|---|
 | `claude` (default, omit) | `claude -p` / Agent SDK | Active — the path every agent uses today |
-| `pi` | Pi RPC + OpenAI Codex (`pi --mode rpc`) | Protocol layer only — dispatch lands in a follow-up |
+| `pi` | Pi RPC + OpenAI Codex (`pi --mode rpc`) | Dispatch wired — runs end-to-end; no agent flipped to `pi` yet |
 
 ```yaml
 agents:
@@ -331,7 +331,16 @@ agents:
     # provider: claude   # or "pi"; omit to default to "claude"
 ```
 
-Pi support is rolling out incrementally. This stage ships the **protocol layer only**: the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is not wired yet**, so setting `provider: pi` has no runtime effect until the dispatch layer lands; the `claude` path is unchanged. The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; like the Claude path, the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
+A `pi` agent must set an explicit, Pi-appropriate `model` (e.g. `model: gpt-5.5`). Unlike a `claude` agent it does **not** inherit the top-level `defaultModel` — that value is Claude-oriented (e.g. `opus`) and the Pi spawn path would otherwise prefix it into a nonsensical `openai-codex/opus` string. The bot refuses to start if a `pi` agent omits `model`.
+
+Pi support is rolling out incrementally. The protocol layer is the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is now wired**: the [Session Manager](#architecture) branches on `agent.provider`, so a chat bound to a `pi` agent spawns via Pi RPC, streams to Telegram/Discord, persists and resumes its session across restarts, and is steerable mid-turn — while the `claude` path stays byte-identical. Specifically, this stage adds:
+
+- a multi-turn translator fix — only Pi's `agent_end` event terminates a turn (`turn_end` is a per-turn boundary), so a tool-using response delivers its final answer instead of truncating;
+- `get_state` session-id capture — the bot reads the Pi-generated session id after spawn, persists it, and resumes via `--session <uuid>`;
+- graceful resume-recovery — a stored id that Pi reports as `No session found matching` is discarded for exactly one fresh start (logged + counted via `bot_pi_session_resume_discarded_total`) instead of crash-looping the chat; any other startup failure keeps the existing crash-backoff and preserves the stored id and chat media;
+- Pi mid-turn steer — a message arriving while Pi is mid-turn is delivered via the Pi RPC steer channel (the `claude` path keeps its `inject-message.sh` file mechanism).
+
+No agent ships on `provider: pi` by default; flipping one is a deliberate per-deployment step. The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; like the Claude path, the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
 
 ### Logging
 
@@ -352,7 +361,7 @@ metricsPort: 9090
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
 
-The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics now so dashboards and alerts are ready before dispatch lands: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`, same buckets as the Claude turn histogram for direct comparison) and the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter). They read zero until an agent runs with `provider: pi`.
+The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`, same buckets as the Claude turn histogram for direct comparison), the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter), and `bot_pi_session_resume_discarded_total` (label `agent_id`, incremented once per graceful resume-recovery — a stored Pi session id Pi could not find, discarded for one fresh start). They read zero until an agent runs with `provider: pi`.
 
 #### Telegram API metrics
 

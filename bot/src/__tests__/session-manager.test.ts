@@ -6,6 +6,7 @@ import { Readable, Writable, PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
 import { waitForSpawn, outboxDir, type ActiveSession } from "../session-manager.js";
+import { piRetryTotal, piTurnDuration } from "../metrics.js";
 import PQueue from "p-queue";
 
 const TEST_DIR = "/tmp/minime-test-session-manager";
@@ -312,6 +313,7 @@ describe("SessionManager", () => {
       child: slowChild,
       sessionId: "race-sid",
       agentId: "main",
+      provider: "claude",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 100000,
@@ -1685,6 +1687,7 @@ describe("SessionManager gracefulShutdown", () => {
       child,
       sessionId: "test-session-" + chatId,
       agentId: "main",
+      provider: "claude",
       queue,
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1827,6 +1830,409 @@ describe("SessionManager gracefulShutdown", () => {
     resolveTask();
     await taskPromise;
     await shutdownPromise;
+  });
+
+  it("steers the shutdown notice into a busy Pi session instead of writing an inject file", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => testConfig, TEST_STORE_PATH);
+
+    const injectDir = `${TEST_DIR}/inject-pi-shutdown`;
+    mkdirSync(injectDir, { recursive: true });
+
+    // Capturing Pi child: the steer command lands on stdin (sendPiSteer writes it).
+    const stdinWrites: string[] = [];
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout: new Readable({ read() {} }),
+      stderr: new Readable({ read() {} }),
+      stdin: new Writable({ write(chunk, _enc, cb) { stdinWrites.push(chunk.toString()); cb(); } }),
+      pid: 4321,
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill() {
+        (child as unknown as Record<string, unknown>).killed = true;
+        (child as unknown as Record<string, unknown>).exitCode = 0;
+        child.emit("exit", 0, "SIGTERM");
+        return true;
+      },
+    });
+    child.emit("spawn");
+
+    const queue = new PQueue({ concurrency: 1 });
+    (manager as unknown as Record<string, Map<string, ActiveSession>>).active.set("pi-busy", {
+      child,
+      sessionId: "sid-pi-busy",
+      agentId: "main",
+      provider: "pi",
+      queue,
+      idleTimer: null,
+      idleTimeoutMs: 60_000,
+      lastActivity: Date.now(),
+      processingStartedAt: Date.now(),
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: `${TEST_DIR}/outbox-pi-busy`,
+      injectDir,
+    });
+
+    // Keep the queue busy so gracefulShutdown has something to await.
+    let resolveTask!: () => void;
+    const taskPromise = queue.add(() => new Promise<void>((r) => { resolveTask = r; }));
+
+    const shutdownPromise = manager.gracefulShutdown(200);
+
+    // Pi path steered the notice into stdin as a `steer` command...
+    assert.strictEqual(stdinWrites.length, 1, "exactly one steer write to the Pi child");
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "steer", "shutdown notice steered (not inject-file) for Pi");
+    assert.ok(sent.message.includes("shutting down"), "steer carries the shutdown notice");
+
+    // ...and did NOT fall back to the claude inject-file mechanism.
+    assert.strictEqual(existsSync(`${injectDir}/pending`), false, "Pi session must not get an inject file");
+
+    resolveTask();
+    await taskPromise;
+    await shutdownPromise;
+  });
+});
+
+describe("SessionManager provider dispatch", () => {
+  // Config with both a claude (absent provider) and a pi agent so the same
+  // manager can route either way depending on the message's agentId.
+  const dispatchConfig: BotConfig = {
+    ...testConfig,
+    agents: {
+      ...testConfig.agents,
+      pi: {
+        id: "pi",
+        workspaceCwd: "/tmp/test-workspace-pi",
+        model: "gpt-5.5",
+        provider: "pi",
+      },
+    },
+  };
+
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /**
+   * Build a mock child whose stdin writes are captured and whose stdout can be
+   * driven by the test. Mirrors the reuse-path pattern used elsewhere in this
+   * file (mock injected into the private active map — no module mocking).
+   */
+  function makeCapturingChild(): { child: ChildProcess; stdout: Readable; stdinWrites: string[] } {
+    const stdinWrites: string[] = [];
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    const stdin = new Writable({
+      write(chunk, _enc, cb) {
+        stdinWrites.push(chunk.toString());
+        cb();
+      },
+    });
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout, stderr, stdin,
+      pid: Math.floor(Math.random() * 100000),
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = 0;
+          child.emit("exit", 0, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+    return { child, stdout, stdinWrites };
+  }
+
+  function injectSession(
+    manager: InstanceType<typeof import("../session-manager.js").SessionManager>,
+    chatId: string,
+    agentId: string,
+    child: ChildProcess,
+    provider: "claude" | "pi" = "claude",
+  ): void {
+    const session: ActiveSession = {
+      child,
+      sessionId: `sid-${chatId}`,
+      agentId,
+      provider,
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      idleTimeoutMs: 60_000,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: `${TEST_DIR}/outbox-${chatId}`,
+      injectDir: `${TEST_DIR}/inject-${chatId}`,
+    };
+    (manager as unknown as Record<string, Map<string, ActiveSession>>).active.set(chatId, session);
+  }
+
+  it("routes a pi-provider session through sendPiPrompt + readPiStream", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    injectSession(manager, "pi-chat", "pi", child, "pi");
+
+    const gen = manager.sendSessionMessage("pi-chat", "pi", "hello pi");
+
+    // Drive a multi-turn-shaped Pi run: per-turn boundary then the terminal
+    // agent_end. Only readPiStream/parsePiEvent translates agent_end into a
+    // terminal result — readStream would pass it through as a non-result line
+    // and the turn would never complete.
+    setTimeout(() => {
+      stdout.push(JSON.stringify({ type: "turn_end", sessionId: "pi-real" }) + "\n");
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [
+            { role: "assistant", content: [{ type: "text", text: "final pi answer" }] },
+          ],
+        }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // Send routed to sendPiPrompt → a Pi "prompt" command, NOT a claude user msg.
+    assert.ok(stdinWrites.length >= 1, "should have written to stdin");
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "prompt", "pi path must write a Pi prompt command");
+    assert.strictEqual(sent.message, "hello pi");
+
+    // Read routed to readPiStream: agent_end became the single terminal result
+    // carrying the FINAL assistant text; turn_end produced no line.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "exactly one terminal result from agent_end");
+    assert.strictEqual(results[0].result, "final pi answer");
+
+    await manager.closeAll();
+  });
+
+  it("records Pi read-loop telemetry: one retry per auto_retry_start (not auto_retry_end) + one turn duration", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    // Metrics are global/cumulative — measure this turn's contribution as a delta.
+    const retryCount = async (): Promise<number> =>
+      (await piRetryTotal.get()).values.find((v) => v.labels.agent_id === "pi")?.value ?? 0;
+    const turnDurationCount = async (): Promise<number> =>
+      (await piTurnDuration.get()).values.find(
+        (v) => v.metricName === "bot_pi_turn_duration_seconds_count" && v.labels.agent_id === "pi",
+      )?.value ?? 0;
+    const retryBefore = await retryCount();
+    const durBefore = await turnDurationCount();
+
+    const { child, stdout } = makeCapturingChild();
+    injectSession(manager, "pi-telemetry", "pi", child, "pi");
+
+    // A retry pair (start → end) followed by the terminal agent_end. The read
+    // loop must count the retry exactly once (on auto_retry_start; auto_retry_end
+    // signals recovery and would double-count) and record one turn duration.
+    setTimeout(() => {
+      stdout.push(JSON.stringify({ type: "auto_retry_start", errorMessage: "HTTP 429 rate limit" }) + "\n");
+      stdout.push(JSON.stringify({ type: "auto_retry_end", errorMessage: "HTTP 429 rate limit" }) + "\n");
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "done" }] }],
+        }) + "\n",
+      );
+    }, 30);
+
+    for await (const _line of manager.sendSessionMessage("pi-telemetry", "pi", "go")) {
+      void _line;
+    }
+
+    assert.strictEqual(
+      (await retryCount()) - retryBefore,
+      1,
+      "exactly one retry counted (auto_retry_start only; auto_retry_end must not double-count)",
+    );
+    assert.strictEqual(
+      (await turnDurationCount()) - durBefore,
+      1,
+      "exactly one Pi turn duration recorded on the terminal result",
+    );
+
+    await manager.closeAll();
+  });
+
+  it("routes a claude/absent-provider session through sendMessage + readStream (regression)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    injectSession(manager, "claude-chat", "main", child);
+
+    const gen = manager.sendSessionMessage("claude-chat", "main", "hello claude");
+
+    // Claude path: a native stream-json result line terminates the turn.
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({ type: "result", result: "ok claude", session_id: "sid-claude-chat" }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // Send routed to sendMessage → a claude stream-json user message, NOT a Pi prompt.
+    assert.ok(stdinWrites.length >= 1, "should have written to stdin");
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "user", "claude path must write a stream-json user message");
+    assert.deepStrictEqual(sent.message, { role: "user", content: "hello claude" });
+    assert.strictEqual(sent.session_id, "sid-claude-chat", "claude send must carry the session id");
+
+    // Read routed to readStream: the native result line passed through unchanged.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "claude result line terminates the turn");
+    assert.strictEqual(results[0].result, "ok claude");
+
+    await manager.closeAll();
+  });
+
+  it("claude path does not treat a Pi agent_end as terminal (proves readStream was used)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout } = makeCapturingChild();
+    injectSession(manager, "claude-noterm", "main", child);
+
+    const gen = manager.sendSessionMessage("claude-noterm", "main", "hi");
+
+    // Push a Pi-only agent_end then close stdout. Under readStream this is a
+    // non-result line, so the turn never gets a result and the generator throws.
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "nope" }] }],
+        }) + "\n",
+      );
+      stdout.push(null);
+    }, 30);
+
+    await assert.rejects(async () => {
+      for await (const _line of gen) {
+        // consume
+      }
+    }, /subprocess exited before sending a result/);
+
+    await manager.closeAll();
+  });
+
+  it("dispatches on the spawn-time provider, not a hot-reloaded config (Pi child survives a config flip to claude)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    // A mutable config the manager reloads on demand. The agent "main" is a
+    // claude (absent-provider) agent here; we inject a session pinned to "pi"
+    // (as if it had been spawned under a prior provider setting) and then flip
+    // the config so a fresh read would report claude for "main".
+    let liveConfig: BotConfig = dispatchConfig;
+    const manager = new SessionManager(() => liveConfig, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    // Pin the session to Pi even though config["main"] is a claude agent.
+    injectSession(manager, "flip-chat", "main", child, "pi");
+
+    // Hot-reload: config now (still) reports "main" as a claude agent. A
+    // config-reading dispatch would route this through sendMessage/readStream
+    // and never terminate on a Pi agent_end. Pinned dispatch routes via Pi.
+    liveConfig = {
+      ...dispatchConfig,
+      agents: { ...dispatchConfig.agents, main: { id: "main", workspaceCwd: "/tmp/test-workspace", model: "claude-opus-4-6" } },
+    };
+
+    const gen = manager.sendSessionMessage("flip-chat", "main", "hello");
+
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "pi answer" }] }],
+        }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // Send routed via Pi (a "prompt" command), proving the pinned provider was used.
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "prompt", "must dispatch via Pi (spawn-time provider), not the reloaded claude config");
+
+    // Read routed via readPiStream: the Pi agent_end became the terminal result.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "Pi agent_end terminated the turn");
+    assert.strictEqual(results[0].result, "pi answer");
+
+    await manager.closeAll();
+  });
+
+  it("an active session does not re-read config for provider: a broken hot-reload does not break dispatch", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    // Manager boots on a valid config (constructor validates once), then the
+    // loader starts throwing — modelling a hot-reload that produced a broken
+    // config file. An ALREADY-LIVE session must still dispatch: getOrCreateSession
+    // returns the existing child without reloading, and dispatch keys off the
+    // pinned provider, so no config read happens on the message path.
+    let broken = false;
+    const manager = new SessionManager(() => {
+      if (broken) throw new Error("config reload failed");
+      return dispatchConfig;
+    }, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    injectSession(manager, "broken-cfg-chat", "main", child, "claude");
+
+    broken = true; // any later getFreshConfig() would now throw
+
+    const gen = manager.sendSessionMessage("broken-cfg-chat", "main", "hello");
+
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({ type: "result", result: "ok", session_id: "sid-broken-cfg-chat" }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // The turn completed normally despite the broken loader — no config read on
+    // the dispatch path. Send routed via the claude path (a stream-json user msg).
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "user", "claude dispatch used the pinned provider, no config read");
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "turn completed despite broken config reload");
+    assert.strictEqual(results[0].result, "ok");
+
+    await manager.closeAll();
   });
 });
 

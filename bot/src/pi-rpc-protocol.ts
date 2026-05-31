@@ -24,7 +24,17 @@ export interface PiSteerCommand {
   message: string;
 }
 
-export type PiRpcCommand = PiPromptCommand | PiSteerCommand;
+/**
+ * `get_state` is a no-argument RPC command whose successful `response` is the
+ * ONLY place Pi exposes the session id it minted (no agent event carries it).
+ * Issued once right after spawn to capture + persist that id for `--session`
+ * resume across restarts.
+ */
+export interface PiGetStateCommand {
+  type: "get_state";
+}
+
+export type PiRpcCommand = PiPromptCommand | PiSteerCommand | PiGetStateCommand;
 
 /**
  * Pi RPC uses strict JSONL framing: LF is the only record delimiter.
@@ -92,7 +102,7 @@ function normalizePiModel(model: string | undefined): string {
   return trimmed.includes("/") ? trimmed : `${PI_PROVIDER}/${trimmed}`;
 }
 
-export function buildPiSpawnArgs(agent: AgentConfig): string[] {
+export function buildPiSpawnArgs(agent: AgentConfig, resumeSessionId?: string): string[] {
   const args = [
     "--mode", "rpc",
     "--provider", PI_PROVIDER,
@@ -101,6 +111,14 @@ export function buildPiSpawnArgs(agent: AgentConfig): string[] {
 
   if (agent.systemPrompt) {
     args.push("--append-system-prompt", agent.systemPrompt);
+  }
+
+  // Pi mints its own session id (the bot cannot pre-assign one as it does for
+  // claude via --session-id). When resuming a stored session, point Pi at the
+  // captured id with --session; on a fresh start, omit it entirely (passing an
+  // unknown id makes Pi exit 1 with "No session found matching").
+  if (resumeSessionId) {
+    args.push("--session", resumeSessionId);
   }
 
   return args;
@@ -132,19 +150,45 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   return env;
 }
 
-export function spawnPiRpcSession(agent: AgentConfig): ChildProcess {
-  const child = spawn(PI_BIN, buildPiSpawnArgs(agent), {
+/**
+ * Startup diagnostics stashed on a Pi child by `spawnPiRpcSession` so the spawn
+ * caller can classify a startup failure WITHOUT re-piping stderr. `piStartupStderr()`
+ * returns the stderr buffered since spawn — the spawn caller matches it against
+ * `No session found matching` to detect an unresumable stored session (and start
+ * fresh once). The exit code is read directly from `child.exitCode`.
+ */
+export interface PiStartupDiagnostics {
+  piStartupStderr?: () => string;
+}
+
+/** Cap on buffered startup stderr (the classifier only needs the startup tail). */
+const PI_STARTUP_STDERR_CAP = 64 * 1024;
+
+export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string): ChildProcess {
+  const child = spawn(PI_BIN, buildPiSpawnArgs(agent, resumeSessionId), {
     env: buildPiSpawnEnv(agent),
     cwd: agent.workspaceCwd,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  // Buffer startup stderr so the spawn caller can classify a resume failure
+  // (Pi prints `No session found matching <id>` and exits 1 when handed a stale
+  // --session). Keep the existing log.warn so stderr stays visible in logs.
+  // Cap the buffer: the only consumer is the startup classifier, and the signal
+  // it matches appears in the first chunk(s); without a cap a long-lived, chatty
+  // Pi session would accumulate all stderr in memory for the child's lifetime.
+  let stderrBuffer = "";
   child.stderr?.on("data", (chunk: Buffer | string) => {
-    const text = chunk.toString().trimEnd();
+    const raw = chunk.toString();
+    if (stderrBuffer.length < PI_STARTUP_STDERR_CAP) {
+      stderrBuffer += raw;
+    }
+    const text = raw.trimEnd();
     if (text) {
       log.warn("pi-rpc", text);
     }
   });
+  (child as unknown as PiStartupDiagnostics).piStartupStderr = () => stderrBuffer;
 
   return child;
 }
@@ -157,12 +201,25 @@ export function buildPiSteerCommand(text: string): PiSteerCommand {
   return { type: "steer", message: text };
 }
 
+export function buildGetStateCommand(): PiGetStateCommand {
+  return { type: "get_state" };
+}
+
 export function sendPiPrompt(child: ChildProcess, text: string): void {
   writePiCommand(child, buildPiPromptCommand(text));
 }
 
 export function sendPiSteer(child: ChildProcess, text: string): void {
   writePiCommand(child, buildPiSteerCommand(text));
+}
+
+/**
+ * Issue a `get_state` command. Its successful `response` carries the Pi-minted
+ * session id, which `parsePiEvent` surfaces as a `SystemInit` — the bot's only
+ * hook for capturing + persisting that id for resume.
+ */
+export function sendPiGetState(child: ChildProcess): void {
+  writePiCommand(child, buildGetStateCommand());
 }
 
 function writePiCommand(child: ChildProcess, command: PiRpcCommand): void {
@@ -265,12 +322,20 @@ function extractFinalAssistantText(messages: unknown): string {
  *   `assistantMessageEvent.delta` chunk (drives live streaming).
  * - `tool_execution_start` → synthetic `StreamEvent` shaped as a
  *   `content_block_start` tool_use block so stream-relay flips `sawNonTextBlock`.
- * - `turn_end` / `agent_end` → `ResultMessage`; the result text is reconstructed
- *   from the assistant message object (Pi sends an `AgentMessage`, never a string).
+ * - `agent_end` → terminal `ResultMessage`; the result text is the FINAL assistant
+ *   message text reconstructed from `agent_end.messages`. `agent_end` fires exactly
+ *   once at the very end of a run.
+ * - `turn_end` → `null`. It is a per-turn boundary that fires once PER turn, so a
+ *   multi-turn (tool-using) response emits several `turn_end`s before its single
+ *   `agent_end`. Treating `turn_end` as terminal truncates such responses at their
+ *   first turn — only `agent_end` is terminal.
  * - `response` → a successful `get_state`/`get_session_stats` reply yields a
  *   `SystemInit` capturing `data.sessionId` (the ONLY place Pi exposes the
- *   session id — no event carries it); a failed reply (`success: false`) yields
- *   an error `ResultMessage` so a rejected command is not silently swallowed.
+ *   session id — no event carries it). A failed reply (`success: false`) is
+ *   correlated by `command`: a failed `prompt` yields an error `ResultMessage`
+ *   (the turn cannot proceed), but a failed side-command (`steer`, `get_state`,
+ *   `set_model`, …) returns null + logs — mapping it to a terminal result would
+ *   truncate the in-flight prompt turn whose stdout it shares.
  * - `auto_retry_start` / `auto_retry_end` → `RateLimitEvent` (raw error message
  *   preserved for the Task 4 retry classifier).
  * - `error` → error `ResultMessage` (`subtype: "error_during_execution"`).
@@ -313,31 +378,52 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
     }
 
     case "turn_end":
+      // Per-turn boundary, NOT terminal. A multi-turn (tool-using) response fires
+      // turn_end once per turn; the run only truly ends at agent_end (fires once).
+      // Mapping turn_end to a ResultMessage truncates such responses at turn 1.
+      return null;
+
     case "agent_end": {
       const result: ResultMessage = {
         type: "result",
-        result:
-          rawEvent.type === "agent_end"
-            ? extractFinalAssistantText(rawEvent.messages)
-            : extractAssistantText(rawEvent.message),
+        result: extractFinalAssistantText(rawEvent.messages),
         session_id: rawEvent.sessionId ?? "",
       };
       return result;
     }
 
     case "response": {
-      // Command responses are not stream content. Two are actionable: a failed
-      // command surfaces its error, and a successful get_state/get_session_stats
-      // reply carries the Pi-generated session id (no event exposes it).
+      // Command responses are side-channel replies, NOT prompt-turn stream
+      // content. The terminal event of a prompt turn is `agent_end` (or a
+      // top-level `error`). A `response` shares the same stdout the active turn
+      // is reading, so it must be correlated by `command` before being treated
+      // as terminal:
+      //  - a failed `prompt` response IS terminal — the prompt was rejected, so
+      //    no `agent_end` will ever arrive; surface it as an error result so the
+      //    turn ends now instead of hanging until the activity timeout.
+      //  - a failed side-command response (`steer`, `get_state`, `set_model`, …)
+      //    must NOT be mapped to a terminal result: a mid-turn `steer` rejection
+      //    would otherwise truncate the in-flight response (and the steered
+      //    message has already been dropped from the queue). Log + return null so
+      //    the failure is visible without ending the turn.
+      // A successful `get_state`/`get_session_stats` reply carries the Pi-minted
+      // session id (no event exposes it) and is captured below.
       if (rawEvent.success === false) {
-        const result: ResultMessage = {
-          type: "result",
-          subtype: "error_during_execution",
-          result: rawEvent.error ?? "Pi RPC command failed",
-          session_id: "",
-          is_error: true,
-        };
-        return result;
+        if (rawEvent.command === "prompt") {
+          const result: ResultMessage = {
+            type: "result",
+            subtype: "error_during_execution",
+            result: rawEvent.error ?? "Pi RPC command failed",
+            session_id: "",
+            is_error: true,
+          };
+          return result;
+        }
+        log.warn(
+          "pi-rpc",
+          `Pi RPC command failed (ignored in stream): command=${rawEvent.command ?? "unknown"} error=${rawEvent.error ?? "(none)"}`,
+        );
+        return null;
       }
       const sessionId = rawEvent.data?.sessionId;
       if (typeof sessionId === "string" && sessionId.length > 0) {
@@ -386,13 +472,19 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
  * JSON records and untranslatable events are skipped (never throw mid-stream).
  */
 export async function* readPiStream(child: ChildProcess): AsyncGenerator<StreamLine> {
-  if (!child.stdout) {
+  const stdout = child.stdout;
+  if (!stdout) {
     throw new Error("Pi RPC child process stdout is not available");
   }
 
   const splitter = new NewlineOnlyJsonlSplitter();
 
-  for await (const chunk of child.stdout) {
+  // destroyOnReturn:false honors the single-consumer handoff contract: the
+  // spawn-path get_state capture opens this generator, reads the one SystemInit
+  // record, then calls generator.return() to stop. A default async iterator would
+  // destroy child.stdout on that early return, breaking every later
+  // sendSessionMessage (each opens a fresh readPiStream on the same stdout).
+  for await (const chunk of stdout.iterator({ destroyOnReturn: false })) {
     for (const record of splitter.push(chunk as Buffer)) {
       const line = parsePiRecord(record);
       if (line) {
@@ -409,7 +501,7 @@ export async function* readPiStream(child: ChildProcess): AsyncGenerator<StreamL
   }
 }
 
-function parsePiRecord(record: string): StreamLine | null {
+export function parsePiRecord(record: string): StreamLine | null {
   const trimmed = record.trim();
   if (!trimmed || !trimmed.startsWith("{")) {
     return null;

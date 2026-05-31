@@ -1,9 +1,10 @@
 import { Bot, type Transformer } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
-import { outboxDir, type SessionManager } from "./session-manager.js";
+import { outboxDir, hasExited, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
-import { MessageQueue } from "./message-queue.js";
+import { MessageQueue, type SteerFn } from "./message-queue.js";
+import { sendPiSteer } from "./pi-rpc-protocol.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { allocateMediaPath, enforceMediaCap, releaseMediaPath, discardMediaPath } from "./media-store.js";
@@ -594,6 +595,40 @@ export const AUTO_RETRY_OPTIONS = {
 } as const;
 
 /**
+ * Build the provider-aware mid-turn delivery decision. Pi sessions have no
+ * PreToolUse inject hook, so a mid-turn message must be steered live into the
+ * running Pi child; the claude path keeps the inject-file mechanism (returns
+ * false). The decision is gated on the session's PINNED provider (set at spawn
+ * time), NOT the live config snapshot: a session spawned under a since-
+ * hot-reloaded provider would otherwise mis-route to the dead inject path and
+ * lose the message.
+ */
+export function makeSteerFn(
+  sessionManager: Pick<SessionManager, "getActive">,
+): SteerFn {
+  return (chatId: string, _agentId: string, text: string): boolean => {
+    const session = sessionManager.getActive(chatId);
+    if (!session || hasExited(session.child)) return false;
+    if (session.provider !== "pi") return false;
+    // Only steer when a Pi turn is actively processing. After `agent_end`,
+    // session-manager clears `processingStartedAt` while MessageQueue.busy can
+    // still be true (relay/cleanup of the final response is finishing). A
+    // message arriving in that window must NOT be steered: the Pi child has no
+    // active turn, Pi may reject the steer, and the parser drops failed
+    // side-command responses (pi-rpc-protocol.ts) — losing the message.
+    // Returning false buffers it so the queue drains it as a normal followup.
+    if (session.processingStartedAt === null) return false;
+    try {
+      sendPiSteer(session.child, text);
+      return true;
+    } catch (err) {
+      log.warn("telegram-bot", `Pi steer failed for ${chatId}: ${(err as Error).message}`);
+      return false;
+    }
+  };
+}
+
+/**
  * Build a transformer that runs autoRetry for every Telegram API method EXCEPT
  * `sendMessageDraft`. Drafts are cosmetic fire-and-forget calls (see
  * stream-relay.ts) — a retry that fires after Telegram's 3-10s retry_after is
@@ -638,12 +673,16 @@ export function createTelegramBot(
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
+  // Provider-aware mid-turn delivery, gated on the session's pinned provider.
+  const steerFn = makeSteerFn(sessionManager);
+
   // Message queue: debounce rapid messages and collect mid-turn messages
   const messageQueue = new MessageQueue(
     async (chatId, agentId, text, platform, onAgentOwnership) => {
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
       await relayStream(stream, platform, outboxDir(chatId), onAgentOwnership);
     },
+    { steerFn },
   );
 
   // Watchdog touch: notify liveness watchdog on every incoming update

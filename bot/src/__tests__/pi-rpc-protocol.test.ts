@@ -6,6 +6,7 @@ import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
 import {
   NewlineOnlyJsonlSplitter,
+  buildGetStateCommand,
   buildPiPromptCommand,
   buildPiSpawnArgs,
   buildPiSpawnEnv,
@@ -13,6 +14,7 @@ import {
   extractPiTextDelta,
   parsePiEvent,
   readPiStream,
+  sendPiGetState,
   sendPiPrompt,
   sendPiSteer,
 } from "../pi-rpc-protocol.js";
@@ -152,6 +154,19 @@ describe("buildPiSpawnArgs", () => {
     assert.ok(!args.includes("--effort"));
     assert.ok(!args.includes("--add-dir"));
   });
+
+  it("appends --session with the resume session id when one is provided", () => {
+    const args = buildPiSpawnArgs(testAgent, "pi-sess-resume");
+    const idx = args.indexOf("--session");
+
+    assert.notStrictEqual(idx, -1, "should include --session on resume");
+    assert.strictEqual(args[idx + 1], "pi-sess-resume");
+  });
+
+  it("omits --session on a fresh start (no resume id, or a blank one)", () => {
+    assert.ok(!buildPiSpawnArgs(testAgent).includes("--session"), "no arg => fresh start");
+    assert.ok(!buildPiSpawnArgs(testAgent, "").includes("--session"), "blank id => fresh start");
+  });
 });
 
 describe("buildPiSpawnEnv", () => {
@@ -254,6 +269,27 @@ describe("Pi RPC prompt and steer commands", () => {
     assert.deepStrictEqual(buildPiSteerCommand("stop"), {
       type: "steer",
       message: "stop",
+    });
+  });
+
+  it("builds a no-argument get_state command object", () => {
+    assert.deepStrictEqual(buildGetStateCommand(), { type: "get_state" });
+  });
+
+  it("writes get_state commands to stdin", () => {
+    const chunks: Buffer[] = [];
+    const stdin = new Writable({
+      write(chunk, _enc, cb) {
+        chunks.push(Buffer.from(chunk));
+        cb();
+      },
+    });
+    const child = createMockChild({ stdin });
+
+    sendPiGetState(child);
+
+    assert.deepStrictEqual(JSON.parse(Buffer.concat(chunks).toString().trim()), {
+      type: "get_state",
     });
   });
 
@@ -375,23 +411,23 @@ describe("parsePiEvent", () => {
     assert.strictEqual(flipsSawNonTextBlock(line), true);
   });
 
-  it("translates turn_end into a ResultMessage, reconstructing text from the message object", () => {
-    // Pi sends `turn_end.message` as an AssistantMessage object, never a string.
-    const line = parsePiEvent({
-      type: "turn_end",
-      message: {
-        role: "assistant",
-        content: [
-          { type: "thinking", thinking: "hmm" },
-          { type: "text", text: "all " },
-          { type: "text", text: "done" },
-        ],
-      },
-    });
-
-    assert.ok(line);
-    assert.strictEqual(line.type, "result");
-    assert.strictEqual((line as { result: string }).result, "all done");
+  it("treats turn_end as a non-terminal per-turn boundary (returns null)", () => {
+    // turn_end fires once per turn; only agent_end is terminal. Mapping turn_end
+    // to a ResultMessage would truncate a multi-turn (tool-using) response at its
+    // first turn, so turn_end must translate to null regardless of its content.
+    assert.strictEqual(
+      parsePiEvent({
+        type: "turn_end",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "hmm" },
+            { type: "text", text: "partial turn text" },
+          ],
+        },
+      }),
+      null,
+    );
   });
 
   it("translates agent_end into a ResultMessage with the last assistant message text", () => {
@@ -410,16 +446,72 @@ describe("parsePiEvent", () => {
     assert.strictEqual((line as { result: string }).result, "final answer");
   });
 
-  it("yields empty result text (not a crash) for a turn_end with no text blocks", () => {
+  it("yields empty result text (not a crash) for an agent_end with no assistant text", () => {
     const line = parsePiEvent({
-      type: "turn_end",
-      message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash" }] },
+      type: "agent_end",
+      messages: [{ role: "assistant", content: [{ type: "toolCall", id: "c1", name: "bash" }] }],
     });
 
     assert.ok(line);
     assert.strictEqual((line as { result: string }).result, "");
-    // turn_end carries no session id — that comes from a get_state response.
+    // agent_end here carries no top-level sessionId — that comes from get_state.
     assert.strictEqual((line as { session_id: string }).session_id, "");
+  });
+
+  it("multi-turn sequence (2x turn_end + 1x agent_end) terminates exactly once with the FINAL text", () => {
+    // Verified live sequence: a tool-using response fires turn_end per turn, then
+    // a single agent_end. Only agent_end is terminal, and it carries the final answer.
+    const sequence = [
+      {
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "let me check" }] },
+      },
+      {
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "still working" }] },
+      },
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: "do the thing" },
+          { role: "assistant", content: [{ type: "text", text: "let me check" }] },
+          { role: "toolResult", content: [{ type: "text", text: "tool output" }] },
+          { role: "assistant", content: [{ type: "text", text: "the final answer" }] },
+        ],
+      },
+    ];
+
+    const lines = sequence.map((e) => parsePiEvent(e));
+    const terminals = lines.filter((l) => l?.type === "result");
+
+    assert.strictEqual(terminals.length, 1);
+    assert.strictEqual((terminals[0] as { result: string }).result, "the final answer");
+    // The two turn_end boundaries do not terminate.
+    assert.strictEqual(lines[0], null);
+    assert.strictEqual(lines[1], null);
+  });
+
+  it("single-turn sequence (1x turn_end + 1x agent_end) terminates exactly once", () => {
+    const sequence = [
+      {
+        type: "turn_end",
+        message: { role: "assistant", content: [{ type: "text", text: "quick answer" }] },
+      },
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: [{ type: "text", text: "quick answer" }] },
+        ],
+      },
+    ];
+
+    const lines = sequence.map((e) => parsePiEvent(e));
+    const terminals = lines.filter((l) => l?.type === "result");
+
+    assert.strictEqual(terminals.length, 1);
+    assert.strictEqual((terminals[0] as { result: string }).result, "quick answer");
+    assert.strictEqual(lines[0], null);
   });
 
   it("captures the Pi session id from a successful get_state response", () => {
@@ -445,20 +537,40 @@ describe("parsePiEvent", () => {
     );
   });
 
-  it("surfaces a failed command response as an error ResultMessage", () => {
+  it("surfaces a failed prompt response as a terminal error ResultMessage", () => {
     const line = parsePiEvent({
       type: "response",
-      command: "set_model",
+      command: "prompt",
       success: false,
-      error: "Model not found: invalid/model",
+      error: "prompt rejected",
     });
 
     assert.ok(line);
     assert.strictEqual(line.type, "result");
     const result = line as unknown as Record<string, unknown>;
     assert.strictEqual(result.subtype, "error_during_execution");
-    assert.strictEqual(result.result, "Model not found: invalid/model");
+    assert.strictEqual(result.result, "prompt rejected");
     assert.strictEqual(result.is_error, true);
+  });
+
+  it("ignores a failed side-command response so it cannot truncate the active turn", () => {
+    // A mid-turn `steer` rejection shares the active prompt turn's stdout.
+    // Mapping it to a terminal result would end the in-flight response early, so
+    // it must be ignored (returned null) rather than surfaced as a result.
+    assert.strictEqual(
+      parsePiEvent({ type: "response", command: "steer", success: false, error: "no active turn" }),
+      null,
+    );
+    assert.strictEqual(
+      parsePiEvent({ type: "response", command: "set_model", success: false, error: "Model not found" }),
+      null,
+    );
+    // A failed response with no command field is also ignored (cannot correlate
+    // it to the prompt; ignoring is safer than truncating an active turn).
+    assert.strictEqual(
+      parsePiEvent({ type: "response", success: false, error: "mystery failure" }),
+      null,
+    );
   });
 
   it("translates auto_retry_start into a rate_limit_event preserving the error message", () => {
@@ -546,9 +658,14 @@ describe("readPiStream", () => {
         assistantMessageEvent: { type: "text_delta", delta: "hi" },
       }),
       JSON.stringify({ type: "tool_execution_update" }),
+      // A non-terminal turn_end is filtered out by the stream (returns null).
       JSON.stringify({
         type: "turn_end",
-        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+        message: { role: "assistant", content: [{ type: "text", text: "mid" }] },
+      }),
+      JSON.stringify({
+        type: "agent_end",
+        messages: [{ role: "assistant", content: [{ type: "text", text: "ok" }] }],
       }),
     ]);
 
@@ -562,6 +679,7 @@ describe("readPiStream", () => {
       ["system", "stream_event", "result"],
     );
     assert.strictEqual(extractPiTextDelta(lines[1]), "hi");
+    assert.strictEqual((lines[2] as { result: string }).result, "ok");
   });
 
   it("handles records split across stdout chunks", async () => {
@@ -588,5 +706,46 @@ describe("readPiStream", () => {
   it("throws when stdout is unavailable", async () => {
     const child = new EventEmitter() as unknown as ChildProcess;
     await assert.rejects(readPiStream(child).next(), /stdout is not available/);
+  });
+
+  it("does not destroy stdout on early return, so a second consumer can resume (single-consumer handoff)", async () => {
+    // Models the spawn-path get_state capture: read exactly the SystemInit
+    // record, stop the generator, then open a FRESH readPiStream on the SAME
+    // child for the first sendSessionMessage. The first generator must leave
+    // child.stdout intact (destroyOnReturn:false) or the handoff breaks.
+    const stdout = new Readable({ read() {} });
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, { stdout });
+
+    // First consumer: the get_state capture reads one SystemInit then stops.
+    const first = readPiStream(child);
+    stdout.push(
+      JSON.stringify({
+        type: "response",
+        command: "get_state",
+        success: true,
+        data: { sessionId: "pi-handoff-1" },
+      }) + "\n",
+    );
+    const r1 = await first.next();
+    assert.strictEqual(r1.done, false);
+    assert.strictEqual(r1.value.type, "system");
+    assert.strictEqual((r1.value as { session_id: string }).session_id, "pi-handoff-1");
+    await first.return(undefined);
+
+    assert.strictEqual(stdout.destroyed, false, "early return must NOT destroy stdout");
+
+    // Second consumer: a fresh readPiStream keeps reading the same stdout.
+    const second = readPiStream(child);
+    stdout.push(
+      JSON.stringify({
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: "after handoff" },
+      }) + "\n",
+    );
+    const r2 = await second.next();
+    assert.strictEqual(r2.done, false);
+    assert.strictEqual(extractPiTextDelta(r2.value), "after handoff");
+    await second.return(undefined);
   });
 });
