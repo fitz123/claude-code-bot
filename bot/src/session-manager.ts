@@ -6,6 +6,7 @@ import { join } from "node:path";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, readPiStream } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, sessionsActive, sessionCrashes } from "./metrics.js";
@@ -220,15 +221,20 @@ export class SessionManager {
     // Cleanup happens on session close, crash recovery, and via the global cap.
     ensureSessionMediaDir(chatId);
 
-    // Spawn the claude subprocess
-    const child = spawnClaudeSession({
-      agent,
-      sessionId,
-      resume,
-      includePartialMessages: true,
-      outboxPath,
-      injectDir: injectPath,
-    });
+    // Spawn the agent subprocess. Pi dispatches via the Pi RPC protocol; the
+    // claude/absent path is byte-identical to before. (Pi resume — passing the
+    // captured session id — is wired by a later task; here a Pi spawn always
+    // starts fresh.)
+    const child = agent.provider === "pi"
+      ? spawnPiRpcSession(agent)
+      : spawnClaudeSession({
+          agent,
+          sessionId,
+          resume,
+          includePartialMessages: true,
+          outboxPath,
+          injectDir: injectPath,
+        });
 
     // Verify the subprocess actually started
     try {
@@ -310,6 +316,11 @@ export class SessionManager {
   ): AsyncGenerator<StreamLine> {
     const session = await this.getOrCreateSession(chatId, agentId);
 
+    // Select the dispatch backend for send/read. getOrCreateSession just
+    // validated config, so this reload cannot fail; default to the claude path
+    // when provider is absent. ActiveSession stays provider-agnostic.
+    const isPi = this.getFreshConfig().agents[agentId]?.provider === "pi";
+
     // Async channel: queue task pushes lines, generator yields them in real-time
     const buffer: StreamLine[] = [];
     let notify: (() => void) | null = null;
@@ -347,7 +358,11 @@ export class SessionManager {
         }
       };
       try {
-        sendMessage(session.child, text, session.sessionId);
+        if (isPi) {
+          sendPiPrompt(session.child, text);
+        } else {
+          sendMessage(session.child, text, session.sessionId);
+        }
         session.lastActivity = Date.now();
         session.processingStartedAt = Date.now();
         this.resetIdleTimer(chatId);
@@ -382,7 +397,7 @@ export class SessionManager {
           }, RESPONSE_ACTIVITY_TIMEOUT_MS);
         };
         resetActivityTimer();
-        const stream = readStream(session.child);
+        const stream = isPi ? readPiStream(session.child) : readStream(session.child);
         for await (const line of stream) {
           resetActivityTimer();
           push(line);

@@ -99,10 +99,10 @@ First fix the independent translator bug (only `agent_end` terminates). Then `se
 - Modify: `bot/src/session-manager.ts`
 - Modify: `bot/src/__tests__/session-manager.test.ts`
 
-- [ ] import the Pi protocol fns; at the 3 `cli-protocol` call sites (~224/350/385), branch on `agent.provider === "pi"` → Pi fns, else claude fns
-- [ ] keep `ActiveSession` shape + lifecycle provider-agnostic
-- [ ] write tests (reuse-path pattern: mock child injected into private `active` map): pi routes to Pi fns; claude/absent routes to claude fns (regression)
-- [ ] run tests — must pass before next task
+- [x] import the Pi protocol fns; at the 3 `cli-protocol` call sites (~224/350/385), branch on `agent.provider === "pi"` → Pi fns, else claude fns
+- [x] keep `ActiveSession` shape + lifecycle provider-agnostic
+- [x] write tests (reuse-path pattern: mock child injected into private `active` map): pi routes to Pi fns; claude/absent routes to claude fns (regression)
+- [x] run tests — must pass before next task
 
 ### Task 3: Pi session-id capture (get_state, single-consumer) + resume
 

@@ -1830,3 +1830,198 @@ describe("SessionManager gracefulShutdown", () => {
   });
 });
 
+describe("SessionManager provider dispatch", () => {
+  // Config with both a claude (absent provider) and a pi agent so the same
+  // manager can route either way depending on the message's agentId.
+  const dispatchConfig: BotConfig = {
+    ...testConfig,
+    agents: {
+      ...testConfig.agents,
+      pi: {
+        id: "pi",
+        workspaceCwd: "/tmp/test-workspace-pi",
+        model: "gpt-5.5",
+        provider: "pi",
+      },
+    },
+  };
+
+  beforeEach(() => {
+    cleanup();
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /**
+   * Build a mock child whose stdin writes are captured and whose stdout can be
+   * driven by the test. Mirrors the reuse-path pattern used elsewhere in this
+   * file (mock injected into the private active map — no module mocking).
+   */
+  function makeCapturingChild(): { child: ChildProcess; stdout: Readable; stdinWrites: string[] } {
+    const stdinWrites: string[] = [];
+    const stdout = new Readable({ read() {} });
+    const stderr = new Readable({ read() {} });
+    const stdin = new Writable({
+      write(chunk, _enc, cb) {
+        stdinWrites.push(chunk.toString());
+        cb();
+      },
+    });
+    const child = new EventEmitter() as unknown as ChildProcess;
+    Object.assign(child, {
+      stdout, stderr, stdin,
+      pid: Math.floor(Math.random() * 100000),
+      exitCode: null,
+      signalCode: null,
+      killed: false,
+      kill(signal?: string) {
+        (child as unknown as Record<string, unknown>).killed = true;
+        process.nextTick(() => {
+          (child as unknown as Record<string, unknown>).exitCode = 0;
+          child.emit("exit", 0, signal ?? "SIGTERM");
+        });
+        return true;
+      },
+    });
+    return { child, stdout, stdinWrites };
+  }
+
+  function injectSession(
+    manager: InstanceType<typeof import("../session-manager.js").SessionManager>,
+    chatId: string,
+    agentId: string,
+    child: ChildProcess,
+  ): void {
+    const session: ActiveSession = {
+      child,
+      sessionId: `sid-${chatId}`,
+      agentId,
+      queue: new PQueue({ concurrency: 1 }),
+      idleTimer: null,
+      idleTimeoutMs: 60_000,
+      lastActivity: Date.now(),
+      processingStartedAt: null,
+      lastSuccessAt: null,
+      restartCount: 0,
+      outboxPath: `${TEST_DIR}/outbox-${chatId}`,
+      injectDir: `${TEST_DIR}/inject-${chatId}`,
+    };
+    (manager as unknown as Record<string, Map<string, ActiveSession>>).active.set(chatId, session);
+  }
+
+  it("routes a pi-provider session through sendPiPrompt + readPiStream", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    injectSession(manager, "pi-chat", "pi", child);
+
+    const gen = manager.sendSessionMessage("pi-chat", "pi", "hello pi");
+
+    // Drive a multi-turn-shaped Pi run: per-turn boundary then the terminal
+    // agent_end. Only readPiStream/parsePiEvent translates agent_end into a
+    // terminal result — readStream would pass it through as a non-result line
+    // and the turn would never complete.
+    setTimeout(() => {
+      stdout.push(JSON.stringify({ type: "turn_end", sessionId: "pi-real" }) + "\n");
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [
+            { role: "assistant", content: [{ type: "text", text: "final pi answer" }] },
+          ],
+        }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // Send routed to sendPiPrompt → a Pi "prompt" command, NOT a claude user msg.
+    assert.ok(stdinWrites.length >= 1, "should have written to stdin");
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "prompt", "pi path must write a Pi prompt command");
+    assert.strictEqual(sent.message, "hello pi");
+
+    // Read routed to readPiStream: agent_end became the single terminal result
+    // carrying the FINAL assistant text; turn_end produced no line.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "exactly one terminal result from agent_end");
+    assert.strictEqual(results[0].result, "final pi answer");
+
+    await manager.closeAll();
+  });
+
+  it("routes a claude/absent-provider session through sendMessage + readStream (regression)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout, stdinWrites } = makeCapturingChild();
+    injectSession(manager, "claude-chat", "main", child);
+
+    const gen = manager.sendSessionMessage("claude-chat", "main", "hello claude");
+
+    // Claude path: a native stream-json result line terminates the turn.
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({ type: "result", result: "ok claude", session_id: "sid-claude-chat" }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string });
+    }
+
+    // Send routed to sendMessage → a claude stream-json user message, NOT a Pi prompt.
+    assert.ok(stdinWrites.length >= 1, "should have written to stdin");
+    const sent = JSON.parse(stdinWrites[0]);
+    assert.strictEqual(sent.type, "user", "claude path must write a stream-json user message");
+    assert.deepStrictEqual(sent.message, { role: "user", content: "hello claude" });
+    assert.strictEqual(sent.session_id, "sid-claude-chat", "claude send must carry the session id");
+
+    // Read routed to readStream: the native result line passed through unchanged.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "claude result line terminates the turn");
+    assert.strictEqual(results[0].result, "ok claude");
+
+    await manager.closeAll();
+  });
+
+  it("claude path does not treat a Pi agent_end as terminal (proves readStream was used)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout } = makeCapturingChild();
+    injectSession(manager, "claude-noterm", "main", child);
+
+    const gen = manager.sendSessionMessage("claude-noterm", "main", "hi");
+
+    // Push a Pi-only agent_end then close stdout. Under readStream this is a
+    // non-result line, so the turn never gets a result and the generator throws.
+    setTimeout(() => {
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          messages: [{ role: "assistant", content: [{ type: "text", text: "nope" }] }],
+        }) + "\n",
+      );
+      stdout.push(null);
+    }, 30);
+
+    await assert.rejects(async () => {
+      for await (const _line of gen) {
+        // consume
+      }
+    }, /subprocess exited before sending a result/);
+
+    await manager.closeAll();
+  });
+});
+
