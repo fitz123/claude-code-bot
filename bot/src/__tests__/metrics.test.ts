@@ -5,12 +5,20 @@ import {
   recordResultMetrics,
   recordTelegramApiError,
   recordTelegramApiCall,
+  classifyPiRetry,
+  recordPiRetry,
+  recordPiTurnDuration,
   tokensInput,
   tokensOutput,
   tokensCacheRead,
   tokensCacheCreation,
   costUsd,
   turnDuration,
+  piTurnDuration,
+  piRetryTotal,
+  pi429Total,
+  piOverloadTotal,
+  piRetryUnknownTotal,
   telegramApiErrors,
   telegramApiCalls,
   sessionsActive,
@@ -20,6 +28,7 @@ import {
   startMetricsServer,
   stopMetricsServer,
 } from "../metrics.js";
+import { parsePiEvent } from "../pi-rpc-protocol.js";
 
 // Reset all metrics before each test to get clean counts
 beforeEach(() => {
@@ -212,6 +221,128 @@ describe("message flow metrics", () => {
 
     const val = await messagesSent.get();
     assert.strictEqual(val.values[0].value, 3);
+  });
+});
+
+describe("classifyPiRetry", () => {
+  it("buckets rate-limit signals as 429", () => {
+    assert.strictEqual(classifyPiRetry("HTTP 429 Too Many Requests"), "429");
+    assert.strictEqual(classifyPiRetry("rate limit exceeded, retrying"), "429");
+    assert.strictEqual(classifyPiRetry("rate_limit_error"), "429");
+  });
+
+  it("buckets overload / 5xx signals as overload", () => {
+    assert.strictEqual(classifyPiRetry("upstream returned 529 overloaded"), "overload");
+    assert.strictEqual(classifyPiRetry("503 Service Unavailable"), "overload");
+    assert.strictEqual(classifyPiRetry("internal server error"), "overload");
+  });
+
+  it("prefers 429 over overload when both could match", () => {
+    // A 429 message must never be mis-bucketed as a 5xx/overload.
+    assert.strictEqual(classifyPiRetry("429 after a transient 503"), "429");
+  });
+
+  it("falls back to unknown for unrecognized or missing messages", () => {
+    assert.strictEqual(classifyPiRetry("connection reset by peer"), "unknown");
+    assert.strictEqual(classifyPiRetry(""), "unknown");
+    assert.strictEqual(classifyPiRetry(undefined), "unknown");
+  });
+});
+
+describe("recordPiRetry", () => {
+  async function bucketValue(
+    counter: typeof piRetryTotal,
+    agentId: string,
+  ): Promise<number> {
+    const metric = await counter.get();
+    const entry = metric.values.find((v) => v.labels.agent_id === agentId);
+    return entry?.value ?? 0;
+  }
+
+  it("always increments pi_retry_total plus exactly the 429 bucket", async () => {
+    recordPiRetry("main", "HTTP 429 rate limit");
+
+    assert.strictEqual(await bucketValue(piRetryTotal, "main"), 1);
+    assert.strictEqual(await bucketValue(pi429Total, "main"), 1);
+    assert.strictEqual(await bucketValue(piOverloadTotal, "main"), 0);
+    assert.strictEqual(await bucketValue(piRetryUnknownTotal, "main"), 0);
+  });
+
+  it("always increments pi_retry_total plus exactly the overload bucket", async () => {
+    recordPiRetry("main", "529 overloaded");
+
+    assert.strictEqual(await bucketValue(piRetryTotal, "main"), 1);
+    assert.strictEqual(await bucketValue(pi429Total, "main"), 0);
+    assert.strictEqual(await bucketValue(piOverloadTotal, "main"), 1);
+    assert.strictEqual(await bucketValue(piRetryUnknownTotal, "main"), 0);
+  });
+
+  it("always increments pi_retry_total plus exactly the unknown bucket", async () => {
+    recordPiRetry("main", "some brand new wording");
+
+    assert.strictEqual(await bucketValue(piRetryTotal, "main"), 1);
+    assert.strictEqual(await bucketValue(pi429Total, "main"), 0);
+    assert.strictEqual(await bucketValue(piOverloadTotal, "main"), 0);
+    assert.strictEqual(await bucketValue(piRetryUnknownTotal, "main"), 1);
+  });
+
+  it("treats a missing error message as unknown but still counts the retry", async () => {
+    recordPiRetry("main");
+
+    assert.strictEqual(await bucketValue(piRetryTotal, "main"), 1);
+    assert.strictEqual(await bucketValue(piRetryUnknownTotal, "main"), 1);
+  });
+
+  it("classifies the error_message carried by a translated auto_retry_start", async () => {
+    // End-to-end wiring: Pi raw event -> parsePiEvent -> classifier metric.
+    const line = parsePiEvent({ type: "auto_retry_start", errorMessage: "429 slow down" });
+    assert.ok(line);
+    const errorMessage = (line as { error_message?: string }).error_message;
+    recordPiRetry("main", errorMessage);
+
+    assert.strictEqual(await bucketValue(piRetryTotal, "main"), 1);
+    assert.strictEqual(await bucketValue(pi429Total, "main"), 1);
+  });
+});
+
+describe("recordPiTurnDuration", () => {
+  it("observes seconds into the Pi turn-duration histogram", async () => {
+    recordPiTurnDuration("main", 30);
+
+    const durVal = await piTurnDuration.get();
+    const sum = durVal.values.find(
+      (v) => v.metricName === "bot_pi_turn_duration_seconds_sum",
+    );
+    assert.ok(sum, "expected Pi histogram sum");
+    assert.strictEqual(sum.value, 30);
+    assert.strictEqual(sum.labels.agent_id, "main");
+  });
+});
+
+describe("Pi metrics registration", () => {
+  it("registers all Pi metrics on the default registry", () => {
+    const names = client.register.getMetricsAsArray().map((m) => m.name);
+    for (const name of [
+      "bot_pi_turn_duration_seconds",
+      "bot_pi_retry_total",
+      "bot_pi_429_total",
+      "bot_pi_overload_total",
+      "bot_pi_retry_unknown_total",
+    ]) {
+      assert.ok(names.includes(name), `expected ${name} to be registered`);
+    }
+  });
+
+  it("exposes Pi metrics in the scrape output", async () => {
+    recordPiRetry("main", "429 rate limit");
+    recordPiTurnDuration("main", 5);
+
+    const body = await client.register.metrics();
+    assert.ok(body.includes("bot_pi_turn_duration_seconds"));
+    assert.ok(body.includes("bot_pi_retry_total"));
+    assert.ok(body.includes("bot_pi_429_total"));
+    assert.ok(body.includes("bot_pi_overload_total"));
+    assert.ok(body.includes("bot_pi_retry_unknown_total"));
   });
 });
 

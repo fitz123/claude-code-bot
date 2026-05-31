@@ -314,6 +314,25 @@ The bot maintains persistent context across sessions through a memory system roo
 
 ## Configuration
 
+### Provider backends
+
+Each agent runs through a coding-agent backend selected by the optional per-agent `provider` field in `config.yaml`:
+
+| `provider` | Backend | Status |
+|---|---|---|
+| `claude` (default, omit) | `claude -p` / Agent SDK | Active — the path every agent uses today |
+| `pi` | Pi RPC + OpenAI Codex (`pi --mode rpc`) | Protocol layer only — dispatch lands in a follow-up |
+
+```yaml
+agents:
+  main:
+    id: main
+    # ...
+    # provider: claude   # or "pi"; omit to default to "claude"
+```
+
+Pi support is rolling out incrementally. This stage ships the **protocol layer only**: the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is not wired yet**, so setting `provider: pi` has no runtime effect until the dispatch layer lands; the `claude` path is unchanged. The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; like the Claude path, the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
+
 ### Logging
 
 All log output uses structured format: `TIMESTAMP LEVEL [tag] message`.
@@ -332,6 +351,8 @@ metricsPort: 9090
 ```
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
+
+The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics now so dashboards and alerts are ready before dispatch lands: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`, same buckets as the Claude turn histogram for direct comparison) and the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter). They read zero until an agent runs with `provider: pi`.
 
 #### Telegram API metrics
 

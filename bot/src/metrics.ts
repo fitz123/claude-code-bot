@@ -51,6 +51,41 @@ export const turnDuration = new client.Histogram({
   buckets: [1, 5, 10, 30, 60, 120, 300, 600],
 });
 
+// --- Pi RPC (OpenAI Codex provider) ---
+// Registered now (Plan A); consumed by the dispatch/alert layers in later plans.
+
+export const piTurnDuration = new client.Histogram({
+  name: "bot_pi_turn_duration_seconds",
+  help: "Pi RPC turn duration in seconds",
+  labelNames: ["agent_id"] as const,
+  // SAME buckets as the Claude histogram so dashboards compare providers directly.
+  buckets: [1, 5, 10, 30, 60, 120, 300, 600],
+});
+
+export const piRetryTotal = new client.Counter({
+  name: "bot_pi_retry_total",
+  help: "Total Pi RPC auto-retries (incremented on every auto_retry_start)",
+  labelNames: ["agent_id"] as const,
+});
+
+export const pi429Total = new client.Counter({
+  name: "bot_pi_429_total",
+  help: "Pi RPC auto-retries attributed to a rate-limit (429) signal",
+  labelNames: ["agent_id"] as const,
+});
+
+export const piOverloadTotal = new client.Counter({
+  name: "bot_pi_overload_total",
+  help: "Pi RPC auto-retries attributed to an overload (529 / 5xx) signal",
+  labelNames: ["agent_id"] as const,
+});
+
+export const piRetryUnknownTotal = new client.Counter({
+  name: "bot_pi_retry_unknown_total",
+  help: "Pi RPC auto-retries whose error message matched no known signal (graceful fallback)",
+  labelNames: ["agent_id"] as const,
+});
+
 // --- Telegram API errors ---
 
 export const telegramApiErrors = new client.Counter({
@@ -126,6 +161,75 @@ export function recordResultMetrics(
       tokensCacheCreation.inc({ agent_id: agentId }, usage.cache_creation_input_tokens);
     }
   }
+}
+
+/** Retry bucket inferred from a Pi RPC auto_retry_start error message. */
+export type PiRetryBucket = "429" | "overload" | "unknown";
+
+/**
+ * Classify a Pi RPC auto-retry error message into a metric bucket.
+ *
+ * Defensive by design: the 429 check runs before the 5xx check so a rate-limit
+ * is never mis-bucketed as overload, and any unrecognized / missing message
+ * falls back to "unknown" so a future Pi wording change is still counted rather
+ * than silently dropped.
+ */
+export function classifyPiRetry(errorMessage?: string): PiRetryBucket {
+  const msg = (errorMessage ?? "").toLowerCase();
+
+  // Rate limit (429) — must come first; a 429 must never fall through to 5xx.
+  if (
+    msg.includes("429") ||
+    msg.includes("rate limit") ||
+    msg.includes("rate_limit") ||
+    msg.includes("ratelimit") ||
+    msg.includes("too many requests")
+  ) {
+    return "429";
+  }
+
+  // Overload / server error (529, 5xx).
+  if (
+    msg.includes("529") ||
+    msg.includes("overload") ||
+    msg.includes("service unavailable") ||
+    msg.includes("server error") ||
+    /\b5\d\d\b/.test(msg)
+  ) {
+    return "overload";
+  }
+
+  return "unknown";
+}
+
+/**
+ * Record a Pi RPC auto-retry, classifying the auto_retry_start error message.
+ * Always increments pi_retry_total and exactly one of the 429 / overload /
+ * unknown buckets. This is the classifier wired to parsePiEvent's
+ * auto_retry_start translation (which preserves the raw error_message).
+ */
+export function recordPiRetry(agentId: string, errorMessage?: string): void {
+  piRetryTotal.inc({ agent_id: agentId });
+
+  switch (classifyPiRetry(errorMessage)) {
+    case "429":
+      pi429Total.inc({ agent_id: agentId });
+      break;
+    case "overload":
+      piOverloadTotal.inc({ agent_id: agentId });
+      break;
+    default:
+      piRetryUnknownTotal.inc({ agent_id: agentId });
+      break;
+  }
+}
+
+/**
+ * Record a Pi RPC turn duration (seconds) into the Pi histogram, mirroring the
+ * Claude turnDuration observation in recordResultMetrics.
+ */
+export function recordPiTurnDuration(agentId: string, durationSeconds: number): void {
+  piTurnDuration.observe({ agent_id: agentId }, durationSeconds);
 }
 
 /**
