@@ -42,9 +42,9 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 
 ### Task 0: Lock extension location + prove lint/test coverage
 **Files:** Create `bot/src/pi-extensions/_smoke.ts` + `bot/src/__tests__/pi-extensions-smoke.test.ts` (throwaway, removed in Task 4)
-- [ ] confirm `bot/src/pi-extensions/*.ts` covered by `tsc --noEmit` AND the `npm test` glob via a stub helper+test that runs green
-- [ ] document wrapper-location lint coverage decision (second tsconfig/glob vs jiti-only)
-- [ ] run lint+test on the stub before proceeding
+- [x] confirm `bot/src/pi-extensions/*.ts` covered by `tsc --noEmit` AND the `npm test` glob via a stub helper+test that runs green
+- [x] document wrapper-location lint coverage decision (second tsconfig/glob vs jiti-only) — decided **jiti-only (tsc-excluded)**; documented in `bot/src/pi-extensions/README.md`
+- [x] run lint+test on the stub before proceeding — lint clean; full suite 1176 pass / 0 fail incl. the 2 smoke tests
 
 ### Task 1: Extension loading wiring (buildPiSpawnArgs → --extension, kill-switch)
 **Files:** Modify `bot/src/pi-rpc-protocol.ts`, `bot/src/__tests__/pi-rpc-protocol.test.ts`
