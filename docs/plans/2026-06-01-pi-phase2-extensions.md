@@ -55,10 +55,10 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 
 ### Task 2: A1 — guardian+protect-files guard
 **Files:** Create `bot/src/pi-extensions/guard.ts` + `bot/.claude/extensions/guardian-protect-files.ts` + `bot/src/__tests__/guard.test.ts`
-- [ ] `tool_call` handler: edit/write + bash redirect/`>`/`tee`/`mv`/`cp` into protected paths → `node:path` rel-path → block 4 prefixes + workspace-structure; `{block:true,reason}`; fail-CLOSED unknown root
-- [ ] fix the 4 bash-hook bugs; pure `isProtectedPath`/`classifyToolCall` + pinned protected-list test
-- [ ] tests: protected blocked (edit/write/bash-redirect/traversal/case); allowed pass; fail-closed
-- [ ] run tests
+- [x] `tool_call` handler: edit/write + bash redirect/`>`/`tee`/`mv`/`cp` into protected paths → `node:path` rel-path → block 4 prefixes + workspace-structure; `{block:true,reason}`; fail-CLOSED unknown root — wrapper `guardian-protect-files.ts` wires `pi.on("tool_call")` → `classifyToolCall({toolName,input},{workspaceRoot:ctx.cwd})`; targets from write/edit `input.path` + bash command parse; `node:path` resolve/relative; returns Pi `{block,reason}`; workspace-structure = relative `..` escape; fail-CLOSED when `ctx.cwd` unknown or write/edit path missing
+- [x] fix the 4 bash-hook bugs; pure `isProtectedPath`/`classifyToolCall` + pinned protected-list test — (1) traversal: `node:path` canonicalizes `.`/`..`/`//`; (2) APFS case: case-insensitive prefix match; (3) bash-redirect coverage: `extractBashWriteTargets` lexer parses `>`/`>>`/`tee`/`mv`(src+dest)/`cp`(dest), neutralizes `\cp`, skips sudo/nohup wrappers + fd designators; (4) fail-open: unknown root → block. `PROTECTED_PREFIXES` pinned by test to the 4 prefixes (no policy engine; full `protect-files.sh` enumeration intentionally out of scope)
+- [x] tests: protected blocked (edit/write/bash-redirect/traversal/case); allowed pass; fail-closed — `guard.test.ts`, 32 tests covering pinned list, isProtectedPath, write/edit, traversal escape, fail-closed, read-only pass, bash redirect/tee/mv/cp, extractBashWriteTargets
+- [x] run tests — lint clean (`tsc --noEmit`); full suite 1217 pass / 0 fail
 
 ### Task 3: A2 — web-tools (Tavily)
 **Files:** Create `bot/src/pi-extensions/tavily.ts` + `bot/.claude/extensions/web-tools.ts` + `bot/src/__tests__/tavily.test.ts`
