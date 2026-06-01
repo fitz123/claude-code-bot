@@ -342,6 +342,23 @@ Pi support is rolling out incrementally. The protocol layer is the typed Pi RPC 
 
 No agent ships on `provider: pi` by default; flipping one is a deliberate per-deployment step. The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; like the Claude path, the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
 
+#### Pi extensions (A1-A3)
+
+Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions reach capability parity with the `claude` path. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs (those are for `/reload`). The `claude` path is unaffected: [bot/src/cli-protocol.ts](bot/src/cli-protocol.ts) is byte-identical.
+
+| Extension | Wrapper | What it does |
+|---|---|---|
+| **A1 guard** | `bot/.claude/extensions/guardian-protect-files.ts` | A `tool_call` handler that blocks edit/write and bash redirects (`>`, `>>`, `tee`, `mv`, `cp`) into upstream-owned paths (`bot/`, `.claude/rules/platform/`, `.github/workflows/`, `.githooks/`) and workspace-structure violations. Path matching canonicalizes `.`/`..`/`//` and is case-insensitive (APFS). Fails **closed** — an unknown workspace root blocks. |
+| **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read once at load from macOS Keychain (`security find-generic-password -s tavily-api-key -a minime -w`). A missing key warn-logs but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
+| **A3 subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Child errors warn-log. |
+
+**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi with **no** extensions — a bare, claude-parity command. This is the fast rollback path (no code change, no merge). With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session).
+
+**Rollback:**
+
+- **Fast (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi spawns drop all three extensions immediately.
+- **Code:** `git revert <merge-commit>` in this repo → `git fetch upstream && git merge upstream/main` in the workspace → `bot/scripts/restart-bot.sh`.
+
 ### Logging
 
 All log output uses structured format: `TIMESTAMP LEVEL [tag] message`.

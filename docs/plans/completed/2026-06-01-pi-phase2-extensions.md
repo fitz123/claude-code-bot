@@ -81,9 +81,9 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 
 ### Task 6: [Final] Docs + Rollback
 **Files:** Modify `README.md` (repo root)
-- [ ] note A1-A3 + `--extension` loading + `PI_EXTENSIONS_DISABLED` kill-switch
-- [ ] **Rollback:** code = `git revert <merge>` → workspace upstream-merge → `restart-bot.sh`; fast = `PI_EXTENSIONS_DISABLED=1` + restart
-- [ ] move plan to `docs/plans/completed/`
+- [x] note A1-A3 + `--extension` loading + `PI_EXTENSIONS_DISABLED` kill-switch — added a `#### Pi extensions (A1-A3)` subsection under `### Provider backends` in `README.md`: a 3-row table (A1 guard / A2 web-tools / A3 subagent) with each wrapper path + behavior, the repeatable `--extension` per-spawn loading note (links `resolvePiExtensionArgs` + the byte-identical `cli-protocol.ts`), and the `PI_EXTENSIONS_DISABLED=1` kill-switch + fail-loud-on-missing-wrapper note
+- [x] **Rollback:** code = `git revert <merge>` → workspace upstream-merge → `restart-bot.sh`; fast = `PI_EXTENSIONS_DISABLED=1` + restart — documented both paths in the new README subsection: fast = set `PI_EXTENSIONS_DISABLED=1` in launchd env + `restart-bot.sh --plist` (env is plist-level); code = `git revert <merge>` → `git fetch upstream && git merge upstream/main` in workspace → `restart-bot.sh`
+- [x] move plan to `docs/plans/completed/` — moved via `git mv docs/plans/2026-06-01-pi-phase2-extensions.md docs/plans/completed/` in this commit
 
 ## A4 — codex-usage exporter (WORKSPACE task, I build directly — NOT ralphex)
 1. **Determine the % source empirically:** capture a live codex rate-limit (direct ChatGPT-backend codex API call with the keychain codex token reading the rate-limit response, à la the old Anthropic budget-exporter; OR read `~/.codex/logs_2.sqlite`; OR wrap `codex`). Pick the most reliable.
