@@ -158,6 +158,11 @@ describe("guard: bash redirect/tee/mv/cp coverage (bash-hook bug fix)", () => {
     assert.equal(block({ toolName: "bash", input: { command: "cp --target-directory=bot evil.ts" } }), true);
   });
 
+  it("blocks clustered `cp -vt DIR` short-flag forms into a protected path", () => {
+    assert.equal(block({ toolName: "bash", input: { command: "cp -vt bot a b" } }), true);
+    assert.equal(block({ toolName: "bash", input: { command: "cp -vtbot a b" } }), true);
+  });
+
   it("blocks `mv` whose SOURCE is protected (mv deletes the source)", () => {
     assert.equal(block({ toolName: "bash", input: { command: "mv bot/x.ts /tmp/y.ts" } }), true);
   });
@@ -194,6 +199,11 @@ describe("guard: extractBashWriteTargets", () => {
     assert.deepStrictEqual(extractBashWriteTargets("cp -tbot a b"), ["bot"]);
     assert.deepStrictEqual(extractBashWriteTargets("cp --target-directory=bot a b"), ["bot"]);
     assert.deepStrictEqual(extractBashWriteTargets("cp --target-directory bot a b"), ["bot"]);
+  });
+
+  it("extracts the target directory from clustered short flags (`-vt`)", () => {
+    assert.deepStrictEqual(extractBashWriteTargets("cp -vt bot a b"), ["bot"]);
+    assert.deepStrictEqual(extractBashWriteTargets("cp -vtbot a b"), ["bot"]);
   });
 
   it("extracts tee file args", () => {

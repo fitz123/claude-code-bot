@@ -441,22 +441,45 @@ function analyzeSegment(toks: Tok[]): string[] {
 }
 
 /**
- * Extract the GNU coreutils target directory from a `cp`/`mv` arg list:
- * `-t DIR`, `-tDIR`, or `--target-directory[=DIR]`. Returns undefined when the
- * flag is absent (POSIX `cp src dest` form).
+ * Extract the GNU coreutils target directory from a `cp` arg list:
+ * `-t DIR`, `-tDIR`, `--target-directory[=DIR]`, and clustered short forms where
+ * `t` is bundled with other flags (`-vt DIR`, `-vtDIR`). In a short-flag cluster
+ * the `t` option consumes the rest of the cluster as its argument, or the next
+ * separate arg when it is the last letter — so `-vt bot a b` writes into `bot`,
+ * not `b`. Returns undefined when the flag is absent (POSIX `cp src dest` form).
  */
 function extractTargetDirFlag(args: string[]): string | undefined {
   for (let a = 0; a < args.length; a++) {
     const w = args[a];
-    if (w === "-t" || w === "--target-directory") {
+
+    // Long form: --target-directory or --target-directory=DIR.
+    if (w === "--target-directory") {
       const next = args[a + 1];
       if (next !== undefined && !next.startsWith("-")) {
         return next;
       }
-    } else if (w.startsWith("--target-directory=")) {
+      continue;
+    }
+    if (w.startsWith("--target-directory=")) {
       return w.slice("--target-directory=".length);
-    } else if (w.startsWith("-t") && !w.startsWith("--") && w.length > 2) {
-      return w.slice(2);
+    }
+
+    // Short form: a single-dash cluster containing `t` (cp's only lowercase-`t`
+    // option is --target-directory; `-T` is a different option and is ignored by
+    // the case-sensitive search). `t` consumes the remainder of the cluster, or
+    // the next separate non-flag arg when it is the cluster's last letter.
+    if (w.startsWith("-") && !w.startsWith("--") && w.length > 1) {
+      const ti = w.indexOf("t");
+      if (ti >= 1) {
+        const rest = w.slice(ti + 1);
+        if (rest.length > 0) {
+          return rest;
+        }
+        const next = args[a + 1];
+        if (next !== undefined && !next.startsWith("-")) {
+          return next;
+        }
+      }
     }
   }
   return undefined;
