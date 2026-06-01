@@ -48,10 +48,10 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 
 ### Task 1: Extension loading wiring (buildPiSpawnArgs → --extension, kill-switch)
 **Files:** Modify `bot/src/pi-rpc-protocol.ts`, `bot/src/__tests__/pi-rpc-protocol.test.ts`
-- [ ] `buildPiSpawnArgs` pushes `--extension <abs-path>` for each wrapper unless `PI_EXTENSIONS_DISABLED=1`; missing-file → loud fail-closed; note per-spawn `--extension` is deliberate
-- [ ] claude path + existing Pi args unchanged
-- [ ] tests: args include resolved paths; kill-switch omits; missing-file fails; claude unchanged
-- [ ] run tests
+- [x] `buildPiSpawnArgs` pushes `--extension <abs-path>` for each wrapper unless `PI_EXTENSIONS_DISABLED=1`; missing-file → loud fail-closed; note per-spawn `--extension` is deliberate — added `resolvePiExtensionArgs()` (injectable dir/env/exists), `PI_EXTENSION_WRAPPER_RELPATHS` (A1 guard, A2 web-tools, A3 subagent/index.ts), `PI_EXTENSIONS_DISABLED_ENV` kill-switch; wrapper dir resolved relative to module (`bot/src` → `bot/.claude/extensions`); throws naming the missing path + kill-switch bypass
+- [x] claude path + existing Pi args unchanged — extension args appended after model/prompt, before `--session`; `cli-protocol.ts` untouched
+- [x] tests: args include resolved paths; kill-switch omits; missing-file fails; claude unchanged — new `Pi extension loading (--extension)` block; full suite 1185 pass / 0 fail
+- [x] run tests — lint clean; `npm test` green
 
 ### Task 2: A1 — guardian+protect-files guard
 **Files:** Create `bot/src/pi-extensions/guard.ts` + `bot/.claude/extensions/guardian-protect-files.ts` + `bot/src/__tests__/guard.test.ts`

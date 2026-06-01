@@ -4,8 +4,10 @@ import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
+import { resolve } from "node:path";
 import {
   NewlineOnlyJsonlSplitter,
+  PI_EXTENSION_WRAPPER_RELPATHS,
   buildGetStateCommand,
   buildPiPromptCommand,
   buildPiSpawnArgs,
@@ -14,10 +16,13 @@ import {
   extractPiTextDelta,
   parsePiEvent,
   readPiStream,
+  resolvePiExtensionArgs,
   sendPiGetState,
   sendPiPrompt,
   sendPiSteer,
+  type PiExtensionResolveOptions,
 } from "../pi-rpc-protocol.js";
+import { buildSpawnArgs } from "../cli-protocol.js";
 import type { AgentConfig, StreamLine } from "../types.js";
 
 const testAgent: AgentConfig = {
@@ -27,6 +32,14 @@ const testAgent: AgentConfig = {
   fallbackModel: "claude-sonnet-4-6",
   maxTurns: 50,
   effort: "high",
+};
+
+// Existing base-arg tests assert spawn-arg SHAPING (model/prompt/session) in
+// isolation. Disable extension loading via the kill-switch so these assertions
+// do not depend on whether the A1-A3 wrapper files happen to exist on disk —
+// extension loading has its own dedicated block below.
+const NO_EXTENSIONS: PiExtensionResolveOptions = {
+  env: { PI_EXTENSIONS_DISABLED: "1" },
 };
 
 describe("NewlineOnlyJsonlSplitter", () => {
@@ -110,7 +123,7 @@ describe("NewlineOnlyJsonlSplitter", () => {
 
 describe("buildPiSpawnArgs", () => {
   it("builds the Pi RPC OpenAI Codex command arguments", () => {
-    assert.deepStrictEqual(buildPiSpawnArgs(testAgent), [
+    assert.deepStrictEqual(buildPiSpawnArgs(testAgent, undefined, NO_EXTENSIONS), [
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
@@ -121,13 +134,13 @@ describe("buildPiSpawnArgs", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       model: "openai-codex/gpt-5.5",
-    });
+    }, undefined, NO_EXTENSIONS);
 
     assert.strictEqual(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.5");
   });
 
   it("uses the default Pi model when the model is blank", () => {
-    const args = buildPiSpawnArgs({ ...testAgent, model: " " });
+    const args = buildPiSpawnArgs({ ...testAgent, model: " " }, undefined, NO_EXTENSIONS);
 
     assert.strictEqual(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.5");
   });
@@ -136,7 +149,7 @@ describe("buildPiSpawnArgs", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "You are precise.",
-    });
+    }, undefined, NO_EXTENSIONS);
     const promptIndex = args.indexOf("--append-system-prompt");
 
     assert.notStrictEqual(promptIndex, -1);
@@ -147,7 +160,7 @@ describe("buildPiSpawnArgs", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "persona",
-    });
+    }, undefined, NO_EXTENSIONS);
 
     assert.ok(!args.includes("--fallback-model"));
     assert.ok(!args.includes("--max-turns"));
@@ -156,7 +169,7 @@ describe("buildPiSpawnArgs", () => {
   });
 
   it("appends --session with the resume session id when one is provided", () => {
-    const args = buildPiSpawnArgs(testAgent, "pi-sess-resume");
+    const args = buildPiSpawnArgs(testAgent, "pi-sess-resume", NO_EXTENSIONS);
     const idx = args.indexOf("--session");
 
     assert.notStrictEqual(idx, -1, "should include --session on resume");
@@ -164,8 +177,114 @@ describe("buildPiSpawnArgs", () => {
   });
 
   it("omits --session on a fresh start (no resume id, or a blank one)", () => {
-    assert.ok(!buildPiSpawnArgs(testAgent).includes("--session"), "no arg => fresh start");
-    assert.ok(!buildPiSpawnArgs(testAgent, "").includes("--session"), "blank id => fresh start");
+    assert.ok(
+      !buildPiSpawnArgs(testAgent, undefined, NO_EXTENSIONS).includes("--session"),
+      "no arg => fresh start",
+    );
+    assert.ok(
+      !buildPiSpawnArgs(testAgent, "", NO_EXTENSIONS).includes("--session"),
+      "blank id => fresh start",
+    );
+  });
+});
+
+describe("Pi extension loading (--extension)", () => {
+  const FAKE_DIR = "/fake/ext";
+  // All three wrappers present, extensions enabled.
+  const presentAll: PiExtensionResolveOptions = {
+    extensionsDir: FAKE_DIR,
+    env: {},
+    exists: () => true,
+  };
+  const wrapperAbs = (rel: string): string => resolve(FAKE_DIR, rel);
+
+  it("resolves a repeatable --extension arg (abs path) for each wrapper, in load order", () => {
+    assert.deepStrictEqual(resolvePiExtensionArgs(presentAll), [
+      "--extension", wrapperAbs("guardian-protect-files.ts"),
+      "--extension", wrapperAbs("web-tools.ts"),
+      "--extension", wrapperAbs("subagent/index.ts"),
+    ]);
+  });
+
+  it("defaults the wrapper list to A1 guard, A2 web-tools, A3 subagent", () => {
+    assert.deepStrictEqual(
+      [...PI_EXTENSION_WRAPPER_RELPATHS],
+      ["guardian-protect-files.ts", "web-tools.ts", "subagent/index.ts"],
+    );
+  });
+
+  it("buildPiSpawnArgs appends the resolved --extension paths after the model/prompt block", () => {
+    const args = buildPiSpawnArgs(testAgent, undefined, presentAll);
+
+    // The three wrappers are present, one --extension flag each.
+    assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
+    assert.ok(args.includes(wrapperAbs("guardian-protect-files.ts")));
+    assert.ok(args.includes(wrapperAbs("web-tools.ts")));
+    assert.ok(args.includes(wrapperAbs("subagent/index.ts")));
+    // Base args remain intact and precede the first --extension.
+    assert.strictEqual(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.5");
+    assert.ok(args.indexOf("--model") < args.indexOf("--extension"));
+  });
+
+  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits all --extension args (bare claude-parity spawn)", () => {
+    const args = buildPiSpawnArgs(testAgent, undefined, {
+      extensionsDir: FAKE_DIR,
+      exists: () => true,
+      env: { PI_EXTENSIONS_DISABLED: "1" },
+    });
+
+    assert.ok(!args.includes("--extension"));
+    assert.deepStrictEqual(args, [
+      "--mode", "rpc",
+      "--provider", "openai-codex",
+      "--model", "openai-codex/gpt-5.5",
+    ]);
+  });
+
+  it("treats any kill-switch value other than \"1\" as NOT disabled", () => {
+    const args = resolvePiExtensionArgs({
+      extensionsDir: FAKE_DIR,
+      exists: () => true,
+      env: { PI_EXTENSIONS_DISABLED: "0" },
+    });
+    assert.ok(args.includes("--extension"));
+  });
+
+  it("fails CLOSED (throws loudly) when a configured wrapper is missing on disk", () => {
+    assert.throws(
+      () => resolvePiExtensionArgs({ extensionsDir: FAKE_DIR, env: {}, exists: () => false }),
+      /Pi extension wrapper not found[\s\S]*Refusing to spawn an unguarded/,
+    );
+  });
+
+  it("names the specific missing wrapper and points at the kill-switch bypass", () => {
+    // Only the A3 subagent entrypoint is missing; the others are present.
+    const present = (p: string): boolean => !p.includes("subagent");
+    assert.throws(
+      () => resolvePiExtensionArgs({ extensionsDir: FAKE_DIR, env: {}, exists: present }),
+      /subagent\/index\.ts[\s\S]*PI_EXTENSIONS_DISABLED=1/,
+    );
+  });
+
+  it("places all --extension paths before --session on resume", () => {
+    const args = buildPiSpawnArgs(testAgent, "pi-sess-resume", presentAll);
+    const lastExtension = args.lastIndexOf("--extension");
+    const session = args.indexOf("--session");
+
+    assert.notStrictEqual(lastExtension, -1);
+    assert.notStrictEqual(session, -1);
+    assert.ok(lastExtension < session, "--extension args must precede --session");
+    assert.strictEqual(args[session + 1], "pi-sess-resume");
+  });
+
+  it("regression: the Claude spawn path is unchanged — never emits --extension or the Pi provider", () => {
+    const claudeArgs = buildSpawnArgs({ agent: testAgent, sessionId: "claude-sess" });
+
+    assert.ok(!claudeArgs.includes("--extension"), "claude path must not gain --extension");
+    assert.ok(!claudeArgs.includes("openai-codex"), "claude path must not gain the Pi provider");
+    // Claude path keeps its own distinctive flags (proof we touched only Pi).
+    assert.ok(claudeArgs.includes("--add-dir"));
+    assert.ok(claudeArgs.includes("--permission-mode"));
   });
 });
 

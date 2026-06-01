@@ -1,5 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   AgentConfig,
   StreamLine,
@@ -13,6 +16,81 @@ import { log } from "./logger.js";
 const PI_BIN = "pi";
 const PI_PROVIDER = "openai-codex";
 const DEFAULT_PI_MODEL = "openai-codex/gpt-5.5";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Absolute dir holding the jiti-loaded Pi extension wrappers. They live OUTSIDE
+ * `bot/src` (outside the tsc graph + the `npm test` glob — see
+ * `pi-extensions/README.md`) at `bot/.claude/extensions`, so resolve relative to
+ * this module: `bot/src` → `bot` → `.claude/extensions`.
+ */
+const DEFAULT_PI_EXTENSIONS_DIR = resolve(__dirname, "..", ".claude", "extensions");
+
+/**
+ * Wrapper entrypoints loaded into EVERY Pi spawn, in load order:
+ *   A1 guardian+protect-files write guard,
+ *   A2 web-tools (Tavily web_search/web_fetch),
+ *   A3 subagent (isolated `pi -p` child spawn).
+ * Paths are relative to {@link DEFAULT_PI_EXTENSIONS_DIR}. A3 is a multi-file
+ * DIRECTORY whose entrypoint is `index.ts`.
+ */
+export const PI_EXTENSION_WRAPPER_RELPATHS = [
+  "guardian-protect-files.ts",
+  "web-tools.ts",
+  "subagent/index.ts",
+] as const;
+
+/**
+ * Kill-switch env var: set to exactly `"1"` to spawn Pi with NO extensions
+ * (fast rollback to a bare, claude-parity spawn — see the plan's Rollback).
+ */
+export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
+
+export interface PiExtensionResolveOptions {
+  /** Override the wrapper base dir (default: `bot/.claude/extensions`). */
+  extensionsDir?: string;
+  /** Override env lookup for the kill-switch (default: `process.env`). */
+  env?: NodeJS.ProcessEnv;
+  /** Override the existence check (default: `fs.existsSync`). */
+  exists?: (path: string) => boolean;
+}
+
+/**
+ * Resolve the repeatable `--extension <abs-path>` args for a Pi spawn.
+ *
+ * Loading is DELIBERATELY per-spawn rather than via Pi's auto-discovery dirs
+ * (those are for `/reload`). Returns `[]` when `PI_EXTENSIONS_DISABLED=1` so the
+ * spawn is a bare claude-parity command (fast rollback).
+ *
+ * FAIL-CLOSED: a configured wrapper missing on disk THROWS loudly instead of
+ * silently dropping it — A1 is the write guard, so a silent skip would spawn an
+ * UNGUARDED Pi session able to edit upstream-owned paths. The thrown message
+ * names the missing path and points at the kill-switch as the deliberate bypass.
+ */
+export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): string[] {
+  const env = options?.env ?? process.env;
+  if (env[PI_EXTENSIONS_DISABLED_ENV] === "1") {
+    return [];
+  }
+
+  const baseDir = options?.extensionsDir ?? DEFAULT_PI_EXTENSIONS_DIR;
+  const fileExists = options?.exists ?? existsSync;
+
+  const args: string[] = [];
+  for (const rel of PI_EXTENSION_WRAPPER_RELPATHS) {
+    const abs = resolve(baseDir, rel);
+    if (!fileExists(abs)) {
+      throw new Error(
+        `Pi extension wrapper not found: ${abs}. Refusing to spawn an unguarded ` +
+          `Pi session. Restore the wrapper, or set ${PI_EXTENSIONS_DISABLED_ENV}=1 ` +
+          `to spawn without extensions.`,
+      );
+    }
+    args.push("--extension", abs);
+  }
+  return args;
+}
 
 export interface PiPromptCommand {
   type: "prompt";
@@ -102,7 +180,11 @@ function normalizePiModel(model: string | undefined): string {
   return trimmed.includes("/") ? trimmed : `${PI_PROVIDER}/${trimmed}`;
 }
 
-export function buildPiSpawnArgs(agent: AgentConfig, resumeSessionId?: string): string[] {
+export function buildPiSpawnArgs(
+  agent: AgentConfig,
+  resumeSessionId?: string,
+  extensionOptions?: PiExtensionResolveOptions,
+): string[] {
   const args = [
     "--mode", "rpc",
     "--provider", PI_PROVIDER,
@@ -112,6 +194,11 @@ export function buildPiSpawnArgs(agent: AgentConfig, resumeSessionId?: string): 
   if (agent.systemPrompt) {
     args.push("--append-system-prompt", agent.systemPrompt);
   }
+
+  // Load A1-A3 as repeatable `--extension <abs-path>` args (per-spawn is
+  // deliberate; auto-discovery dirs are for `/reload`). The kill-switch and the
+  // fail-closed missing-wrapper check live in resolvePiExtensionArgs.
+  args.push(...resolvePiExtensionArgs(extensionOptions));
 
   // Pi mints its own session id (the bot cannot pre-assign one as it does for
   // claude via --session-id). When resuming a stored session, point Pi at the
