@@ -363,6 +363,45 @@ describe("subagent: runSubagentChild (mock spawn)", () => {
     assert.equal(result.aborted, true);
   });
 
+  it("removes the abort listener on normal exit (no post-settle fire, no leak)", async () => {
+    const { child, spawn } = setupRunner();
+    const ac = new AbortController();
+    const promise = runSubagentChild({
+      spawn,
+      command: "pi",
+      args: [],
+      agentName: "scout",
+      signal: ac.signal,
+    });
+    child.stdout.emit(assistantLine({ content: [{ type: "text", text: "ok" }], stopReason: "end" }));
+    child.emitClose(0);
+    const result = await promise;
+    assert.equal(result.aborted, false);
+    assert.equal(child.killed, false);
+    // Listener gone: a late abort must not kill the child nor mutate the resolved result.
+    ac.abort();
+    assert.equal(child.killed, false);
+    assert.deepEqual(child.killSignals, []);
+    assert.equal(result.aborted, false);
+    assert.equal(result.exitCode, 0);
+  });
+
+  it("does not leak listeners across reuse of one signal", async () => {
+    const ac = new AbortController();
+    const r1 = setupRunner();
+    const p1 = runSubagentChild({ spawn: r1.spawn, command: "pi", args: [], agentName: "a", signal: ac.signal });
+    r1.child.emitClose(0);
+    await p1;
+    const r2 = setupRunner();
+    const p2 = runSubagentChild({ spawn: r2.spawn, command: "pi", args: [], agentName: "b", signal: ac.signal });
+    r2.child.emitClose(0);
+    await p2;
+    // Aborting now must touch neither already-settled child (both listeners were removed).
+    ac.abort();
+    assert.equal(r1.child.killed, false);
+    assert.equal(r2.child.killed, false);
+  });
+
   it("streams onMessage updates as messages arrive", async () => {
     const { child, spawn } = setupRunner();
     const snapshots: string[] = [];

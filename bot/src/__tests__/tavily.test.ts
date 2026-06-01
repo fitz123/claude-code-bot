@@ -98,6 +98,11 @@ describe("tavily: buildSearchRequest", () => {
     assert.equal(body.include_answer, false);
   });
 
+  it("threads an explicit include_answer=true into the request (present → in request)", () => {
+    const body = JSON.parse(buildSearchRequest(KEY, { query: "q", include_answer: true }).body);
+    assert.equal(body.include_answer, true);
+  });
+
   it("does NOT put the api key in the body (header only)", () => {
     const body = JSON.parse(buildSearchRequest(KEY, { query: "q" }).body);
     assert.equal(body.api_key, undefined);
@@ -305,6 +310,8 @@ describe("tavily: warn + tool descriptors", () => {
     assert.equal(WEB_SEARCH_TOOL.name, "web_search");
     assert.deepEqual([...WEB_SEARCH_TOOL.parameters.required], ["query"]);
     assert.equal(WEB_SEARCH_TOOL.parameters.properties.query.type, "string");
+    // include_answer is exposed so the model can control it (impl already supports it).
+    assert.equal(WEB_SEARCH_TOOL.parameters.properties.include_answer.type, "boolean");
 
     assert.equal(WEB_FETCH_TOOL.name, "web_fetch");
     assert.deepEqual([...WEB_FETCH_TOOL.parameters.required], ["url"]);

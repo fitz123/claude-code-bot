@@ -343,6 +343,10 @@ export const WEB_SEARCH_TOOL = {
         enum: ["basic", "advanced"],
         description: "Search depth; 'advanced' is slower but more thorough.",
       },
+      include_answer: {
+        type: "boolean",
+        description: "Whether to include a synthesized answer in the results (default true).",
+      },
     },
     required: ["query"],
   },

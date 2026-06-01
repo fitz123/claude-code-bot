@@ -356,6 +356,7 @@ export function runSubagentChild(deps: RunSubagentChildDeps): Promise<SubagentRu
     let settled = false;
     let buffer = "";
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let removeAbortListener: (() => void) | undefined;
 
     const ingest = (event: SubagentStreamEvent) => {
       if (!event) {
@@ -387,6 +388,9 @@ export function runSubagentChild(deps: RunSubagentChildDeps): Promise<SubagentRu
       if (killTimer) {
         clearTimeout(killTimer);
       }
+      // Remove the abort listener so it can't fire after the run has settled
+      // and so it doesn't leak across chain/parallel reuse of one signal.
+      removeAbortListener?.();
       result.exitCode = code;
       if (!result.aborted && isFailedResult(result)) {
         deps.warn?.({
@@ -442,7 +446,9 @@ export function runSubagentChild(deps: RunSubagentChildDeps): Promise<SubagentRu
       if (deps.signal.aborted) {
         killChild();
       } else {
-        deps.signal.addEventListener("abort", killChild, { once: true });
+        const signal = deps.signal;
+        signal.addEventListener("abort", killChild, { once: true });
+        removeAbortListener = () => signal.removeEventListener("abort", killChild);
       }
     }
   });

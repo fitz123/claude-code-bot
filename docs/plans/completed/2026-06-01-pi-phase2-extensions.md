@@ -1,4 +1,4 @@
-# Pi Phase-2 — Extensions A1-A3 (ralphex) + A4 usage-exporter (workspace) — DRAFT v3
+# Pi Phase-2 — Extensions A1-A3 (ralphex) + A4 usage-exporter (workspace)
 
 > Scope AGREED (Notion 2026-06-01) + refined by research 2026-06-01. Covers all 4, split by venue:
 > - **ralphex (public repo, branch `feature/pi-extensions`, `-b main`, injected `second` Max token):** A1 guardian+protect-files, A2 web-tools/Tavily, A3 subagent. claude opus-4.8 executor + codex gpt-5.5 external review.
