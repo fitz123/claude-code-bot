@@ -76,8 +76,24 @@ export interface ToolCallLike {
 }
 
 export interface ClassifyOptions {
-  /** Absolute workspace root (typically the Pi `ctx.cwd`). */
+  /**
+   * Absolute workspace root the protected-prefix check is anchored at — the
+   * IMMUTABLE top of the protected tree. For a top-level Pi session this is the
+   * `ctx.cwd`; for a subagent child spawned with a caller-supplied `cwd` it is the
+   * PARENT workspace root (so the child cannot move the guard root). See
+   * {@link resolveRoot}.
+   */
   workspaceRoot: string | undefined;
+  /**
+   * Working dir RELATIVE targets resolve against (the process's real `ctx.cwd`).
+   * Defaults to {@link workspaceRoot} when absent, collapsing to the original
+   * single-root behavior. It diverges from `workspaceRoot` ONLY for a subagent
+   * child whose `cwd` was overridden: protection stays pinned to the parent
+   * workspace while a genuine relative write resolves where it actually lands, so
+   * an absolute write back into a protected dir is still caught and a legitimate
+   * relative write under the child's own cwd is not over-blocked.
+   */
+  resolveRoot?: string;
   /**
    * Guardian orphan-allowlist patterns — the merged `orphan-allowlist.txt` +
    * `orphan-allowlist.local.txt` root-level names/globs. When provided, a
@@ -177,14 +193,20 @@ function collectTargets(call: ToolCallLike): CollectedTargets {
 
 /**
  * Classify one target path (relative or absolute) against the workspace root.
- * Returns a block decision for protected prefixes, for workspace-relative
- * traversal escapes, and (for `write`) for guardian orphan-allowlist violations;
- * allows everything else (incl. absolute paths that simply live outside the
- * workspace, matching the legacy hook's within-workspace scope).
+ * Returns a block decision for protected prefixes, for traversal escapes, and
+ * (for `write`) for guardian orphan-allowlist violations; allows everything else
+ * (incl. absolute paths that simply live outside the workspace, matching the
+ * legacy hook's within-workspace scope).
+ *
+ * `workspaceRoot` anchors the protected-prefix/orphan check (the IMMUTABLE top of
+ * the protected tree); `resolveRoot` is the cwd RELATIVE targets resolve against.
+ * They are identical for a top-level session and for a default child — only a
+ * subagent child with an overridden `cwd` separates them (see {@link ClassifyOptions}).
  */
 function classifyTargetPath(
   rawTarget: string,
-  root: string,
+  workspaceRoot: string,
+  resolveRoot: string,
   tool: string,
   opts: ClassifyOptions,
 ): GuardDecision {
@@ -194,45 +216,56 @@ function classifyTargetPath(
   }
 
   // node:path.resolve/normalize canonicalize `.`, `..`, `//` — the traversal
-  // bug fix. Absolute targets are normalized as-is (so `<ws>/bot/../bot/x`
-  // collapses back into `bot/`).
-  const abs = normalize(isAbsolute(raw) ? raw : resolve(root, raw));
+  // bug fix. A RELATIVE target resolves against the real working dir
+  // (`resolveRoot`), so its absolute location is exactly where the OS would write
+  // it; an absolute target is normalized as-is (so `<ws>/bot/../bot/x` collapses
+  // back into `bot/`).
+  const abs = normalize(isAbsolute(raw) ? raw : resolve(resolveRoot, raw));
   // Containment is decided CASE-INSENSITIVELY (APFS). Folding BOTH sides before
   // `relative()` is essential: without it, an absolute target that case-varies
   // the workspace-root prefix (e.g. `/users/...` for the real `/Users/...`)
   // yields a `..`-escape relative path and is wrongly allowed below — even
   // though APFS resolves it to the SAME protected file. `isProtectedPath` folds
   // too, so the folded rel flows through consistently.
-  const rel = toPosix(relative(normalize(root).toLowerCase(), abs.toLowerCase()));
+  //   - relProtect: position vs the IMMUTABLE protection root (prefix + orphan).
+  //   - relResolve: position vs the real working dir (relative-traversal escape).
+  // For a single root the two are identical → original behavior, byte for byte.
+  const relProtect = toPosix(relative(normalize(workspaceRoot).toLowerCase(), abs.toLowerCase()));
+  const relResolve = toPosix(relative(normalize(resolveRoot).toLowerCase(), abs.toLowerCase()));
 
   // Target IS the workspace root directory — cannot write a file there.
-  if (rel === "") {
+  if (relProtect === "") {
     return { block: false };
   }
 
-  // A workspace-RELATIVE target that climbs above the root is a
+  // A RELATIVE target that climbs above its OWN working dir is a
   // workspace-structure violation (traversal escape). An absolute target that
   // merely lives outside the workspace (e.g. /tmp/log) is allowed.
-  const escapes = rel === ".." || rel.startsWith("../");
-  if (escapes) {
-    if (!isAbsolute(raw)) {
-      return {
-        block: true,
-        reason:
-          `Blocked: ${tool} target "${rawTarget}" escapes the workspace via path ` +
-          `traversal (workspace-structure violation).`,
-      };
-    }
-    return { block: false };
-  }
-
-  if (isProtectedPath(rel)) {
+  const climbs = relResolve === ".." || relResolve.startsWith("../");
+  if (climbs && !isAbsolute(raw)) {
     return {
       block: true,
       reason:
-        `Blocked: ${tool} into upstream-owned path "${rel}" — these files come ` +
-        `from upstream (see .claude/rules/platform/bot-code-readonly.md). Change ` +
-        `it via a PR in the public repo, then merge upstream.`,
+        `Blocked: ${tool} target "${rawTarget}" escapes the workspace via path ` +
+        `traversal (workspace-structure violation).`,
+    };
+  }
+
+  // Target lives OUTSIDE the protected workspace tree (an absolute path
+  // elsewhere, or a relative path that resolved under a different working dir) —
+  // nothing upstream-owned to protect there.
+  const outsideWorkspace = relProtect === ".." || relProtect.startsWith("../");
+  if (outsideWorkspace) {
+    return { block: false };
+  }
+
+  if (isProtectedPath(relProtect)) {
+    return {
+      block: true,
+      reason:
+        `Blocked: ${tool} into upstream-owned path "${relProtect}" — these files ` +
+        `come from upstream (see .claude/rules/platform/bot-code-readonly.md). ` +
+        `Change it via a PR in the public repo, then merge upstream.`,
     };
   }
 
@@ -245,7 +278,7 @@ function classifyTargetPath(
   // when no allowlist is injected (`isProtectedPath` already covers the
   // security-critical prefixes regardless).
   if (tool === "write" && opts.orphanAllowlist) {
-    const rootComponent = rel.split("/")[0];
+    const rootComponent = relProtect.split("/")[0];
     const exists = opts.fileExists?.(abs) ?? false;
     if (!exists && !isAllowedRootComponent(rootComponent, opts.orphanAllowlist)) {
       return {
@@ -294,8 +327,12 @@ export function classifyToolCall(call: ToolCallLike, opts: ClassifyOptions): Gua
     };
   }
 
+  // Relative targets resolve against the real working dir; absent, that IS the
+  // (immutable) protection root — collapsing to the original single-root guard.
+  const resolveRoot = opts.resolveRoot?.trim() || root;
+
   for (const raw of targets) {
-    const decision = classifyTargetPath(raw, root, tool, opts);
+    const decision = classifyTargetPath(raw, root, resolveRoot, tool, opts);
     if (decision.block) {
       return decision;
     }

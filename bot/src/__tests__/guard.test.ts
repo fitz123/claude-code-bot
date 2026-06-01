@@ -171,6 +171,46 @@ describe("guard: guardian orphan check (workspace-structure rule, guardian.sh pa
   });
 });
 
+describe("guard: subagent child cwd (immutable protection root vs relative resolve root)", () => {
+  // A subagent child is spawned with a caller-controlled cwd; protection MUST stay
+  // anchored at the PARENT workspace (workspaceRoot) while relative targets resolve
+  // against the child's real cwd (resolveRoot). Without this, `cwd:"/tmp"` + an
+  // absolute write back into `<ws>/bot/x` would resolve outside `/tmp` and bypass A1.
+  const childInTmp: ClassifyOptions = { workspaceRoot: WS, resolveRoot: "/tmp" };
+
+  it("blocks an ABSOLUTE write into the parent's protected bot/ even when the child cwd is elsewhere", () => {
+    assert.equal(block({ toolName: "write", input: { path: `${WS}/bot/x.ts`, content: "" } }, childInTmp), true);
+    assert.equal(block({ toolName: "bash", input: { command: `echo x > ${WS}/bot/y.ts` } }, childInTmp), true);
+  });
+
+  it("blocks a RELATIVE write that climbs from the child cwd back into the protected tree", () => {
+    // resolves to /ws/bot/x.ts via `..` from /tmp → caught as a traversal escape.
+    assert.equal(block({ toolName: "bash", input: { command: "echo x > ../ws/bot/x.ts" } }, childInTmp), true);
+  });
+
+  it("allows a genuine relative write under the child's own cwd (no over-block)", () => {
+    assert.equal(block({ toolName: "write", input: { path: "out.txt", content: "" } }, childInTmp), false);
+    assert.equal(block({ toolName: "bash", input: { command: "echo x > out.txt" } }, childInTmp), false);
+  });
+
+  it("allows an absolute write under the child's own cwd, outside the parent workspace", () => {
+    assert.equal(block({ toolName: "write", input: { path: "/tmp/out.txt", content: "" } }, childInTmp), false);
+  });
+
+  it("orphan check stays anchored at the parent workspace root", () => {
+    const orphanChild: ClassifyOptions = {
+      workspaceRoot: WS,
+      resolveRoot: "/tmp",
+      orphanAllowlist: ["memory", "*.md"],
+      fileExists: () => false,
+    };
+    // Absolute write creating a NEW root-level entry in the parent workspace → blocked.
+    assert.equal(block({ toolName: "write", input: { path: `${WS}/rogue/evil.sh`, content: "" } }, orphanChild), true);
+    // Absolute write into an allowlisted parent root component → allowed.
+    assert.equal(block({ toolName: "write", input: { path: `${WS}/memory/n.md`, content: "" } }, orphanChild), false);
+  });
+});
+
 describe("guard: fail-closed", () => {
   it("blocks write/edit with a missing or non-string path", () => {
     assert.equal(block({ toolName: "write", input: {} }), true);

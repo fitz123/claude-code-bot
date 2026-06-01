@@ -16,6 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyToolCall } from "../../src/pi-extensions/guard.js";
+import { PI_GUARD_WORKSPACE_ROOT_ENV } from "../../src/pi-rpc-protocol.js";
 
 /**
  * Read the merged guardian orphan-allowlist (`orphan-allowlist.txt` +
@@ -50,17 +51,26 @@ function readOrphanAllowlist(workspaceRoot: string): string[] | undefined {
 
 export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
+    // Protection is anchored at the IMMUTABLE workspace root. For a subagent
+    // CHILD that is the parent workspace (carried in PI_GUARD_WORKSPACE_ROOT), so
+    // a caller-supplied `cwd` cannot move the guard root and let a delegated
+    // absolute write reach a protected dir. For a top-level parent the env is
+    // unset (scrubbed by buildPiSpawnEnv) → the guard root IS `ctx.cwd`. Relative
+    // targets still resolve against the real `ctx.cwd` (where the OS writes them).
+    const guardRoot = process.env[PI_GUARD_WORKSPACE_ROOT_ENV]?.trim() || ctx.cwd;
+
     // The orphan check (guardian.sh parity) applies ONLY to the `write` tool, so
-    // read the allowlist lazily — never on the read/grep/bash/edit hot path.
+    // read the allowlist lazily — never on the read/grep/bash/edit hot path. The
+    // allowlist files live at the protected workspace root, so read from there.
     const orphanAllowlist =
-      event.toolName === "write" && ctx.cwd ? readOrphanAllowlist(ctx.cwd) : undefined;
+      event.toolName === "write" && guardRoot ? readOrphanAllowlist(guardRoot) : undefined;
 
     const decision = classifyToolCall(
       {
         toolName: event.toolName,
         input: event.input as Record<string, unknown> | undefined,
       },
-      { workspaceRoot: ctx.cwd, orphanAllowlist, fileExists: existsSync },
+      { workspaceRoot: guardRoot, resolveRoot: ctx.cwd, orphanAllowlist, fileExists: existsSync },
     );
 
     if (decision.block) {

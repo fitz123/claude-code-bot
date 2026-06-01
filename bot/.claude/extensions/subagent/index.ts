@@ -41,6 +41,7 @@ import {
 // guard the parent session runs under (resolved here — honoring the kill-switch
 // + fail-closed missing-wrapper check — and injected into the spawn args).
 import {
+	PI_GUARD_WORKSPACE_ROOT_ENV,
 	PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
 	resolvePiExtensionArgs,
 } from "../../../src/pi-rpc-protocol.js";
@@ -319,9 +320,21 @@ async function runSingleAgent(
 		});
 		const invocation = getPiInvocation(args);
 
+		// Pin the child guard's protected-workspace root to the PARENT workspace so a
+		// caller-supplied `cwd` cannot move the A1 guard root and let a delegated
+		// absolute write reach a protected dir (e.g. `<ws>/bot/x`). `defaultCwd` is the
+		// parent's ctx.cwd; prefer an already-pinned env value if one is present (so a
+		// hypothetical nested spawn would propagate the immutable root, not a cwd).
+		const guardWorkspaceRoot = process.env[PI_GUARD_WORKSPACE_ROOT_ENV] || defaultCwd;
+
 		const result = await runSubagentChild({
 			spawn: (command, spawnArgs, opts) =>
-				spawn(command, spawnArgs, { cwd: opts.cwd, shell: false, stdio: ["ignore", "pipe", "pipe"] }),
+				spawn(command, spawnArgs, {
+					cwd: opts.cwd,
+					env: { ...process.env, [PI_GUARD_WORKSPACE_ROOT_ENV]: guardWorkspaceRoot },
+					shell: false,
+					stdio: ["ignore", "pipe", "pipe"],
+				}),
 			command: invocation.command,
 			args: invocation.args,
 			cwd: cwd ?? defaultCwd,

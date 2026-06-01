@@ -58,6 +58,20 @@ export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] 
  */
 export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
 
+/**
+ * Env var carrying the IMMUTABLE parent workspace root to a subagent CHILD's A1
+ * guard. A child is spawned with a caller-controlled `cwd` (the subagent tool's
+ * `cwd` param), so its guard must NOT anchor the protected-prefix check on its own
+ * `ctx.cwd`: a parent could delegate `cwd:"/tmp"` + an absolute write back into a
+ * protected dir (`<ws>/bot/x`), which resolves OUTSIDE `/tmp` and would be allowed
+ * — bypassing A1 entirely. The subagent spawn sets this to the parent workspace
+ * root; the guard wrapper prefers it over `ctx.cwd` for protection while still
+ * resolving RELATIVE paths against the child's real cwd. NEVER set for a top-level
+ * parent spawn (there `ctx.cwd` IS the workspace root) — `buildPiSpawnEnv` scrubs
+ * any stray inherited value so the parent always anchors on its own `ctx.cwd`.
+ */
+export const PI_GUARD_WORKSPACE_ROOT_ENV = "PI_GUARD_WORKSPACE_ROOT";
+
 export interface PiExtensionResolveOptions {
   /** Override the wrapper base dir (default: `bot/.claude/extensions`). */
   extensionsDir?: string;
@@ -247,6 +261,10 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   // Parity with the Claude path (cli-protocol.ts): never leak the Claude Code
   // session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
+  // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
+  // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
+  // parent guard — only the subagent child spawn sets it (see the constant doc).
+  delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
 
   if (!env.PATH?.includes("/opt/homebrew/bin")) {
     env.PATH = `/opt/homebrew/bin:${env.PATH ?? ""}`;

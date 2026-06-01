@@ -425,6 +425,25 @@ describe("buildPiSpawnEnv", () => {
       }
     }
   });
+
+  it("scrubs a stray PI_GUARD_WORKSPACE_ROOT so the parent guard anchors on its own ctx.cwd", () => {
+    const oldRoot = process.env.PI_GUARD_WORKSPACE_ROOT;
+
+    try {
+      // Only the subagent CHILD spawn may set this; a top-level parent must never
+      // inherit it, else its A1 guard would anchor on the wrong workspace root.
+      process.env.PI_GUARD_WORKSPACE_ROOT = "/somewhere/else";
+      const env = buildPiSpawnEnv(testAgent);
+
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, undefined);
+    } finally {
+      if (oldRoot === undefined) {
+        delete process.env.PI_GUARD_WORKSPACE_ROOT;
+      } else {
+        process.env.PI_GUARD_WORKSPACE_ROOT = oldRoot;
+      }
+    }
+  });
 });
 
 describe("Pi RPC prompt and steer commands", () => {
