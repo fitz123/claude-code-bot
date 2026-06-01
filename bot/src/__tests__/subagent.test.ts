@@ -78,6 +78,22 @@ describe("subagent: buildSubagentSpawnArgs", () => {
     assert.ok(idx < args.length - 1);
     assert.equal(args[args.length - 1], "Task: t");
   });
+
+  it("injects the child's --extension args before the task (A1 guard propagation)", () => {
+    const extensionArgs = ["--extension", "/abs/guardian-protect-files.ts"];
+    const args = buildSubagentSpawnArgs({}, "delegate", { extensionArgs });
+    const idx = args.indexOf("--extension");
+    assert.notEqual(idx, -1);
+    assert.equal(args[idx + 1], "/abs/guardian-protect-files.ts");
+    assert.ok(idx < args.length - 1, "extension args must precede the positional task");
+    assert.equal(args[args.length - 1], "Task: delegate");
+  });
+
+  it("omits --extension when no extensionArgs are given (kill-switch parity)", () => {
+    const args = buildSubagentSpawnArgs({}, "t", { extensionArgs: [] });
+    assert.equal(args.includes("--extension"), false);
+    assert.equal(args[args.length - 1], "Task: t");
+  });
 });
 
 describe("subagent: parseSubagentEventLine", () => {

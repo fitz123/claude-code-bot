@@ -78,6 +78,21 @@ export interface ToolCallLike {
 export interface ClassifyOptions {
   /** Absolute workspace root (typically the Pi `ctx.cwd`). */
   workspaceRoot: string | undefined;
+  /**
+   * Guardian orphan-allowlist patterns — the merged `orphan-allowlist.txt` +
+   * `orphan-allowlist.local.txt` root-level names/globs. When provided, a
+   * `write` that CREATES a new root-level entry whose first path segment matches
+   * NONE of these is blocked (the "workspace-structure rule" of criterion 2,
+   * ported from `guardian.sh`). `undefined` → the orphan check is disabled (the
+   * pure classifier never reads the filesystem itself; the wrapper injects this).
+   */
+  orphanAllowlist?: readonly string[];
+  /**
+   * Existence probe for overwrite detection (the wrapper passes `fs.existsSync`).
+   * An EXISTING target is an overwrite, never a new root-level entry, so it is
+   * exempt from the orphan check (guardian.sh parity). Default: nothing exists.
+   */
+  fileExists?: (absPath: string) => boolean;
 }
 
 export interface GuardDecision {
@@ -99,6 +114,34 @@ export function isProtectedPath(relPath: string): boolean {
   return PROTECTED_PREFIXES.some((prefix) => {
     const base = prefix.slice(0, -1); // strip trailing slash → bare dir name
     return lc === base || lc.startsWith(prefix);
+  });
+}
+
+/** Compile a simple shell glob (`*`, `?`, literals) to an anchored RegExp. */
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&") // escape regex metachars (NOT * or ?)
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`);
+}
+
+/**
+ * Does a write's root path component match the guardian orphan allowlist?
+ * Mirrors `guardian.sh`'s exact-or-glob `case` match; case-insensitive for APFS
+ * parity with the rest of this module (the allowlist patterns are lowercase).
+ */
+export function isAllowedRootComponent(rootComponent: string, allowlist: readonly string[]): boolean {
+  const rc = rootComponent.toLowerCase();
+  return allowlist.some((raw) => {
+    const pat = raw.trim().toLowerCase();
+    if (!pat) {
+      return false;
+    }
+    if (!pat.includes("*") && !pat.includes("?")) {
+      return rc === pat;
+    }
+    return globToRegExp(pat).test(rc);
   });
 }
 
@@ -134,11 +177,17 @@ function collectTargets(call: ToolCallLike): CollectedTargets {
 
 /**
  * Classify one target path (relative or absolute) against the workspace root.
- * Returns a block decision for protected prefixes and for workspace-relative
- * traversal escapes; allows everything else (incl. absolute paths that simply
- * live outside the workspace, matching the legacy hook's within-workspace scope).
+ * Returns a block decision for protected prefixes, for workspace-relative
+ * traversal escapes, and (for `write`) for guardian orphan-allowlist violations;
+ * allows everything else (incl. absolute paths that simply live outside the
+ * workspace, matching the legacy hook's within-workspace scope).
  */
-function classifyTargetPath(rawTarget: string, root: string, tool: string): GuardDecision {
+function classifyTargetPath(
+  rawTarget: string,
+  root: string,
+  tool: string,
+  opts: ClassifyOptions,
+): GuardDecision {
   const raw = rawTarget.trim();
   if (!raw) {
     return { block: false };
@@ -148,7 +197,13 @@ function classifyTargetPath(rawTarget: string, root: string, tool: string): Guar
   // bug fix. Absolute targets are normalized as-is (so `<ws>/bot/../bot/x`
   // collapses back into `bot/`).
   const abs = normalize(isAbsolute(raw) ? raw : resolve(root, raw));
-  const rel = toPosix(relative(normalize(root), abs));
+  // Containment is decided CASE-INSENSITIVELY (APFS). Folding BOTH sides before
+  // `relative()` is essential: without it, an absolute target that case-varies
+  // the workspace-root prefix (e.g. `/users/...` for the real `/Users/...`)
+  // yields a `..`-escape relative path and is wrongly allowed below — even
+  // though APFS resolves it to the SAME protected file. `isProtectedPath` folds
+  // too, so the folded rel flows through consistently.
+  const rel = toPosix(relative(normalize(root).toLowerCase(), abs.toLowerCase()));
 
   // Target IS the workspace root directory — cannot write a file there.
   if (rel === "") {
@@ -179,6 +234,29 @@ function classifyTargetPath(rawTarget: string, root: string, tool: string): Guar
         `from upstream (see .claude/rules/platform/bot-code-readonly.md). Change ` +
         `it via a PR in the public repo, then merge upstream.`,
     };
+  }
+
+  // Guardian orphan check — the "workspace-structure rule" of criterion 2,
+  // ported from `guardian.sh`: a `write` that CREATES a NEW root-level entry
+  // whose first path segment is not in the orphan allowlist is blocked. Scope
+  // matches guardian.sh exactly: the `write` tool only (Edit targets existing
+  // content; bash redirects are out of guardian.sh's scope), and only when the
+  // target does not already exist (an overwrite is not a new entry). Disabled
+  // when no allowlist is injected (`isProtectedPath` already covers the
+  // security-critical prefixes regardless).
+  if (tool === "write" && opts.orphanAllowlist) {
+    const rootComponent = rel.split("/")[0];
+    const exists = opts.fileExists?.(abs) ?? false;
+    if (!exists && !isAllowedRootComponent(rootComponent, opts.orphanAllowlist)) {
+      return {
+        block: true,
+        reason:
+          `Blocked: ${tool} would create a new root-level entry "${rootComponent}" ` +
+          `not in the workspace orphan-allowlist (orphan-allowlist.txt / ` +
+          `orphan-allowlist.local.txt). Add a pattern there, or write under an ` +
+          `existing allowed directory.`,
+      };
+    }
   }
 
   return { block: false };
@@ -217,7 +295,7 @@ export function classifyToolCall(call: ToolCallLike, opts: ClassifyOptions): Gua
   }
 
   for (const raw of targets) {
-    const decision = classifyTargetPath(raw, root, tool);
+    const decision = classifyTargetPath(raw, root, tool, opts);
     if (decision.block) {
       return decision;
     }
@@ -409,12 +487,34 @@ function analyzeSegment(toks: Tok[]): string[] {
     }
   }
 
+  // Strip the command prefix to find the REAL command word. The prefix is any
+  // interleaving of: leading `VAR=value` env assignments (also `env`'s own
+  // VAR=val args), command wrappers (sudo/env/nohup/…), and the OPTIONS those
+  // wrappers take (`sudo -n`, `env -i`, `time -p`). Skipping only wrapper NAMES
+  // (the old two-loop form) left `env FOO=bar tee x` parsed as command `FOO=bar`
+  // and `sudo -n tee x` as command `-n`, missing the `tee` write target.
   let ci = 0;
-  while (ci < positional.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(positional[ci])) {
-    ci++; // skip leading VAR=value env assignments
-  }
-  while (ci < positional.length && WRAPPER_CMDS.has(basename(positional[ci]))) {
-    ci++; // skip sudo / nohup / env / … wrappers
+  for (;;) {
+    if (ci >= positional.length) {
+      break;
+    }
+    const w = positional[ci];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
+      ci++; // VAR=value assignment (leading, or an arg to a preceding `env`)
+      continue;
+    }
+    if (WRAPPER_CMDS.has(basename(w))) {
+      ci++; // a command wrapper (sudo / env / nohup / time / …)
+      continue;
+    }
+    // A leading-dash word is a wrapper OPTION only once a wrapper/assignment has
+    // already been consumed (ci > 0). At ci === 0 the real command sits there and
+    // never starts with `-`, so a bare `tee -a x` keeps `tee` as the command.
+    if (ci > 0 && w.startsWith("-")) {
+      ci++;
+      continue;
+    }
+    break; // first non-assignment / non-wrapper / non-option word = the command
   }
 
   const cmd = ci < positional.length ? basename(positional[ci]) : "";

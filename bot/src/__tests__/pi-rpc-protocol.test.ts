@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import {
   NewlineOnlyJsonlSplitter,
   PI_EXTENSION_WRAPPER_RELPATHS,
+  PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
   buildGetStateCommand,
   buildPiPromptCommand,
   buildPiSpawnArgs,
@@ -211,6 +212,38 @@ describe("Pi extension loading (--extension)", () => {
     assert.deepStrictEqual(
       [...PI_EXTENSION_WRAPPER_RELPATHS],
       ["guardian-protect-files.ts", "web-tools.ts", "subagent/index.ts"],
+    );
+  });
+
+  it("the subagent-child wrapper subset is ONLY the A1 guard (no web/subagent → no recursion)", () => {
+    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], ["guardian-protect-files.ts"]);
+  });
+
+  it("resolves only the requested relpaths subset (subagent child loads just the A1 guard)", () => {
+    const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
+    assert.deepStrictEqual(args, ["--extension", wrapperAbs("guardian-protect-files.ts")]);
+  });
+
+  it("the subset still honors the kill-switch (subagent child spawns bare when disabled)", () => {
+    const args = resolvePiExtensionArgs({
+      extensionsDir: FAKE_DIR,
+      exists: () => true,
+      env: { PI_EXTENSIONS_DISABLED: "1" },
+      relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+    });
+    assert.deepStrictEqual(args, []);
+  });
+
+  it("the subset still fails CLOSED when the A1 guard wrapper is missing on disk", () => {
+    assert.throws(
+      () =>
+        resolvePiExtensionArgs({
+          extensionsDir: FAKE_DIR,
+          env: {},
+          exists: () => false,
+          relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+        }),
+      /guardian-protect-files\.ts[\s\S]*Refusing to spawn an unguarded/,
     );
   });
 

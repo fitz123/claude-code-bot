@@ -54,13 +54,21 @@ export interface BuildSubagentSpawnArgsOptions {
    * via `--append-system-prompt <path>` (the vendor writes a 0600 temp file).
    */
   systemPromptPath?: string;
+  /**
+   * Pre-resolved `--extension <abs-path>` args to load into the child (e.g. the
+   * A1 write guard, so a delegated task cannot bypass the guard a parent session
+   * runs under). Appended verbatim BEFORE the positional task. Empty/absent →
+   * the child loads no extensions (e.g. when the kill-switch is set). The caller
+   * resolves these (`resolvePiExtensionArgs`) so this module stays pure/testable.
+   */
+  extensionArgs?: string[];
 }
 
 /**
  * Build the complete `pi` argv for one subagent child, in the vendor's order
  * with the openai-codex provider wired in:
  *   --mode json -p --no-session --provider <p> --model <m>
- *   [--tools a,b] [--append-system-prompt <path>] "Task: <task>"
+ *   [--tools a,b] [--append-system-prompt <path>] [--extension <abs> ...] "Task: <task>"
  *
  * `--mode json` + `-p` make the child emit a single-shot JSONL transcript on
  * stdout (parsed by {@link parseSubagentEventLine}); `--no-session` keeps the
@@ -88,6 +96,12 @@ export function buildSubagentSpawnArgs(
 
   if (options?.systemPromptPath) {
     args.push("--append-system-prompt", options.systemPromptPath);
+  }
+
+  // Load the child's extensions (the A1 write guard) BEFORE the positional task,
+  // so a delegated task is guarded the same way the parent session is.
+  if (options?.extensionArgs && options.extensionArgs.length > 0) {
+    args.push(...options.extensionArgs);
   }
 
   args.push(`Task: ${task}`);

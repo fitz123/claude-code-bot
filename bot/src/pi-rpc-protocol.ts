@@ -42,6 +42,17 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
 ] as const;
 
 /**
+ * Wrappers a subagent CHILD `pi` spawn must load. The subagent tool spawns an
+ * isolated `pi -p` child to run a delegated task; without the A1 write guard a
+ * parent could delegate a protected write (e.g. into `bot/`) to a child and
+ * bypass A1 entirely. We load ONLY the guard — not web-tools/subagent — so the
+ * child stays a focused, guarded worker without web access or the ability to
+ * recursively re-spawn subagents. Honors the same kill-switch + fail-closed
+ * resolution as the parent (via {@link resolvePiExtensionArgs}).
+ */
+export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
+
+/**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with NO extensions
  * (fast rollback to a bare, claude-parity spawn — see the plan's Rollback).
  */
@@ -54,6 +65,12 @@ export interface PiExtensionResolveOptions {
   env?: NodeJS.ProcessEnv;
   /** Override the existence check (default: `fs.existsSync`). */
   exists?: (path: string) => boolean;
+  /**
+   * Which wrapper relpaths to resolve (default: the full A1-A3
+   * {@link PI_EXTENSION_WRAPPER_RELPATHS}). A subagent child passes
+   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load only the A1 guard.
+   */
+  relpaths?: readonly string[];
 }
 
 /**
@@ -76,9 +93,10 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
 
   const baseDir = options?.extensionsDir ?? DEFAULT_PI_EXTENSIONS_DIR;
   const fileExists = options?.exists ?? existsSync;
+  const relpaths = options?.relpaths ?? PI_EXTENSION_WRAPPER_RELPATHS;
 
   const args: string[] = [];
-  for (const rel of PI_EXTENSION_WRAPPER_RELPATHS) {
+  for (const rel of relpaths) {
     const abs = resolve(baseDir, rel);
     if (!fileExists(abs)) {
       throw new Error(

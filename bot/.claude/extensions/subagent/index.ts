@@ -37,6 +37,13 @@ import {
 	type SubagentChildErrorWarn,
 	type SubagentRunResult,
 } from "../../../src/pi-extensions/subagent-args.js";
+// The child must load the A1 write guard so a delegated task cannot bypass the
+// guard the parent session runs under (resolved here — honoring the kill-switch
+// + fail-closed missing-wrapper check — and injected into the spawn args).
+import {
+	PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+	resolvePiExtensionArgs,
+} from "../../../src/pi-rpc-protocol.js";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -302,9 +309,13 @@ async function runSingleAgent(
 		}
 
 		// Provider wiring lives in the pure helper: --provider openai-codex +
-		// the normalized codex model (agent.model is left provider-agnostic).
+		// the normalized codex model (agent.model is left provider-agnostic). The
+		// child also loads the A1 write guard so a delegated task is guarded the
+		// same way the parent session is (PI_EXTENSIONS_DISABLED=1 → no extensions,
+		// matching the parent's kill-switch behavior).
 		const args = buildSubagentSpawnArgs(agent, task, {
 			systemPromptPath: tmpPromptPath ?? undefined,
+			extensionArgs: resolvePiExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS }),
 		});
 		const invocation = getPiInvocation(args);
 

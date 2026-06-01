@@ -12,17 +12,55 @@
  * extension set with `PI_EXTENSIONS_DISABLED=1`.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyToolCall } from "../../src/pi-extensions/guard.js";
 
+/**
+ * Read the merged guardian orphan-allowlist (`orphan-allowlist.txt` +
+ * `orphan-allowlist.local.txt`) from the workspace root, stripping comments and
+ * blank lines (the same format `guardian.sh` parses). Returns `undefined` when
+ * neither file is readable, which DISABLES the orphan check — the
+ * security-critical protected-prefix guard still applies, so a missing hygiene
+ * list never bricks all root-level writes (the one deliberate softening vs
+ * guardian.sh's fail-closed, justified because the orphan check is workspace
+ * hygiene, not a security boundary).
+ */
+function readOrphanAllowlist(workspaceRoot: string): string[] | undefined {
+  const patterns: string[] = [];
+  let found = false;
+  for (const name of ["orphan-allowlist.txt", "orphan-allowlist.local.txt"]) {
+    let content: string;
+    try {
+      content = readFileSync(join(workspaceRoot, name), "utf8");
+    } catch {
+      continue; // missing file (the .local override is optional) → skip
+    }
+    found = true;
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.replace(/#.*$/, "").trim();
+      if (line) {
+        patterns.push(line);
+      }
+    }
+  }
+  return found ? patterns : undefined;
+}
+
 export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
+    // The orphan check (guardian.sh parity) applies ONLY to the `write` tool, so
+    // read the allowlist lazily — never on the read/grep/bash/edit hot path.
+    const orphanAllowlist =
+      event.toolName === "write" && ctx.cwd ? readOrphanAllowlist(ctx.cwd) : undefined;
+
     const decision = classifyToolCall(
       {
         toolName: event.toolName,
         input: event.input as Record<string, unknown> | undefined,
       },
-      { workspaceRoot: ctx.cwd },
+      { workspaceRoot: ctx.cwd, orphanAllowlist, fileExists: existsSync },
     );
 
     if (decision.block) {

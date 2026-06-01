@@ -62,19 +62,24 @@ export default function (pi: ExtensionAPI): void {
 
   const deps: RunToolDeps = { apiKey, fetchImpl: fetch, warn };
 
+  // Pi's tool `execute` signature is `(toolCallId, params, signal, onUpdate, ctx)`
+  // and it MUST resolve to an `AgentToolResult` (`{ content, details }`), NOT a
+  // bare string — see the vendor `subagent/index.ts` and the
+  // `@earendil-works/pi-coding-agent` `ToolDefinition` type. The actual tool
+  // arguments are the SECOND positional (`params`); the first is the tool-call id.
   pi.registerTool({
     ...WEB_SEARCH_TOOL,
-    execute: async (input: Record<string, unknown>) => {
-      const result = await executeWebSearch(input, deps);
-      return result.text;
+    execute: async (_toolCallId: string, params: Record<string, unknown>) => {
+      const result = await executeWebSearch(params ?? {}, deps);
+      return { content: [{ type: "text" as const, text: result.text }], details: { ok: result.ok } };
     },
   });
 
   pi.registerTool({
     ...WEB_FETCH_TOOL,
-    execute: async (input: Record<string, unknown>) => {
-      const result = await executeWebFetch(input, deps);
-      return result.text;
+    execute: async (_toolCallId: string, params: Record<string, unknown>) => {
+      const result = await executeWebFetch(params ?? {}, deps);
+      return { content: [{ type: "text" as const, text: result.text }], details: { ok: result.ok } };
     },
   });
 }
