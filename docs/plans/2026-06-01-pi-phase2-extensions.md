@@ -62,10 +62,10 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 
 ### Task 3: A2 — web-tools (Tavily)
 **Files:** Create `bot/src/pi-extensions/tavily.ts` + `bot/.claude/extensions/web-tools.ts` + `bot/src/__tests__/tavily.test.ts`
-- [ ] register `web_search`+`web_fetch` (Tavily); key from keychain at load (fail clear + warn-log if absent); graceful error result on failure (no throw)
-- [ ] pure request/parse helpers; structured warn-log
-- [ ] tests: request shape, parse, API-error, missing-key (mock fetch)
-- [ ] run tests
+- [x] register `web_search`+`web_fetch` (Tavily); key from keychain at load (fail clear + warn-log if absent); graceful error result on failure (no throw) — wrapper `web-tools.ts` reads keychain (`tavily-api-key`/`minime`) once at load, warn-logs if absent, registers both tools via `pi.registerTool`; tools stay model-callable even with no key (return graceful "unavailable" text, never throw)
+- [x] pure request/parse helpers; structured warn-log — `tavily.ts`: `buildSearchRequest`/`buildExtractRequest` (Bearer header, key never in body), `parseSearchResponse`/`parseExtractResponse` (defensive), `formatSearchResult`/`formatExtractResult`, `executeWebSearch`/`executeWebFetch` (graceful, no-throw, DI'd `fetchImpl`+`apiKey`+`warn`), `formatTavilyWarn` structured line + `WEB_SEARCH_TOOL`/`WEB_FETCH_TOOL` registerTool descriptors
+- [x] tests: request shape, parse, API-error, missing-key (mock fetch) — `tavily.test.ts`, 27 tests: request shape (url/method/Bearer/body defaults/clamp/depth/no-key-in-body), parse (search+extract incl. garbage), formatters, success/missing-key/bad-args/http-error/transport-error for both tools (mock fetch asserts no-fetch on missing-key/bad-args), warn formatting, tool descriptors
+- [x] run tests — lint clean (`tsc --noEmit`); full suite 1244 pass / 0 fail (incl. 27 tavily tests)
 
 ### Task 4: A3 — subagent (adopt vendor DIRECTORY)
 **Files:** Create `bot/.claude/extensions/subagent/` (copied from vendor) + `bot/src/pi-extensions/subagent-args.ts` + `bot/src/__tests__/subagent.test.ts`; remove the Task-0 stub
