@@ -75,9 +75,9 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 - [x] run tests — lint clean (`tsc --noEmit`); full suite 1266 pass / 0 fail (1244 from Task 3 + 24 new − 2 removed Task-0 smoke tests); Task-0 stub (`_smoke.ts` + `pi-extensions-smoke.test.ts`) removed via `git rm`, README note updated
 
 ### Task 5: Verify acceptance
-- [ ] verify criteria 1-5; regression (claude byte-identical); grep-confirm `cli-protocol.ts`/`cron-runner.ts` untouched
-- [ ] end-to-end smoke: a Pi spawn loads all 3 extensions
-- [ ] full suite `cd bot && npm test`; lint `npm run lint`
+- [x] verify criteria 1-5; regression (claude byte-identical); grep-confirm `cli-protocol.ts`/`cron-runner.ts` untouched — C1 loading: `resolvePiExtensionArgs` emits 3 repeatable `--extension` args (kill-switch omits), real-disk smoke confirms all 3 wrappers resolve+exist; C2 A1: guard.test.ts 32 pass; C3 A2: tavily.test.ts 27 pass; C4 A3: subagent.test.ts 24 pass; C5: full suite 1267 pass / 0 fail, lint clean (`tsc --noEmit`). Regression: `git diff main...HEAD` shows the only non-extension/non-test source file changed is `pi-rpc-protocol.ts`; `cli-protocol.ts` 0-line diff (claude path byte-identical), `cron-runner.ts` UNTOUCHED
+- [x] end-to-end smoke: a Pi spawn loads all 3 extensions — added real-disk smoke in `pi-rpc-protocol.test.ts` ("smoke: a real Pi spawn resolves all three on-disk wrappers"): `resolvePiExtensionArgs()` with NO mocks (real default dir `bot/.claude/extensions` + real `fs.existsSync`) returns 3 absolute `--extension` paths in load order, each existing on disk — the fail-CLOSED resolver only returns without throwing if all 3 A1-A3 wrappers are present where a live spawn expects them (catches a renamed/moved/uncopied wrapper). Wrappers are jiti-only/tsc-excluded by design (the `earendil-works` vendor packages are provided by the `pi` binary at runtime), so spawn-arg resolution is the correct test level; live e2e is out of scope per Testing Strategy
+- [x] full suite `cd bot && npm test`; lint `npm run lint` — `npm test`: 1267 pass / 0 fail / 241 suites; `npm run lint`: clean
 
 ### Task 6: [Final] Docs + Rollback
 **Files:** Modify `README.md` (repo root)

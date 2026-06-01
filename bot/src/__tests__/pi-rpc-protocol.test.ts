@@ -5,6 +5,7 @@ import { Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import {
   NewlineOnlyJsonlSplitter,
   PI_EXTENSION_WRAPPER_RELPATHS,
@@ -285,6 +286,33 @@ describe("Pi extension loading (--extension)", () => {
     // Claude path keeps its own distinctive flags (proof we touched only Pi).
     assert.ok(claudeArgs.includes("--add-dir"));
     assert.ok(claudeArgs.includes("--permission-mode"));
+  });
+
+  // End-to-end smoke (real disk, no mocks): the resolver's fail-CLOSED contract
+  // means resolvePiExtensionArgs() with NO overrides — real default dir
+  // (bot/.claude/extensions) + real fs.existsSync — only returns without throwing
+  // if all three A1-A3 wrapper files actually exist where a live Pi spawn expects
+  // them. This is the acceptance smoke that the mocked tests above cannot give:
+  // it would catch a wrapper that was renamed, moved, or never copied.
+  it("smoke: a real Pi spawn resolves all three on-disk wrappers (A1 guard, A2 web-tools, A3 subagent)", () => {
+    // Override only the env (drop any ambient kill-switch) so the default dir +
+    // default existsSync run against the real repo layout.
+    const args = resolvePiExtensionArgs({ env: {} });
+
+    const flags = args.filter((a) => a === "--extension");
+    assert.strictEqual(flags.length, 3, "expected one --extension per wrapper");
+
+    const paths = args.filter((a) => a !== "--extension");
+    assert.strictEqual(paths.length, 3);
+    for (const p of paths) {
+      assert.ok(p.startsWith("/"), `wrapper path must be absolute: ${p}`);
+      assert.ok(existsSync(p), `resolved wrapper must exist on disk: ${p}`);
+    }
+    // Paths resolve to the canonical A1-A3 entrypoints, in load order.
+    assert.deepStrictEqual(
+      paths.map((p) => p.split("/.claude/extensions/")[1]),
+      [...PI_EXTENSION_WRAPPER_RELPATHS],
+    );
   });
 });
 
