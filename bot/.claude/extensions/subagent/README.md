@@ -6,27 +6,43 @@ Delegate tasks to specialized subagents with isolated context windows.
 
 This is the upstream Pi `subagent` example, ADOPTED as a bot Pi extension and
 loaded into every `pi --mode rpc` spawn via `--extension` (see
-`resolvePiExtensionArgs` in `bot/src/pi-rpc-protocol.ts`). The ONLY behavioral
-change from upstream is the **provider wiring**: each spawned child runs on the
-bot's `openai-codex` provider/model (parity with the parent session) instead of
-the vendor's hardcoded Claude models. That wiring — plus the child-output (JSONL)
-parser, the result classifier, the dependency-injected child runner, and the
-structured child-error warn-log — lives in the unit-tested pure helper
-`bot/src/pi-extensions/subagent-args.ts` (single source of truth); `index.ts`
-is a thin orchestrator over it. The sample agents below have had their
-Claude-specific `model:` frontmatter REMOVED so each inherits the codex default
-(`buildSubagentSpawnArgs` injects `--provider openai-codex`).
+`resolvePiExtensionArgs` in `bot/src/pi-rpc-protocol.ts`). Two behavioral changes
+from upstream:
+
+1. **Provider wiring**: each spawned child runs on the bot's `openai-codex`
+   provider/model (parity with the parent session) instead of the vendor's
+   hardcoded Claude models. That wiring — plus the child-output (JSONL) parser,
+   the result classifier, the dependency-injected child runner, the agent
+   precedence-merge, and the structured child-error warn-log — lives in the
+   unit-tested pure helper `bot/src/pi-extensions/subagent-args.ts` (single
+   source of truth); `index.ts` is a thin orchestrator over it. The sample agents
+   below have had their Claude-specific `model:` frontmatter REMOVED so each
+   inherits the codex default (`buildSubagentSpawnArgs` injects `--provider
+   openai-codex`).
+2. **Self-contained discovery**: the bundled agents (`agents/*.md`) and workflow
+   prompts (`prompts/*.md`) are auto-discovered from the extension's OWN dir
+   (resolved from the module via `import.meta.url`, not cwd), so the extension
+   works on `--extension` load with no symlink setup. Bundled definitions are the
+   **lowest-precedence baseline** — user (`~/.pi/agent/agents`, `~/.pi/agent/prompts`)
+   and project (`.pi/agents`, `.pi/prompts`) definitions layer on top and
+   **override the bundled ones by name**. `discoverAgents` always loads the
+   bundled `agents/` dir first regardless of `agentScope`; the bundled `prompts/`
+   dir is registered via a `resources_discover` handler in `index.ts`.
 
 **Tool/param contract:** the registered tool is named `subagent`; modes are
 `single` (`{ agent, task }`), `parallel` (`{ tasks: [...] }`), and `chain`
 (`{ chain: [...] }` with a `{previous}` placeholder) — the same contract the
 workflow prompts in `prompts/` and the bot's delegation skills invoke.
 
-> **Note:** the sections below (Sample Agents, Agent Definitions, Installation)
-> are retained verbatim from upstream as reference. In this bot they do NOT
-> reflect the live deployment: the sample agents' Claude `model:` frontmatter is
-> removed (children inherit the `openai-codex` default), and loading is via
-> `--extension` (see above), not the symlink commands shown under Installation.
+> **Note:** the Installation section below is retained verbatim from upstream as
+> reference and does NOT reflect the live deployment. In this bot the extension
+> is loaded via `--extension` (see above), and the bundled agents + prompts are
+> auto-discovered from the extension's own dir (see "Self-contained discovery")
+> — the symlink commands under Installation are NOT needed. The sample agents'
+> Claude `model:` frontmatter is also removed (children inherit the
+> `openai-codex` default). Users MAY still add or override agents/prompts in the
+> user (`~/.pi/agent/...`) or project (`.pi/...`) dirs; those override the
+> bundled ones by name.
 
 ## Features
 
@@ -84,7 +100,7 @@ This tool executes a separate `pi` subprocess with a delegated system prompt and
 
 **Project-local agents** (`.pi/agents/*.md`) are repo-controlled prompts that can instruct the model to read files, run bash commands, etc.
 
-**Default behavior:** Only loads **user-level agents** from `~/.pi/agent/agents`.
+**Default behavior:** Loads the **bundled agents** (shipped with this extension, lowest precedence) plus **user-level agents** from `~/.pi/agent/agents` (which override bundled by name). Project-local agents are NOT loaded by default.
 
 To enable project-local agents, pass `agentScope: "both"` (or `"project"`). Only do this for repositories you trust.
 
@@ -163,11 +179,12 @@ model: claude-haiku-4-5
 System prompt for the agent goes here.
 ```
 
-**Locations:**
-- `~/.pi/agent/agents/*.md` - User-level (always loaded)
+**Locations (precedence, lowest → highest):**
+- `<extension>/agents/*.md` - Bundled (always loaded, the baseline)
+- `~/.pi/agent/agents/*.md` - User-level (loaded unless `agentScope: "project"`)
 - `.pi/agents/*.md` - Project-level (only with `agentScope: "project"` or `"both"`)
 
-Project agents override user agents with the same name when `agentScope: "both"`.
+Later sources override earlier ones with the same name: user overrides bundled; project overrides both (when `agentScope` includes project). The bundled agents always load regardless of `agentScope`, so the extension is self-contained.
 
 ## Sample Agents
 
@@ -185,6 +202,8 @@ Project agents override user agents with the same name when `agentScope: "both"`
 | `/implement <query>` | scout → planner → worker |
 | `/scout-and-plan <query>` | scout → planner |
 | `/implement-and-review <query>` | worker → reviewer → worker |
+
+These are auto-discovered from the bundled `prompts/` dir via the extension's `resources_discover` handler (lowest precedence). User (`~/.pi/agent/prompts`) and project (`.pi/prompts`) prompts of the same name override the bundled ones.
 
 ## Error Handling
 

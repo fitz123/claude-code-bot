@@ -4,9 +4,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { mergeAgentsByPrecedence } from "../../../src/pi-extensions/subagent-args.js";
 
 export type AgentScope = "user" | "project" | "both";
+
+export type AgentSource = "bundled" | "user" | "project";
 
 export interface AgentConfig {
 	name: string;
@@ -14,7 +18,7 @@ export interface AgentConfig {
 	tools?: string[];
 	model?: string;
 	systemPrompt: string;
-	source: "user" | "project";
+	source: AgentSource;
 	filePath: string;
 }
 
@@ -23,7 +27,7 @@ export interface AgentDiscoveryResult {
 	projectAgentsDir: string | null;
 }
 
-function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
+function loadAgentsFromDir(dir: string, source: AgentSource): AgentConfig[] {
 	const agents: AgentConfig[] = [];
 
 	if (!fs.existsSync(dir)) {
@@ -94,25 +98,28 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 	}
 }
 
+/**
+ * Resolve the extension's OWN bundled `agents/` dir from this module's location
+ * (NOT cwd), so the bundled agents load wherever the extension is loaded from.
+ */
+function bundledAgentsDir(): string {
+	return path.join(path.dirname(fileURLToPath(import.meta.url)), "agents");
+}
+
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
 	const userDir = path.join(getAgentDir(), "agents");
 	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
+	// Bundled agents are the always-loaded baseline (lowest precedence), so the
+	// extension is self-contained on `--extension` load regardless of `scope`.
+	const bundledAgents = loadAgentsFromDir(bundledAgentsDir(), "bundled");
 	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user");
 	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");
 
-	const agentMap = new Map<string, AgentConfig>();
+	// Layer low→high: bundled, then user, then project override by name.
+	const agents = mergeAgentsByPrecedence<AgentConfig>([bundledAgents, userAgents, projectAgents]);
 
-	if (scope === "both") {
-		for (const agent of userAgents) agentMap.set(agent.name, agent);
-		for (const agent of projectAgents) agentMap.set(agent.name, agent);
-	} else if (scope === "user") {
-		for (const agent of userAgents) agentMap.set(agent.name, agent);
-	} else {
-		for (const agent of projectAgents) agentMap.set(agent.name, agent);
-	}
-
-	return { agents: Array.from(agentMap.values()), projectAgentsDir };
+	return { agents, projectAgentsDir };
 }
 
 export function formatAgentList(agents: AgentConfig[], maxItems: number): { text: string; remaining: number } {
