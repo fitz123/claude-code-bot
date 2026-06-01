@@ -15,8 +15,10 @@ There are TWO kinds of files in this feature, deliberately split:
    - **Exercised by `npm test`** because the test glob is `src/__tests__/*.test.ts`
      and those tests `import` the helpers from `../pi-extensions/<name>.js`.
 
-   Proven in Task 0 by a stub helper (`_smoke.ts`) + a sibling test
-   (`__tests__/pi-extensions-smoke.test.ts`). The stub is removed in Task 4.
+   Proven in Task 0 by a throwaway stub helper (`_smoke.ts`) + a sibling test
+   (`__tests__/pi-extensions-smoke.test.ts`); both were removed in Task 4 once
+   the real A1-A3 helpers (`guard.ts`, `tavily.ts`, `subagent-args.ts`) made the
+   coverage self-evident.
 
 2. **Thin wrappers — `bot/.claude/extensions/<name>.ts`** (or `<name>/index.ts`
    for A3). Each is a minimal `export default function (pi) { ... }` that wires a

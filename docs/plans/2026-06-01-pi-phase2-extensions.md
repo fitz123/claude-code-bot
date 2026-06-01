@@ -69,10 +69,10 @@ Unit: loading args (+ kill-switch + missing-file fail-closed); A1 guard matrix (
 
 ### Task 4: A3 — subagent (adopt vendor DIRECTORY)
 **Files:** Create `bot/.claude/extensions/subagent/` (copied from vendor) + `bot/src/pi-extensions/subagent-args.ts` + `bot/src/__tests__/subagent.test.ts`; remove the Task-0 stub
-- [ ] copy the vendor subagent DIRECTORY; adapt only provider wiring (openai-codex); name the tool/param contract our Agent/Task skills invoke
-- [ ] testable spawn-arg builder + result parser (in bot/src/pi-extensions/); child-error warn-log
-- [ ] tests: spawn-arg builder, result parse, child-error (mock spawn)
-- [ ] run tests
+- [x] copy the vendor subagent DIRECTORY; adapt only provider wiring (openai-codex); name the tool/param contract our Agent/Task skills invoke — copied the official `examples/extensions/subagent/` DIRECTORY (`index.ts` + `agents.ts` + `agents/*.md` + `prompts/*.md` + README) to `bot/.claude/extensions/subagent/`; provider wiring is the ONLY behavioral change: `buildSubagentSpawnArgs` injects `--provider openai-codex` + the normalized codex model (`normalizeSubagentModel`, parity with `pi-rpc-protocol.ts`); the 4 sample agents had their Claude `model:` frontmatter removed so each inherits the codex default; tool stays named `subagent` with the `single`/`parallel`/`chain({previous})` param contract the workflow prompts + delegation skills invoke (documented in the copied README)
+- [x] testable spawn-arg builder + result parser (in bot/src/pi-extensions/); child-error warn-log — `subagent-args.ts`: `buildSubagentSpawnArgs` (spawn-arg builder), `parseSubagentEventLine`/`getFinalOutput`/`isFailedResult`/`getResultOutput`/`accumulateAssistantUsage` (result parser+classifier), dependency-injected `runSubagentChild` (mock-spawnable runner) that emits a structured child-error warn (`formatSubagentChildErrorWarn`) on a failed, non-aborted child; `index.ts` routes through these (single source of truth) and `console.warn`s the structured line in RPC mode
+- [x] tests: spawn-arg builder, result parse, child-error (mock spawn) — `subagent.test.ts`, 24 tests: normalize/build-args shape (+order, tools, prompt path), event-line parse (message/toolResult/null), getFinalOutput/isFailedResult/getResultOutput/accumulateAssistantUsage, warn formatting, and a `FakeChild` mock-spawn driving clean run, split-chunk reassembly, non-zero-exit + error-stopReason + spawn-error child-error warns, abort (no warn), and onMessage streaming
+- [x] run tests — lint clean (`tsc --noEmit`); full suite 1266 pass / 0 fail (1244 from Task 3 + 24 new − 2 removed Task-0 smoke tests); Task-0 stub (`_smoke.ts` + `pi-extensions-smoke.test.ts`) removed via `git rm`, README note updated
 
 ### Task 5: Verify acceptance
 - [ ] verify criteria 1-5; regression (claude byte-identical); grep-confirm `cli-protocol.ts`/`cron-runner.ts` untouched
