@@ -317,6 +317,11 @@ function lexShell(command: string): Tok[] {
       if (command[i + 1] === ">") {
         toks.push({ type: "op", value: ">>" });
         i += 2;
+      } else if (command[i + 1] === "|") {
+        // `>|` is the clobber redirect (force-overwrite under `noclobber`) —
+        // semantically a write redirect, so treat it the same as `>`.
+        toks.push({ type: "op", value: ">" });
+        i += 2;
       } else {
         toks.push({ type: "op", value: ">" });
         i++;
@@ -413,19 +418,48 @@ function analyzeSegment(toks: Tok[]): string[] {
   }
 
   const cmd = ci < positional.length ? basename(positional[ci]) : "";
-  const argWords = positional.slice(ci + 1).filter((v) => !v.startsWith("-"));
+  const rawArgs = positional.slice(ci + 1);
+  const argWords = rawArgs.filter((v) => !v.startsWith("-"));
 
   if (cmd === "tee") {
     targets.push(...argWords); // tee writes every file argument
   } else if (cmd === "mv") {
     targets.push(...argWords); // mv: sources are deleted + dest created
   } else if (cmd === "cp") {
-    if (argWords.length > 0) {
+    // GNU `cp -t DIR` / `--target-directory=DIR` writes the sources INTO DIR, so
+    // the real destination is DIR — not the last positional arg the POSIX form
+    // uses. Honor the flag first so `cp -t bot a b` is caught.
+    const targetDir = extractTargetDirFlag(rawArgs);
+    if (targetDir !== undefined) {
+      targets.push(targetDir);
+    } else if (argWords.length > 0) {
       targets.push(argWords[argWords.length - 1]); // cp dest = last arg
     }
   }
 
   return targets;
+}
+
+/**
+ * Extract the GNU coreutils target directory from a `cp`/`mv` arg list:
+ * `-t DIR`, `-tDIR`, or `--target-directory[=DIR]`. Returns undefined when the
+ * flag is absent (POSIX `cp src dest` form).
+ */
+function extractTargetDirFlag(args: string[]): string | undefined {
+  for (let a = 0; a < args.length; a++) {
+    const w = args[a];
+    if (w === "-t" || w === "--target-directory") {
+      const next = args[a + 1];
+      if (next !== undefined && !next.startsWith("-")) {
+        return next;
+      }
+    } else if (w.startsWith("--target-directory=")) {
+      return w.slice("--target-directory=".length);
+    } else if (w.startsWith("-t") && !w.startsWith("--") && w.length > 2) {
+      return w.slice(2);
+    }
+  }
+  return undefined;
 }
 
 /**

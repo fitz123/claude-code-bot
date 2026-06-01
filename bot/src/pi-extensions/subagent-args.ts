@@ -308,6 +308,12 @@ export interface RunSubagentChildDeps {
   warn?: (event: SubagentChildErrorWarn) => void;
   /** Agent name (for the warn payload only). */
   agentName: string;
+  /**
+   * Grace period (ms) between SIGTERM and the SIGKILL escalation on abort.
+   * Defaults to {@link SUBAGENT_ABORT_GRACE_MS}; injectable so tests can drive
+   * the escalation without a real 5s wait.
+   */
+  abortGraceMs?: number;
 }
 
 /** Grace period before escalating an aborted child from SIGTERM to SIGKILL. */
@@ -409,11 +415,15 @@ export function runSubagentChild(deps: RunSubagentChildDeps): Promise<SubagentRu
       const killChild = () => {
         result.aborted = true;
         child.kill("SIGTERM");
+        // `child.kill()` sets `child.killed = true` the instant the signal is
+        // SENT (not when the process exits), so `!child.killed` would always be
+        // false and SIGKILL would never fire. Escalate only if the child has
+        // not actually closed/errored yet (`settled` flips in `finish()`).
         killTimer = setTimeout(() => {
-          if (!child.killed) {
+          if (!settled) {
             child.kill("SIGKILL");
           }
-        }, SUBAGENT_ABORT_GRACE_MS);
+        }, deps.abortGraceMs ?? SUBAGENT_ABORT_GRACE_MS);
       };
       if (deps.signal.aborted) {
         killChild();

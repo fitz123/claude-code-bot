@@ -22,6 +22,12 @@ Claude-specific `model:` frontmatter REMOVED so each inherits the codex default
 (`{ chain: [...] }` with a `{previous}` placeholder) — the same contract the
 workflow prompts in `prompts/` and the bot's delegation skills invoke.
 
+> **Note:** the sections below (Sample Agents, Agent Definitions, Installation)
+> are retained verbatim from upstream as reference. In this bot they do NOT
+> reflect the live deployment: the sample agents' Claude `model:` frontmatter is
+> removed (children inherit the `openai-codex` default), and loading is via
+> `--extension` (see above), not the symlink commands shown under Installation.
+
 ## Features
 
 - **Isolated context**: Each subagent runs in a separate `pi` process

@@ -177,6 +177,8 @@ class FakeChild implements SubagentChildLike {
   stdout = new FakeStream();
   stderr = new FakeStream();
   killed = false;
+  /** Every signal passed to kill(), in order — lets tests assert escalation. */
+  killSignals: Array<NodeJS.Signals | number | undefined> = [];
   private closeCbs: Array<(code: number | null) => void> = [];
   private errorCbs: Array<(err: Error) => void> = [];
   on(event: "close", listener: (code: number | null) => void): this;
@@ -186,8 +188,9 @@ class FakeChild implements SubagentChildLike {
     else this.errorCbs.push(listener as (err: Error) => void);
     return this;
   }
-  kill(): boolean {
+  kill(signal?: NodeJS.Signals | number): boolean {
     this.killed = true;
+    this.killSignals.push(signal);
     return true;
   }
   emitClose(code: number | null): void {
@@ -310,6 +313,27 @@ describe("subagent: runSubagentChild (mock spawn)", () => {
     const result = await promise;
     assert.equal(result.aborted, true);
     assert.equal(warns.length, 0);
+    // Child closed within the grace period → SIGTERM only, no SIGKILL escalation.
+    assert.deepEqual(child.killSignals, ["SIGTERM"]);
+  });
+
+  it("escalates to SIGKILL when an aborted child does not exit within the grace period", async () => {
+    const { child, spawn } = setupRunner();
+    const ac = new AbortController();
+    const promise = runSubagentChild({
+      spawn,
+      command: "pi",
+      args: [],
+      agentName: "scout",
+      signal: ac.signal,
+      abortGraceMs: 5, // tiny grace so the escalation fires without a real wait
+    });
+    ac.abort();
+    assert.deepEqual(child.killSignals, ["SIGTERM"]); // immediate SIGTERM
+    await new Promise((r) => setTimeout(r, 25)); // child never closes → grace elapses
+    assert.ok(child.killSignals.includes("SIGKILL"), "expected SIGKILL escalation");
+    child.emitClose(137); // SIGKILL exit — let the runner settle
+    await promise;
   });
 
   it("kills immediately when the signal is already aborted before spawn", async () => {

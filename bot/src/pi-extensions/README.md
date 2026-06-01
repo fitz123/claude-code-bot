@@ -1,7 +1,7 @@
 # pi-extensions
 
 Pure, testable helpers for the Pi extensions (A1 guard, A2 web-tools, A3 subagent)
-loaded into every `pi --mode rpc` spawn. See `docs/plans/2026-06-01-pi-phase2-extensions.md`.
+loaded into every `pi --mode rpc` spawn. See `docs/plans/completed/2026-06-01-pi-phase2-extensions.md`.
 
 ## Location lock (Task 0)
 

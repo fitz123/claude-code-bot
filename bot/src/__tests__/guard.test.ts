@@ -149,6 +149,15 @@ describe("guard: bash redirect/tee/mv/cp coverage (bash-hook bug fix)", () => {
     assert.equal(block({ toolName: "bash", input: { command: "cp evil.ts bot/z.ts" } }), true);
   });
 
+  it("blocks the `>|` clobber redirect into a protected path", () => {
+    assert.equal(block({ toolName: "bash", input: { command: "echo hi >| bot/x.ts" } }), true);
+  });
+
+  it("blocks `cp -t DIR` (GNU target-directory) into a protected path", () => {
+    assert.equal(block({ toolName: "bash", input: { command: "cp -t bot evil1.ts evil2.ts" } }), true);
+    assert.equal(block({ toolName: "bash", input: { command: "cp --target-directory=bot evil.ts" } }), true);
+  });
+
   it("blocks `mv` whose SOURCE is protected (mv deletes the source)", () => {
     assert.equal(block({ toolName: "bash", input: { command: "mv bot/x.ts /tmp/y.ts" } }), true);
   });
@@ -174,6 +183,17 @@ describe("guard: extractBashWriteTargets", () => {
   it("extracts redirect targets", () => {
     assert.deepStrictEqual(extractBashWriteTargets("echo hi > bot/x"), ["bot/x"]);
     assert.deepStrictEqual(extractBashWriteTargets("echo hi >> a/b"), ["a/b"]);
+  });
+
+  it("extracts the `>|` clobber-redirect target", () => {
+    assert.deepStrictEqual(extractBashWriteTargets("echo hi >| bot/x"), ["bot/x"]);
+  });
+
+  it("extracts the `cp -t DIR` target directory in all flag forms", () => {
+    assert.deepStrictEqual(extractBashWriteTargets("cp -t bot a b"), ["bot"]);
+    assert.deepStrictEqual(extractBashWriteTargets("cp -tbot a b"), ["bot"]);
+    assert.deepStrictEqual(extractBashWriteTargets("cp --target-directory=bot a b"), ["bot"]);
+    assert.deepStrictEqual(extractBashWriteTargets("cp --target-directory bot a b"), ["bot"]);
   });
 
   it("extracts tee file args", () => {

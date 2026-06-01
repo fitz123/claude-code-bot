@@ -352,6 +352,12 @@ Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions re
 | **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read once at load from macOS Keychain (`security find-generic-password -s tavily-api-key -a minime -w`). A missing key warn-logs but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
 | **A3 subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Child errors warn-log. |
 
+**A2 setup (optional):** store a [Tavily](https://tavily.com) API key in the macOS Keychain to enable `web_search` / `web_fetch` (omit to leave the tools registered-but-unavailable):
+
+```bash
+security add-generic-password -s 'tavily-api-key' -a 'minime' -w 'YOUR_TAVILY_KEY'
+```
+
 **Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi with **no** extensions — a bare, claude-parity command. This is the fast rollback path (no code change, no merge). With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session).
 
 **Rollback:**
