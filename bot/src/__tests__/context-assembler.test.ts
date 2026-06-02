@@ -105,6 +105,26 @@ function captureWarn<T>(fn: () => T): { value: T; warnings: string[] } {
   }
 }
 
+/** Like captureWarn but ALSO captures log.error — for the fail-safe outer-catch path. */
+function captureWarnError<T>(fn: () => T): { value: T; warnings: string[]; errors: string[] } {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const origWarn = log.warn;
+  const origError = log.error;
+  log.warn = (_tag: string, message: string) => {
+    warnings.push(message);
+  };
+  log.error = (_tag: string, message: string) => {
+    errors.push(message);
+  };
+  try {
+    return { value: fn(), warnings, errors };
+  } finally {
+    log.warn = origWarn;
+    log.error = origError;
+  }
+}
+
 describe("buildBundle — deterministic order (D7)", () => {
   it("assembles body, imports (in order), platform rules, custom rules, memory directive", () => {
     const ws = fullFixture();
@@ -248,6 +268,21 @@ describe("resolvePersona (D6)", () => {
     const { value: persona } = captureWarn(() => resolvePersona(agentFor(ws)));
     assert.strictEqual(persona, null);
   });
+
+  it("ignores an output-style slug that escapes output-styles/ (path traversal)", () => {
+    // A slug is a NAME, never a path. One with separators must be rejected so it
+    // cannot pull an arbitrary file (here a sibling .md) into the persona.
+    const ws = makeWorkspace({
+      files: {
+        ".claude/settings.local.json": JSON.stringify({ outputStyle: "../../../escape" }),
+        // A real file the traversal would resolve to, to prove it is NOT read.
+        "escape.md": "ESCAPED_SECRET_TOKEN",
+      },
+    });
+    const { value: persona, warnings } = captureWarn(() => resolvePersona(agentFor(ws)));
+    assert.strictEqual(persona, null, "a slug with path separators resolves to no persona");
+    assert.ok(warnings.some((m) => m.includes("not a bare filename")), "warned about the slug");
+  });
 });
 
 describe("writeTempArtifact", () => {
@@ -338,6 +373,38 @@ describe("assemblePiContext", () => {
     assert.ok(
       readFileSync(third.appendSystemPromptPath, "utf8").includes("RULE_BBB"),
       "a touched source re-assembles the bundle",
+    );
+  });
+
+  it("re-assembles when only the config systemPrompt changes (the cache folds it in)", () => {
+    // The systemPrompt is the one non-file input to the manifest signature — verify
+    // it actually invalidates the cache (a regression dropping it would serve a
+    // stale persona with no other test failing).
+    const ws = makeWorkspace({ claudeMd: "# x\n\nBODY" });
+    const first = assemblePiContext(agentFor(ws, { id: "spcache", systemPrompt: "PROMPT_ONE" }));
+    assert.ok(first?.systemPromptPath);
+    assert.strictEqual(readFileSync(first.systemPromptPath, "utf8"), "PROMPT_ONE");
+
+    // Same id + same workspace, only the config systemPrompt differs → new
+    // signature → cache miss → fresh persona (NOT the cached PROMPT_ONE).
+    const second = assemblePiContext(agentFor(ws, { id: "spcache", systemPrompt: "PROMPT_TWO" }));
+    assert.ok(second?.systemPromptPath);
+    assert.strictEqual(readFileSync(second.systemPromptPath, "utf8"), "PROMPT_TWO");
+  });
+
+  it("fail-safe: returns null (no throw) when the .tmp artifact dir cannot be created", () => {
+    // The headline contract is "a total failure degrades to a bare spawn, never
+    // crashes". Force the only throw-capable step (writeTempArtifact's mkdirSync)
+    // to fail by occupying `.tmp` with a regular file, and assert the outer catch
+    // swallows it into a null return.
+    const ws = makeWorkspace({ claudeMd: "# x\n\nBODY" });
+    writeFileSync(join(ws, ".tmp"), "i am a file, not a dir", "utf8");
+
+    const { value, errors } = captureWarnError(() => assemblePiContext(agentFor(ws, { id: "throwcase" })));
+    assert.strictEqual(value, null, "a write failure degrades to a bare spawn");
+    assert.ok(
+      errors.some((m) => m.includes("context assembly failed")),
+      "the fallback was logged via log.error",
     );
   });
 });

@@ -94,16 +94,25 @@ function listMarkdown(dir: string): string[] {
     .map((name) => join(dir, name));
 }
 
-/** Extract the path tokens of every standalone `@<path>` import line, in order. */
-function extractImportRelpaths(body: string): string[] {
-  const out: string[] = [];
+/**
+ * Single source of truth for parsing a body's `@`-import lines: returns the
+ * non-import lines (in order) and the path tokens of every standalone `@<path>`
+ * line (in order). Both expandImports (which expands them) and the manifest
+ * signature (which stats them) use this, so the set of imports the cache tracks
+ * can never drift from the set the bundle actually expands.
+ */
+function partitionImports(body: string): { keptLines: string[]; importRelpaths: string[] } {
+  const keptLines: string[] = [];
+  const importRelpaths: string[] = [];
   for (const line of body.split("\n")) {
     const match = IMPORT_LINE.exec(line);
     if (match) {
-      out.push(match[1]);
+      importRelpaths.push(match[1]);
+    } else {
+      keptLines.push(line);
     }
   }
-  return out;
+  return { keptLines, importRelpaths };
 }
 
 /** Render one `## <relpath>` section. Content is trimmed for stable spacing. */
@@ -123,16 +132,7 @@ export function expandImports(
   body: string,
   baseDir: string,
 ): { bodyWithoutImports: string; sections: ContextSection[] } {
-  const keptLines: string[] = [];
-  const importRelpaths: string[] = [];
-  for (const line of body.split("\n")) {
-    const match = IMPORT_LINE.exec(line);
-    if (match) {
-      importRelpaths.push(match[1]);
-    } else {
-      keptLines.push(line);
-    }
-  }
+  const { keptLines, importRelpaths } = partitionImports(body);
 
   const sections: ContextSection[] = [];
   for (const relpath of importRelpaths) {
@@ -245,6 +245,16 @@ export function resolvePersona(agent: AgentConfig): string | null {
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
+/**
+ * An output-style slug must be a single path segment — Claude resolves output
+ * styles by NAME, never by path. Reject any slug containing a path separator so a
+ * settings.local.json value like `"../../../../etc/passwd"` cannot escape
+ * `.claude/output-styles/` and pull an arbitrary file into the `--system-prompt`.
+ */
+function isSafeOutputStyleSlug(slug: string): boolean {
+  return !slug.includes("/") && !slug.includes("\\");
+}
+
 /** Read the output-style markdown referenced by settings.local.json, or null. */
 function readOutputStyleContent(workspaceCwd: string): string | null {
   const settingsPath = join(workspaceCwd, ".claude", "settings.local.json");
@@ -260,6 +270,10 @@ function readOutputStyleContent(workspaceCwd: string): string | null {
     return null;
   }
   if (typeof slug !== "string" || slug.trim() === "") {
+    return null;
+  }
+  if (!isSafeOutputStyleSlug(slug)) {
+    log.warn("pi-context", `output-style slug is not a bare filename, ignoring: "${slug}"`);
     return null;
   }
   const stylePath = join(workspaceCwd, ".claude", "output-styles", `${slug}.md`);
@@ -322,7 +336,7 @@ function computeManifestSignature(agent: AgentConfig): string {
   files.push(claudeMdPath);
   const body = safeReadFile(claudeMdPath);
   if (body !== null) {
-    for (const relpath of extractImportRelpaths(body)) {
+    for (const relpath of partitionImports(body).importRelpaths) {
       files.push(resolve(dirname(claudeMdPath), relpath));
     }
   }
@@ -337,7 +351,7 @@ function computeManifestSignature(agent: AgentConfig): string {
   if (settingsRaw !== null) {
     try {
       const slug = (JSON.parse(settingsRaw) as { outputStyle?: unknown }).outputStyle;
-      if (typeof slug === "string" && slug.trim() !== "") {
+      if (typeof slug === "string" && slug.trim() !== "" && isSafeOutputStyleSlug(slug)) {
         files.push(join(workspaceCwd, ".claude", "output-styles", `${slug}.md`));
       }
     } catch {
