@@ -253,6 +253,10 @@ describe("guard: deny-by-default allow-check (schema writeAllowlist model)", () 
   it("ALLOWS a write whose path matches an allow line", () => {
     assert.equal(block({ toolName: "write", input: { path: "memory/x.md", content: "" } }, schema), false);
     assert.equal(block({ toolName: "edit", input: { path: ".claude/rules/custom/r.md", oldText: "a", newText: "b" } }, schema), false);
+    // .claude/ split: custom skills dir is allowed (only the workspace-health
+    // scripts subdir is immutable), and .claude/rules/custom/ is allowed.
+    assert.equal(block({ toolName: "write", input: { path: ".claude/skills/custom/index.ts", content: "" } }, schema), false);
+    assert.equal(block({ toolName: "write", input: { path: ".claude/rules/custom/x.md", content: "" } }, schema), false);
   });
 
   it("immutable core wins over a matching allow line (precedence)", () => {

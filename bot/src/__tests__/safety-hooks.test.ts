@@ -187,16 +187,21 @@ describe("guardian.sh", () => {
     rmSync(TMP_WORKSPACE, { recursive: true, force: true });
     mkdirSync(TMP_WORKSPACE, { recursive: true });
 
-    // Create allowlist at workspace root (new pattern: orphan-allowlist.txt at root)
+    // Schema-driven write allow-list — the model guardian.sh now enforces (the
+    // ```write-allowlist``` fenced block in schema.md, replacing the legacy
+    // orphan-allowlist.txt root-component model). A comment line exercises the
+    // hook's #-comment stripping.
     writeFileSync(
-      join(TMP_WORKSPACE, "orphan-allowlist.txt"),
+      join(TMP_WORKSPACE, "schema.md"),
       [
-        "# Test allowlist",
-        "memory",
-        "reference",
-        "bot",
+        "# Test schema",
+        "",
+        "```write-allowlist",
+        "memory/                 # narrative + auto memory",
+        "reference/",
         "*.md",
-        ".claude",
+        ".claude/",
+        "```",
       ].join("\n"),
     );
 
@@ -348,9 +353,10 @@ describe("guardian.sh", () => {
     assert.ok(result.stderr.includes("CLAUDE_PROJECT_DIR not set"));
   });
 
-  it("blocks when allowlist is missing", () => {
-    // Remove the allowlist file from workspace root (new pattern)
-    rmSync(join(TMP_WORKSPACE, "orphan-allowlist.txt"));
+  it("blocks (fail-closed) when schema.md is missing", () => {
+    // Remove the schema.md allow-list from workspace root — the new fail-safe:
+    // security never relaxes, the allow-check fails CLOSED with an actionable msg.
+    rmSync(join(TMP_WORKSPACE, "schema.md"));
     const result = runHook(
       GUARDIAN,
       {
@@ -360,7 +366,8 @@ describe("guardian.sh", () => {
       { CLAUDE_PROJECT_DIR: TMP_WORKSPACE },
     );
     assert.equal(result.exitCode, 2);
-    assert.ok(result.stderr.includes("allowlist not found"));
+    assert.ok(result.stderr.includes("fail-closed"));
+    assert.ok(result.stderr.includes("schema.md"));
   });
 
   it("blocks when tool_name cannot be parsed", () => {
