@@ -16,13 +16,14 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getMarkdownTheme, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
+import { type AgentConfig, type AgentScope, type AgentSource, discoverAgents } from "./agents.ts";
 // Provider wiring (openai-codex), child JSONL parse, result classification, and
 // the child-error warn-log all live in the unit-tested pure helper (single
 // source of truth — see bot/src/pi-extensions/README.md). This wrapper stays a
@@ -164,7 +165,7 @@ interface UsageStats {
 
 interface SingleResult {
 	agent: string;
-	agentSource: "user" | "project" | "unknown";
+	agentSource: AgentSource | "unknown";
 	task: string;
 	exitCode: number;
 	messages: Message[];
@@ -403,6 +404,16 @@ const SubagentParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+	// Make the bundled workflow prompts (prompts/*.md: /implement, /scout-and-plan,
+	// /implement-and-review) self-contained: register the extension's OWN prompts
+	// dir (resolved from this module, NOT cwd) as an additional prompt source on
+	// load. Pi appends these AFTER the global/project defaults and dedupes by name
+	// keeping the first occurrence, so user (~/.pi/agent/prompts) and project
+	// (.pi/prompts) prompts override the bundled ones by name (lowest precedence).
+	pi.on("resources_discover", () => ({
+		promptPaths: [path.join(path.dirname(fileURLToPath(import.meta.url)), "prompts")],
+	}));
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",

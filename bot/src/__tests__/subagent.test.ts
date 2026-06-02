@@ -9,6 +9,7 @@ import {
   getFinalOutput,
   getResultOutput,
   isFailedResult,
+  mergeAgentsByPrecedence,
   normalizeSubagentModel,
   parseSubagentEventLine,
   runSubagentChild,
@@ -417,5 +418,57 @@ describe("subagent: runSubagentChild (mock spawn)", () => {
     child.emitClose(0);
     await promise;
     assert.deepEqual(snapshots, ["step 1", "step 2"]);
+  });
+});
+
+// ---- agent discovery precedence ---------------------------------------------
+//
+// `discoverAgents` (bot/.claude/extensions/subagent/agents.ts) reads the real
+// dirs via the pi runtime (a jiti-only dep that does NOT resolve under the node
+// test runner), so the load-bearing precedence logic is extracted here as a pure
+// helper and tested directly. The full runtime path (bundled-dir resolution from
+// import.meta.url + actual frontmatter parsing) is verified live by the main
+// agent, not in CI.
+
+describe("subagent: mergeAgentsByPrecedence", () => {
+  type Agent = { name: string; source: "bundled" | "user" | "project" };
+  const agent = (name: string, source: Agent["source"]): Agent => ({ name, source });
+
+  it("resolves the bundled agents when user and project layers are empty", () => {
+    const bundled = [agent("scout", "bundled"), agent("planner", "bundled")];
+    const merged = mergeAgentsByPrecedence<Agent>([bundled, [], []]);
+    assert.deepEqual(
+      merged.map((a) => a.name),
+      ["scout", "planner"],
+    );
+    assert.ok(merged.every((a) => a.source === "bundled"));
+  });
+
+  it("lets a user agent OVERRIDE a bundled agent of the same name", () => {
+    const bundled = [agent("scout", "bundled")];
+    const user = [agent("scout", "user")];
+    const merged = mergeAgentsByPrecedence<Agent>([bundled, user, []]);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].source, "user");
+  });
+
+  it("lets a project agent OVERRIDE both bundled and user (highest precedence)", () => {
+    const merged = mergeAgentsByPrecedence<Agent>([
+      [agent("scout", "bundled")],
+      [agent("scout", "user")],
+      [agent("scout", "project")],
+    ]);
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].source, "project");
+  });
+
+  it("keeps a custom user agent additive alongside the bundled baseline", () => {
+    const bundled = [agent("scout", "bundled"), agent("worker", "bundled")];
+    const user = [agent("custom", "user")];
+    const merged = mergeAgentsByPrecedence<Agent>([bundled, user, []]);
+    assert.deepEqual(
+      merged.map((a) => `${a.name}:${a.source}`),
+      ["scout:bundled", "worker:bundled", "custom:user"],
+    );
   });
 });

@@ -453,3 +453,34 @@ export function runSubagentChild(deps: RunSubagentChildDeps): Promise<SubagentRu
     }
   });
 }
+
+// ---- agent discovery precedence (pure) --------------------------------------
+
+/** Any discovered agent — keyed by `name` for precedence merging. */
+export interface NamedAgent {
+  name: string;
+}
+
+/**
+ * Merge ordered agent layers by `name`, lowest precedence FIRST.
+ *
+ * Backs `discoverAgents` in the wrapper (`bot/.claude/extensions/subagent/
+ * agents.ts`), which reads the real dirs (pi-runtime dep) and passes the parsed
+ * layers here. Pass layers low→high: `[bundled, user, project]`. Each later
+ * layer OVERRIDES an earlier one with the same `name`; novel names are additive.
+ * Insertion order of the result follows first-seen order across layers (a later
+ * override keeps the earlier slot), so the bundled baseline stays stable.
+ *
+ * The bundled layer is always included by the caller regardless of scope, so the
+ * extension is self-contained; user/project layers the caller omits per scope
+ * simply arrive empty here.
+ */
+export function mergeAgentsByPrecedence<T extends NamedAgent>(layers: T[][]): T[] {
+  const byName = new Map<string, T>();
+  for (const layer of layers) {
+    for (const agent of layer) {
+      byName.set(agent.name, agent);
+    }
+  }
+  return Array.from(byName.values());
+}
