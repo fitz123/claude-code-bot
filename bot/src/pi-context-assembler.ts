@@ -1,5 +1,4 @@
 import {
-  existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -137,7 +136,7 @@ function sectionMarkdown(relpath: string, content: string): string {
 export function expandImports(
   body: string,
   baseDir: string,
-): { bodyWithoutImports: string; sections: ContextSection[] } {
+): { bodyWithoutImports: string; sections: ContextSection[]; importLineCount: number } {
   const { keptLines, importRelpaths } = partitionImports(body);
 
   const sections: ContextSection[] = [];
@@ -160,7 +159,11 @@ export function expandImports(
     sections.push({ relpath, content });
   }
 
-  return { bodyWithoutImports: keptLines.join("\n"), sections };
+  return {
+    bodyWithoutImports: keptLines.join("\n"),
+    sections,
+    importLineCount: importRelpaths.length,
+  };
 }
 
 /**
@@ -188,10 +191,17 @@ export function collectRules(workspaceCwd: string): ContextSection[] {
 interface BundleResult {
   bundle: string;
   /**
-   * True when at least one REAL source contributed (a CLAUDE.md body, an
-   * expanded import, or a rule). False means the bundle is only the fixed memory
-   * directive — there is nothing worth forcing `--no-context-files` for, so the
-   * caller may prefer a bare spawn (let Pi load its own flat context).
+   * True when delivering the bundle (with `--no-context-files`) beats a bare Pi
+   * spawn — i.e. at least one REAL source contributed (a CLAUDE.md body, an
+   * expanded import, or a rule) OR the CLAUDE.md carried `@`-import lines that we
+   * stripped. The import case matters even when EVERY import failed to read: a
+   * bare spawn would let Pi flat-load the original CLAUDE.md and surface the
+   * literal `@<path>` lines (exactly what this assembler exists to strip), so the
+   * stripped bundle is strictly better and we must suppress flat loading.
+   *
+   * False means the bundle is only the fixed memory directive over a CLAUDE.md
+   * that had no body and no imports (or no CLAUDE.md at all) — nothing worth
+   * forcing `--no-context-files` for, so the caller may prefer a bare spawn.
    */
   hasContent: boolean;
 }
@@ -204,7 +214,10 @@ function assembleBundle(workspaceCwd: string): BundleResult {
     log.warn("pi-context", `CLAUDE.md not found at ${claudeMdPath} — bundling rules only`);
   }
 
-  const { bodyWithoutImports, sections } = expandImports(rawBody ?? "", dirname(claudeMdPath));
+  const { bodyWithoutImports, sections, importLineCount } = expandImports(
+    rawBody ?? "",
+    dirname(claudeMdPath),
+  );
   const rules = collectRules(workspaceCwd);
 
   const parts: string[] = [];
@@ -220,7 +233,11 @@ function assembleBundle(workspaceCwd: string): BundleResult {
   }
   parts.push(`## Memory access\n\n${MEMORY_ACCESS_DIRECTIVE}`);
 
-  const hasContent = trimmedBody !== "" || sections.length > 0 || rules.length > 0;
+  // importLineCount > 0 (even with zero successfully-read sections) still counts:
+  // a bare spawn would flat-load the original CLAUDE.md with its literal `@<path>`
+  // lines intact, so the stripped bundle + `--no-context-files` is strictly better.
+  const hasContent =
+    trimmedBody !== "" || sections.length > 0 || rules.length > 0 || importLineCount > 0;
   return { bundle: `${parts.join("\n\n")}\n`, hasContent };
 }
 
@@ -316,15 +333,27 @@ export function writeTempArtifact(
 
 interface CacheEntry {
   signature: string;
-  result: PiContextArtifacts;
+  /** The assembled bundle string (the `--append-system-prompt` artifact body). */
+  bundle: string;
+  /** The resolved persona (the `--system-prompt` artifact body), or null when none. */
+  persona: string | null;
 }
 
 /**
- * Per-agent cache of the last assembled artifacts, keyed on a manifest signature
- * of every source file's `{path, mtime, size}` (the OpenClaw `workspaceFileCache`
- * pattern). Repeat spawns with unchanged sources reuse the artifacts — no re-read,
- * no re-assemble, no re-write — while a touched source re-assembles (freshness
- * parity). Module-scoped: the process lives for the bot's lifetime.
+ * Per-agent cache of the last assembled CONTENT, keyed on a manifest signature of
+ * every source file's `{path, mtime, size}` (the OpenClaw `workspaceFileCache`
+ * pattern). Repeat spawns with unchanged sources skip the re-read + re-assemble of
+ * the source tree, while a touched source re-assembles (freshness parity).
+ *
+ * The cache stores the assembled CONTENT, not just the artifact paths: a cache hit
+ * still RE-WRITES the `.tmp/` artifacts from this content (see assemblePiContext).
+ * Storing paths alone and trusting an existence check would let a prior Pi session,
+ * a sibling spawn, or any external process overwrite the gitignored
+ * `pi-context-<agent>.bundle.md` and have the next spawn hand Pi tampered
+ * system-prompt content. Re-writing is cheap (a few KB) next to re-assembling the
+ * whole source tree, so the optimization is preserved while the artifact on disk
+ * always matches what the assembler produced. Module-scoped: the process lives for
+ * the bot's lifetime.
  */
 const cache = new Map<string, CacheEntry>();
 
@@ -379,17 +408,6 @@ function computeManifestSignature(agent: AgentConfig): string {
   return parts.join("|");
 }
 
-/** True when every cached artifact path still exists on disk. */
-function artifactsExist(result: PiContextArtifacts): boolean {
-  if (!existsSync(result.appendSystemPromptPath)) {
-    return false;
-  }
-  if (result.systemPromptPath !== undefined && !existsSync(result.systemPromptPath)) {
-    return false;
-  }
-  return true;
-}
-
 /**
  * Assemble the full Pi context for an agent and return the artifact paths, or null
  * to signal "no extra context — bare spawn".
@@ -398,27 +416,41 @@ function artifactsExist(result: PiContextArtifacts): boolean {
  * imports, no rules, AND no persona) or when assembly fails outright — either way
  * the caller spawns Pi without the context args rather than crashing the spawn.
  *
- * Caches by a source-file manifest: an unchanged source set returns the previously
- * written artifacts without re-reading/re-assembling/re-writing.
+ * Caches by a source-file manifest: an unchanged source set skips the re-read +
+ * re-assemble of the source tree, but STILL re-writes the `.tmp/` artifacts from
+ * the cached content so the files on disk always match what the assembler produced
+ * (and so a deleted artifact is transparently recreated).
  */
 export function assemblePiContext(agent: AgentConfig): PiContextArtifacts | null {
   try {
     const signature = computeManifestSignature(agent);
     const cached = cache.get(agent.id);
-    if (cached && cached.signature === signature && artifactsExist(cached.result)) {
-      return cached.result;
+
+    let bundle: string;
+    let persona: string | null;
+    if (cached && cached.signature === signature) {
+      // Source manifest unchanged: reuse the assembled content (skip the expensive
+      // re-read + re-parse of every source file) but fall through to RE-WRITE the
+      // artifacts below. A cache entry only exists for a non-empty assembly, so the
+      // content here is guaranteed meaningful — no empty-workspace re-check needed.
+      bundle = cached.bundle;
+      persona = cached.persona;
+    } else {
+      const assembled = assembleBundle(agent.workspaceCwd);
+      const resolvedPersona = resolvePersona(agent);
+      if (!assembled.hasContent && resolvedPersona === null) {
+        // Empty workspace — let Pi fall back to its own (flat) context loading
+        // instead of forcing an empty bundle + --no-context-files.
+        cache.delete(agent.id);
+        return null;
+      }
+      bundle = assembled.bundle;
+      persona = resolvedPersona;
     }
 
-    const { bundle, hasContent } = assembleBundle(agent.workspaceCwd);
-    const persona = resolvePersona(agent);
-
-    if (!hasContent && persona === null) {
-      // Empty workspace — let Pi fall back to its own (flat) context loading
-      // instead of forcing an empty bundle + --no-context-files.
-      cache.delete(agent.id);
-      return null;
-    }
-
+    // Always (re-)write the artifacts — on a cache hit too. This keeps the on-disk
+    // bundle/persona faithful to the cached content even if a prior session or an
+    // external process overwrote them, and recreates an artifact that was deleted.
     const appendSystemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "bundle", bundle);
     let systemPromptPath: string | undefined;
     if (persona !== null) {
@@ -429,7 +461,7 @@ export function assemblePiContext(agent: AgentConfig): PiContextArtifacts | null
       systemPromptPath !== undefined
         ? { systemPromptPath, appendSystemPromptPath }
         : { appendSystemPromptPath };
-    cache.set(agent.id, { signature, result });
+    cache.set(agent.id, { signature, bundle, persona });
     return result;
   } catch (err) {
     // Belt-and-suspenders: every file op above is already fail-safe, but a write
