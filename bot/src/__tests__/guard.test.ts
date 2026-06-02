@@ -18,10 +18,21 @@ function block(call: ToolCallLike, opts: ClassifyOptions = inWs): boolean {
 }
 
 describe("guard: PROTECTED_PREFIXES (pinned canonical set)", () => {
-  it("is exactly the 4 upstream-owned prefixes the plan/criterion 2 names", () => {
+  it("is exactly the 10 upstream-owned immutable-core paths (6 dirs + 4 root files)", () => {
     assert.deepStrictEqual(
       [...PROTECTED_PREFIXES],
-      ["bot/", ".claude/rules/platform/", ".github/workflows/", ".githooks/"],
+      [
+        "bot/",
+        ".claude/hooks/",
+        ".claude/rules/platform/",
+        ".claude/skills/workspace-health/scripts/",
+        ".github/workflows/",
+        ".githooks/",
+        ".gitleaks.toml",
+        ".gitleaksignore",
+        "README.md",
+        "config.local.yaml.example",
+      ],
     );
   });
 });
@@ -54,6 +65,61 @@ describe("guard: isProtectedPath", () => {
   it("does NOT match prefixes as mere substrings of a longer segment", () => {
     assert.equal(isProtectedPath("botanical/x.ts"), false);
     assert.equal(isProtectedPath("robot/x.ts"), false);
+  });
+});
+
+describe("guard: isProtectedPath — immutable core (file-vs-dir matching, 10-set)", () => {
+  it("matches the new directory-prefix entries", () => {
+    assert.equal(isProtectedPath(".claude/hooks/guardian.sh"), true);
+    assert.equal(isProtectedPath(".claude/hooks"), true); // bare dir name
+    assert.equal(isProtectedPath(".claude/skills/workspace-health/scripts/check.sh"), true);
+  });
+
+  it("matches root-only FILE entries EXACTLY (no prefix match)", () => {
+    assert.equal(isProtectedPath("README.md"), true);
+    assert.equal(isProtectedPath(".gitleaks.toml"), true);
+    assert.equal(isProtectedPath(".gitleaksignore"), true);
+    assert.equal(isProtectedPath("config.local.yaml.example"), true);
+  });
+
+  it("does NOT match a same-named file in a subdirectory (root-only-exact)", () => {
+    assert.equal(isProtectedPath("docs/README.md"), false);
+    assert.equal(isProtectedPath("sub/config.local.yaml.example"), false);
+    // a file entry never prefix-matches a longer path
+    assert.equal(isProtectedPath("README.md/evil"), false);
+  });
+
+  it("folds case for both dir and file entries (APFS)", () => {
+    assert.equal(isProtectedPath("readme.md"), true);
+    assert.equal(isProtectedPath(".GitLeaks.TOML"), true);
+    assert.equal(isProtectedPath(".CLAUDE/HOOKS/x.sh"), true);
+  });
+
+  it("does NOT match .claude/skills/ siblings outside the protected scripts dir", () => {
+    assert.equal(isProtectedPath(".claude/skills/custom/index.ts"), false);
+    assert.equal(isProtectedPath(".claude/skills/workspace-health/SKILL.md"), false);
+  });
+});
+
+describe("guard: write/edit into immutable-core file entries", () => {
+  it("blocks write into the root README.md but allows docs/README.md", () => {
+    assert.equal(block({ toolName: "write", input: { path: "README.md", content: "" } }), true);
+    assert.equal(block({ toolName: "write", input: { path: "docs/README.md", content: "" } }), false);
+  });
+
+  it("blocks write/edit into .claude/hooks/ and the workspace-health scripts dir", () => {
+    assert.equal(block({ toolName: "write", input: { path: ".claude/hooks/x.sh", content: "" } }), true);
+    assert.equal(
+      block(
+        { toolName: "edit", input: { path: ".claude/skills/workspace-health/scripts/x.sh", oldText: "a", newText: "b" } },
+      ),
+      true,
+    );
+  });
+
+  it("blocks write into the root gitleaks config + example files", () => {
+    assert.equal(block({ toolName: "write", input: { path: ".gitleaks.toml", content: "" } }), true);
+    assert.equal(block({ toolName: "write", input: { path: "config.local.yaml.example", content: "" } }), true);
   });
 });
 
@@ -148,7 +214,8 @@ describe("guard: guardian orphan check (workspace-structure rule, guardian.sh pa
   it("allows writes whose root component IS in the allowlist", () => {
     assert.equal(block({ toolName: "write", input: { path: "memory/notes.md", content: "" } }, orphan), false);
     assert.equal(block({ toolName: "write", input: { path: "scripts/run.sh", content: "" } }, orphan), false);
-    assert.equal(block({ toolName: "write", input: { path: "README.md", content: "" } }, orphan), false); // *.md
+    // NOTES.md (a root *.md that is NOT in the immutable core — README.md now is).
+    assert.equal(block({ toolName: "write", input: { path: "NOTES.md", content: "" } }, orphan), false); // *.md
   });
 
   it("allows an OVERWRITE of an existing entry even if its root is not allowlisted", () => {

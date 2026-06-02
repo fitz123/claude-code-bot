@@ -60,10 +60,10 @@ Pi path: the new allow-check MUST run for bash write targets via `extractBashWri
 ## Tasks
 
 ### Task 1: guard.ts — immutable core 4→10 + file-vs-dir matching
-- [ ] Sync `PROTECTED_PREFIXES` from the current 4 to the full 10 (add `.claude/hooks/`, `.claude/skills/workspace-health/scripts/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`).
-- [ ] Extend `isProtectedPath` to distinguish trailing-slash entries (prefix match, current behaviour) from no-slash file entries (ROOT-ONLY EXACT match). Keep case-insensitive folding.
-- [ ] write tests for the file-vs-dir immutable matching.
-- [ ] run tests — must pass.
+- [x] Sync `PROTECTED_PREFIXES` from the current 4 to the full 10 (add `.claude/hooks/`, `.claude/skills/workspace-health/scripts/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`).
+- [x] Extend `isProtectedPath` to distinguish trailing-slash entries (prefix match, current behaviour) from no-slash file entries (ROOT-ONLY EXACT match). Keep case-insensitive folding.
+- [x] write tests for the file-vs-dir immutable matching.
+- [x] run tests — must pass.
 
 ### Task 2: guard.ts — deny-by-default allow-check + bash coverage + fail-safe
 - [ ] Add a `writeAllowlist?: readonly string[]` option to `ClassifyOptions` (alongside `orphanAllowlist?`).

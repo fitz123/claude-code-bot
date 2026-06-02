@@ -9,10 +9,11 @@
  * from a `tool_call` handler and returns `{ block, reason }` to Pi.
  *
  * Single source of truth: {@link PROTECTED_PREFIXES} pins the upstream-owned
- * path prefixes that `protect-files.sh` / `bot-code-readonly.md` encode. Per the
- * plan's "no policy engine" guidance this is the 4 highest-value upstream dirs,
- * NOT the full `protect-files.sh` enumeration; a pinned test (`guard.test.ts`)
- * locks the set so drift is caught.
+ * paths that `protect-files.sh` / `bot-code-readonly.md` encode — the full
+ * 10-path IMMUTABLE CORE (6 directory prefixes + 4 root-only files). This is the
+ * deny-overlay of the schema-enforced write guard: it is checked FIRST and ALWAYS
+ * blocks, even when the workspace allow-list would match. A pinned test
+ * (`guard.test.ts`) locks the set so drift is caught.
  *
  * This re-implementation deliberately FIXES four bugs in the bash hooks:
  *  1. traversal — the hook resolves `..` with a fragile sed loop; here
@@ -33,19 +34,31 @@
 import { basename, isAbsolute, normalize, relative, resolve } from "node:path";
 
 /**
- * Upstream-owned path prefixes (relative to the workspace root) a guarded Pi
- * session may NOT write into. Trailing slash = directory prefix. Matching is
- * case-insensitive (APFS) and also matches the bare directory name itself.
+ * Upstream-owned paths (relative to the workspace root) a guarded session may NOT
+ * write into — the IMMUTABLE CORE / deny-overlay of the schema-enforced write
+ * guard. Two entry kinds, distinguished by the trailing slash:
+ *   - Directory prefix (trailing slash, e.g. `bot/`): matches the bare directory
+ *     name itself OR anything under it.
+ *   - Root-only file (no slash, e.g. `README.md`): matches that EXACT root-level
+ *     path only — `README.md` blocks the root file but NOT `docs/README.md`.
+ * Matching is case-insensitive (APFS).
  *
- * PINNED by `guard.test.ts` against the canonical set. To change: edit the
+ * This is the full 10-path set `protect-files.sh` / `bot-code-readonly.md` encode
+ * (no longer a narrowed 4). PINNED by `guard.test.ts`. To change: edit the
  * upstream rule (`bot-code-readonly.md` / `protect-files.sh`) and this list
  * together — they are the doc and its enforcement.
  */
 export const PROTECTED_PREFIXES = [
   "bot/",
+  ".claude/hooks/",
   ".claude/rules/platform/",
+  ".claude/skills/workspace-health/scripts/",
   ".github/workflows/",
   ".githooks/",
+  ".gitleaks.toml",
+  ".gitleaksignore",
+  "README.md",
+  "config.local.yaml.example",
 ] as const;
 
 /** Built-in Pi tools that write a single file at `input.path`. */
@@ -121,15 +134,24 @@ function toPosix(p: string): string {
 }
 
 /**
- * Is `relPath` (a workspace-root-relative POSIX path) inside one of the
- * {@link PROTECTED_PREFIXES}? Case-insensitive (APFS bug fix); also matches the
- * bare directory name (e.g. `bot` as well as `bot/x`).
+ * Is `relPath` (a workspace-root-relative POSIX path) covered by the immutable
+ * {@link PROTECTED_PREFIXES}? Two entry kinds:
+ *   - trailing-slash directory entry → prefix match (also matches the bare
+ *     directory name, e.g. `bot` as well as `bot/x`).
+ *   - no-slash file entry → ROOT-ONLY EXACT match (`README.md` blocks the root
+ *     file but NOT `docs/README.md`; a file entry never prefix-matches).
+ * Case-insensitive (APFS bug fix).
  */
 export function isProtectedPath(relPath: string): boolean {
   const lc = toPosix(relPath).replace(/^\.\//, "").toLowerCase();
-  return PROTECTED_PREFIXES.some((prefix) => {
-    const base = prefix.slice(0, -1); // strip trailing slash → bare dir name
-    return lc === base || lc.startsWith(prefix);
+  return PROTECTED_PREFIXES.some((entry) => {
+    const e = entry.toLowerCase();
+    if (e.endsWith("/")) {
+      const base = e.slice(0, -1); // strip trailing slash → bare dir name
+      return lc === base || lc.startsWith(e);
+    }
+    // No-slash file entry: ROOT-ONLY EXACT (no prefix match).
+    return lc === e;
   });
 }
 
