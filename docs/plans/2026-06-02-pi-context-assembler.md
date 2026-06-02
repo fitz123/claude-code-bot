@@ -77,10 +77,10 @@ Write bundle + persona to STABLE per-agent paths under the agent's workspace `.t
 - [x] run tests (separate step): `cd bot && npm test` — green. (Full suite 1373 pass, 0 fail.)
 
 ### Task 4: Verify acceptance criteria [HIGH]
-- [ ] `cd bot && npm test && npm run lint && npx tsc --noEmit` — all green.
-- [ ] Confirm the assembler runs ONLY for `provider: "pi"` (no effect on the claude path).
-- [ ] Confirm `--no-context-files` is passed (so no double-context) and the bundle contains all 31 rule files + expanded imports for a realistic fixture.
-- [ ] Confirm fail-safe: a fixture with a missing CLAUDE.md / missing rules dir does NOT throw (bare spawn args).
+- [x] `cd bot && npm test && npm run lint && npx tsc --noEmit` — all green. (npm test 1373 pass / 0 fail; `npm run lint` is `tsc --noEmit`, clean; `npx tsc --noEmit` exit 0.)
+- [x] Confirm the assembler runs ONLY for `provider: "pi"` (no effect on the claude path). (`if (agent.provider === "pi")` guard in `buildPiSpawnArgs`; test "does NOT invoke the context assembler for a non-pi agent" asserts no context args.)
+- [x] Confirm `--no-context-files` is passed (so no double-context) and the bundle contains all 31 rule files + expanded imports for a realistic fixture. (Live-workspace `buildBundle` run: all 15 rule sections present — this workspace has 15 platform + 0 custom rules, not 31; "31" was the count at plan-writing time, the assembler collects all that exist — plus expanded `@USER.md`/`@IDENTITY.md`/`@MEMORY.md` sections, the `## Memory access` directive, and zero leftover bare `@`-lines; spawn-args tests assert `--no-context-files`.)
+- [x] Confirm fail-safe: a fixture with a missing CLAUDE.md / missing rules dir does NOT throw (bare spawn args). (Live: a missing `reference/governance/decisions.md` import → warn+skip, no throw; a nonexistent workspace → null bare spawn. Unit tests "fail-safe: a missing CLAUDE.md does not throw" + "tolerates a missing rules dir" + "returns null (bare spawn) for an empty workspace".)
 - NOTE: live per-agent context parity (the HARD GATE) is verified operationally post-merge, not in this PR.
 
 ### Task 5: Update documentation [HIGH]
