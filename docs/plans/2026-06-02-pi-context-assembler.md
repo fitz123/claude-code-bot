@@ -71,10 +71,10 @@ Write bundle + persona to STABLE per-agent paths under the agent's workspace `.t
 - [x] write tests for the spawn-args wiring (Task 3). (`bot/src/__tests__/pi-rpc-protocol.test.ts` — new "context assembly (provider: pi)" block, 5 tests; legacy-branch test replaced. Full suite 1373 green, lint clean.)
 
 ### Task 3: tests [HIGH]
-- [ ] `bot/src/__tests__/context-assembler.test.ts` (`node:test`, fixture via `fs.mkdtempSync(os.tmpdir()+"/pi-ctx-")`): build a fixture workspace (CLAUDE.md with one `@import.md` line + a MEMORY.md import, one `.claude/rules/platform/x.md`, one `.claude/rules/custom/y.md`, a `.claude/settings.local.json` + an output-style file). Assert: bundle contains the expanded import section + both rule sections + the fixed memory directive, in the deterministic order; `@`-lines removed from the body; persona resolved from the output-style; a missing import file → warn + skip (no throw); no output-style → no persona path.
-- [ ] Test `buildPiSpawnArgs` for a pi agent: asserts `--system-prompt`, `--append-system-prompt`, `--no-context-files` present (+ paths point at the temp files); a no-persona agent → no `--system-prompt`; a non-pi agent → assembler not invoked.
-- [ ] write a test for the mtime cache (second call without source change → no re-read; touch a source → re-assemble).
-- [ ] run tests (separate step): `cd bot && npm test` — green.
+- [x] `bot/src/__tests__/context-assembler.test.ts` (`node:test`, fixture via `fs.mkdtempSync(os.tmpdir()+"/pi-ctx-")`): build a fixture workspace (CLAUDE.md with one `@import.md` line + a MEMORY.md import, one `.claude/rules/platform/x.md`, one `.claude/rules/custom/y.md`, a `.claude/settings.local.json` + an output-style file). Assert: bundle contains the expanded import section + both rule sections + the fixed memory directive, in the deterministic order; `@`-lines removed from the body; persona resolved from the output-style; a missing import file → warn + skip (no throw); no output-style → no persona path. (20 tests green.)
+- [x] Test `buildPiSpawnArgs` for a pi agent: asserts `--system-prompt`, `--append-system-prompt`, `--no-context-files` present (+ paths point at the temp files); a no-persona agent → no `--system-prompt`; a non-pi agent → assembler not invoked. (5 context-assembly tests + non-pi gating test, all green.)
+- [x] write a test for the mtime cache (second call without source change → no re-read; touch a source → re-assemble). (`assemblePiContext` "caches by the source manifest" test.)
+- [x] run tests (separate step): `cd bot && npm test` — green. (Full suite 1373 pass, 0 fail.)
 
 ### Task 4: Verify acceptance criteria [HIGH]
 - [ ] `cd bot && npm test && npm run lint && npx tsc --noEmit` — all green.
