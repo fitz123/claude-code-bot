@@ -81,12 +81,20 @@ fi
 
 # Only check files within this workspace. An absolute path elsewhere (e.g.
 # /tmp/log) is out of scope — matching the Pi classifier's outside-workspace allow.
+# Containment is decided CASE-INSENSITIVELY (APFS): a FILE_PATH whose workspace-root
+# prefix case-varies (e.g. `/users/...` for the real `/Users/...`) names the SAME
+# file on case-insensitive APFS, so a case-sensitive prefix test would wrongly treat
+# it as outside-workspace and allow it — bypassing the deny-by-default allow-check.
+# Fold case for the test (mirrors guard.ts), then strip by LENGTH (case-folding
+# preserves length) so REL_PATH keeps its original-case tail.
+shopt -s nocasematch
 if [[ "$FILE_PATH" != "$WORKSPACE/"* ]]; then
   exit 0
 fi
+shopt -u nocasematch
 
 # Extract path relative to workspace root
-REL_PATH="${FILE_PATH#"$WORKSPACE/"}"
+REL_PATH="${FILE_PATH:$(( ${#WORKSPACE} + 1 ))}"
 
 # PRESERVE: block path traversal BEFORE the existing-file check (defense-in-depth:
 # -e resolves ".." so an attacker could escape the workspace via existing targets).

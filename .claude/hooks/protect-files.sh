@@ -53,11 +53,24 @@ done
 # project root). When unset, we strip a leading `/` so absolute paths still
 # enter the relative-pattern case, and rely on the literal pattern strings.
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
+PROJECT_ROOT="${PROJECT_ROOT%/}"
+# Containment is decided CASE-INSENSITIVELY (APFS). macOS APFS is case-insensitive,
+# so an absolute FILE_PATH whose workspace-root prefix case-varies (e.g. `/users/...`
+# for the real `/Users/...`) names the SAME file as $CLAUDE_PROJECT_DIR. A
+# case-sensitive prefix test would miss it, fall through to the leading-`/` strip
+# branch, and the resulting full-path REL_PATH would match NEITHER the immutable
+# case-block below NOR a schema line — bypassing both guards. `nocasematch` folds
+# case for the prefix test; we then strip by LENGTH (case-folding preserves length)
+# so REL_PATH keeps the original-case tail for the (case-insensitive) match + the
+# error message. Mirrors guard.ts's classifyTargetPath, which lowercases both sides
+# before relative().
+shopt -s nocasematch
 if [ -n "$PROJECT_ROOT" ] && [[ "$FILE_PATH" == "$PROJECT_ROOT"/* ]]; then
-  REL_PATH="${FILE_PATH#"$PROJECT_ROOT"/}"
+  REL_PATH="${FILE_PATH:$(( ${#PROJECT_ROOT} + 1 ))}"
 else
   REL_PATH="${FILE_PATH#/}"
 fi
+shopt -u nocasematch
 
 # --- 1. Skills — cron-only block (interactive sessions can still edit) ---
 case "$REL_PATH" in

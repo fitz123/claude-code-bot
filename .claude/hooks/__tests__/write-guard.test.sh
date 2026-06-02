@@ -117,6 +117,39 @@ assert ALLOW "$(run_chain Write schema.md)" "exact root-file schema.md allowed"
 # Case-insensitive (APFS) directory-prefix match.
 assert ALLOW "$(run_chain Write Memory/Notes.MD)" "case-insensitive dir-prefix match (APFS)"
 
+# APFS case-variant WORKSPACE-PREFIX coverage. On case-insensitive APFS an absolute
+# tool path whose workspace-root prefix case-varies (e.g. /users vs /Users) names the
+# SAME file as $CLAUDE_PROJECT_DIR. The containment check that derives REL_PATH must
+# fold case — otherwise the path is treated as outside-workspace and BOTH the
+# immutable deny-overlay (protect-files.sh) and the schema deny-by-default check
+# (guardian.sh) are bypassed. These drive the chain with a case-varied prefix while
+# CLAUDE_PROJECT_DIR stays $WS, so they exercise pure string logic (no reliance on
+# the underlying volume actually being case-insensitive).
+WS_CASE="$(printf '%s' "$WS" | tr '[:lower:]' '[:upper:]')"
+if [[ "$WS_CASE" == "$WS" ]]; then
+  WS_CASE="$(printf '%s' "$WS" | tr '[:upper:]' '[:lower:]')"
+fi
+run_chain_prefix() {
+  # $1=tool, $2=absolute file_path (workspace prefix may be case-varied).
+  local tool="$1" fp="$2" input
+  input="$(printf '{"tool_name":"%s","tool_input":{"file_path":"%s"}}' "$tool" "$fp")"
+  if ! printf '%s' "$input" | env -i PATH="$PATH" CLAUDE_PROJECT_DIR="$WS" bash "$PROTECT" >/dev/null 2>&1; then
+    echo BLOCK; return
+  fi
+  if ! printf '%s' "$input" | env -i PATH="$PATH" CLAUDE_PROJECT_DIR="$WS" bash "$GUARDIAN" >/dev/null 2>&1; then
+    echo BLOCK; return
+  fi
+  echo ALLOW
+}
+if [[ "$WS_CASE" != "$WS" ]]; then
+  assert BLOCK "$(run_chain_prefix Write "$WS_CASE/README.md")" "case-variant workspace prefix on immutable README.md blocked (APFS)"
+  assert BLOCK "$(run_chain_prefix Write "$WS_CASE/unregistered/x.txt")" "case-variant workspace prefix on non-schema path blocked (APFS deny-by-default)"
+  assert ALLOW "$(run_chain_prefix Write "$WS_CASE/memory/notes.md")" "case-variant workspace prefix on schema path still allowed (APFS)"
+else
+  echo "FAIL - could not produce a case-varied workspace prefix from \$WS"
+  FAIL=$((FAIL + 1))
+fi
+
 # Existing-file overwrite exemption (legacy/old.txt is not in schema, not immutable).
 assert ALLOW "$(run_chain Write legacy/old.txt)" "existing-file overwrite allowed (exemption)"
 
