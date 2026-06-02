@@ -47,3 +47,57 @@ Rationale:
 
 If a wrapper ever grows logic worth testing, move that logic into a
 `src/pi-extensions/*.ts` helper rather than adding a tsconfig for the wrapper.
+
+## Context assembler (Claude→Pi parity at spawn)
+
+`bot/src/pi-context-assembler.ts` gives a `provider: "pi"` spawn the SAME context a
+Claude Code session loads. Pi reads context files as FLAT text — no `@`-import
+expansion, no `.claude/rules/` auto-load, no memory recall — so an agent's
+CLAUDE.md `@`-imports and rule files silently vanish under Pi. The assembler reads
+the agent's LIVE workspace files (zero drift, always fresh) and hands the result to
+Pi via CLI args. It is wired into `buildPiSpawnArgs` in
+`bot/src/pi-rpc-protocol.ts`, and runs ONLY for `provider: "pi"` — the
+`claude -p` path is untouched.
+
+### Layer mapping
+
+| Pi CLI arg | Carries | Pi semantics |
+|---|---|---|
+| `--system-prompt <personaFile>` | The agent's persona: the resolved output-style content (`.claude/settings.local.json` `outputStyle` → `.claude/output-styles/<slug>.md`), plus the config `systemPrompt` appended if set. | REPLACES Pi's base "coding assistant" prompt. Omitted entirely when no persona resolves → the agent rides Pi's base prompt. |
+| `--append-system-prompt <bundleFile>` | The context bundle (see order below). | APPENDED to the system prompt. |
+| `--no-context-files` | — | Stops Pi from ALSO loading CLAUDE.md/AGENTS.md from cwd, so context is delivered once (no double context). |
+
+Personas and bundles are delivered as FILE PATHS, never inline argv: keeps
+non-ASCII persona text out of argv (avoids the content-filter class), keeps argv
+short, and stays inspectable.
+
+### Bundle order (deterministic)
+
+The `--append-system-prompt` bundle is assembled in this exact order:
+
+1. The CLAUDE.md body with every standalone `@<path>` line removed.
+2. Each removed `@`-import expanded as a `## <relpath>` section, in the order the
+   `@`-lines appeared (read relative to the CLAUDE.md dir, **1 level only** — a
+   nested `@`-line inside an imported file is NOT recursed, only `log.warn`-ed).
+3. Every `.claude/rules/platform/*.md` as a `## <relpath>` section, sorted.
+4. Every `.claude/rules/custom/*.md` as a `## <relpath>` section, sorted.
+5. A fixed `## Memory access` directive (verbatim).
+
+MEMORY.md reaches the bundle as one of the CLAUDE.md `@`-imports (`@MEMORY.md`) →
+expanded as a `## MEMORY.md` section = the long-term-memory index. The corpus under
+`memory/auto/*` is read ON DEMAND, not inlined. Auto-recall like the Claude harness
+(a `memory_search` RAG tool) is **not yet available under Pi — it is a tracked
+fast-follow**; the fixed directive tells the agent to read the index deliberately.
+
+### Fail-safe & cache
+
+- **Fail-safe:** every file read is wrapped — a missing/unreadable source is
+  `log.warn`-ed and skipped, NEVER thrown. A total failure returns `null` so the
+  caller degrades to a bare Pi spawn. The assembler must never break a spawn.
+- **Cache:** artifacts are cached per agent, keyed on a manifest of every source
+  file's `{path, mtime, size}`. An unchanged source set reuses the previously
+  written artifacts (no re-read/re-assemble/re-write); a touched source
+  re-assembles (freshness parity).
+- **Artifacts:** written atomically (staging file → `renameSync`) to STABLE
+  per-agent paths under `<workspaceCwd>/.tmp/pi-context-<agentId>.{bundle,persona}.md`
+  — stable path ⇒ no accumulation, no cleanup job.
