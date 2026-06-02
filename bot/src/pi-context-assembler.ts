@@ -6,7 +6,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { AgentConfig } from "./types.js";
 import { log } from "./logger.js";
 
@@ -126,6 +126,23 @@ function sectionMarkdown(relpath: string, content: string): string {
 }
 
 /**
+ * True iff `relpath` resolves to a path CONTAINED under `baseDir` (the CLAUDE.md
+ * dir). A workspace-controlled CLAUDE.md must not pull arbitrary host files into
+ * the Pi system prompt, so an absolute import (`@/etc/passwd`) or one that escapes
+ * `baseDir` via `..` (`@../../secret.md`) is rejected. The check is on the path
+ * shape, not on disk (no symlink resolution) — same containment model as the
+ * output-style slug guard.
+ */
+function isContainedImport(baseDir: string, relpath: string): boolean {
+  if (isAbsolute(relpath)) {
+    return false;
+  }
+  const resolved = resolve(baseDir, relpath);
+  const rel = relative(baseDir, resolved);
+  return !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
+}
+
+/**
  * Split a CLAUDE.md body into (a) the body with every `@<path>` line removed and
  * (b) the expanded import sections, in the order the `@`-lines appeared. Each
  * import is read RELATIVE to baseDir (the CLAUDE.md dir), 1 level only:
@@ -136,11 +153,27 @@ function sectionMarkdown(relpath: string, content: string): string {
 export function expandImports(
   body: string,
   baseDir: string,
-): { bodyWithoutImports: string; sections: ContextSection[]; importLineCount: number } {
+): {
+  bodyWithoutImports: string;
+  sections: ContextSection[];
+  importLineCount: number;
+  acceptedImportPaths: string[];
+} {
   const { keptLines, importRelpaths } = partitionImports(body);
 
   const sections: ContextSection[] = [];
+  const acceptedImportPaths: string[] = [];
   for (const relpath of importRelpaths) {
+    if (!isContainedImport(baseDir, relpath)) {
+      // Containment guard: an absolute import or one escaping baseDir via `..`
+      // must NOT pull an arbitrary host file into the Pi system prompt. Skip +
+      // warn, fail-safe (never read it, never throw).
+      log.warn(
+        "pi-context",
+        `@-import escapes the workspace, skipping: "${relpath}"`,
+      );
+      continue;
+    }
     const abs = resolve(baseDir, relpath);
     const content = safeReadFile(abs);
     if (content === null) {
@@ -157,12 +190,14 @@ export function expandImports(
       );
     }
     sections.push({ relpath, content });
+    acceptedImportPaths.push(abs);
   }
 
   return {
     bodyWithoutImports: keptLines.join("\n"),
     sections,
     importLineCount: importRelpaths.length,
+    acceptedImportPaths,
   };
 }
 
@@ -371,8 +406,15 @@ function computeManifestSignature(agent: AgentConfig): string {
   files.push(claudeMdPath);
   const body = safeReadFile(claudeMdPath);
   if (body !== null) {
+    const baseDir = dirname(claudeMdPath);
     for (const relpath of partitionImports(body).importRelpaths) {
-      files.push(resolve(dirname(claudeMdPath), relpath));
+      // Track ONLY the imports expandImports will actually inline: an escaping
+      // import is skipped there, so the manifest must not `stat` it either —
+      // otherwise the signature covers a path outside the workspace that is never
+      // part of the bundle. Single containment rule, both sides.
+      if (isContainedImport(baseDir, relpath)) {
+        files.push(resolve(baseDir, relpath));
+      }
     }
   }
 

@@ -95,9 +95,12 @@ fast-follow**; the fixed directive tells the agent to read the index deliberatel
   `log.warn`-ed and skipped, NEVER thrown. A total failure returns `null` so the
   caller degrades to a bare Pi spawn. The assembler must never break a spawn.
 - **Cache:** artifacts are cached per agent, keyed on a manifest of every source
-  file's `{path, mtime, size}`. An unchanged source set reuses the previously
-  written artifacts (no re-read/re-assemble/re-write); a touched source
-  re-assembles (freshness parity).
+  file's `{path, mtime, size}`. On a cache HIT (unchanged source set) the assembler
+  SKIPS re-reading and re-assembling the sources, but STILL re-writes the `.tmp/`
+  artifact files from the cached content — it never trusts a possibly-stale or
+  tampered on-disk bundle (a gitignored `.tmp/` file a prior Pi session or external
+  process could overwrite), and this also transparently recreates a deleted
+  artifact. A touched source re-assembles (freshness parity).
 - **Artifacts:** written atomically (staging file → `renameSync`) to STABLE
   per-agent paths under `<workspaceCwd>/.tmp/pi-context-<agentId>.{bundle,persona}.md`
   — stable path ⇒ no accumulation, no cleanup job.

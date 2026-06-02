@@ -227,6 +227,38 @@ describe("expandImports", () => {
     assert.deepStrictEqual(sections, [{ relpath: "a.md", content: "AAA" }]);
     assert.strictEqual(bodyWithoutImports, "top\r\nbottom");
   });
+
+  it("skips escaping @-imports (absolute + ../) while keeping under-workspace ones", () => {
+    // A workspace-controlled CLAUDE.md must not pull arbitrary host files into the
+    // Pi system prompt. An absolute import (`@/etc/hostname`) or one escaping baseDir
+    // via `..` (`@../secret.md`) is skipped + warned and NEVER read; a normal
+    // under-workspace import still expands. A real file is planted at the ../ target
+    // to prove it is not inlined.
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-parent-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret.md"), "PARENT_SECRET", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    writeFileSync(join(ws, "ok.md"), "OK_TOKEN", "utf8");
+
+    const body = ["top", "@../secret.md", "@/etc/hostname", "@ok.md", "bottom"].join("\n");
+    const { value: result, warnings } = captureWarn(() => expandImports(body, ws));
+
+    assert.deepStrictEqual(
+      result.sections,
+      [{ relpath: "ok.md", content: "OK_TOKEN" }],
+      "only the under-workspace import is inlined",
+    );
+    assert.deepStrictEqual(
+      result.acceptedImportPaths,
+      [join(ws, "ok.md")],
+      "accepted set excludes the escaping imports (the manifest tracks the same set)",
+    );
+    assert.ok(
+      warnings.filter((m) => m.includes("escapes the workspace")).length >= 2,
+      "both escaping imports were warned + skipped",
+    );
+    assert.strictEqual(result.bodyWithoutImports, "top\nbottom", "all @-lines stripped from body");
+  });
 });
 
 describe("collectRules", () => {
@@ -338,6 +370,28 @@ describe("assemblePiContext", () => {
     assert.ok(result);
     assert.strictEqual(result.systemPromptPath, undefined);
     assert.ok(result.appendSystemPromptPath);
+  });
+
+  it("never inlines an escaping @-import from CLAUDE.md into the bundle", () => {
+    // End-to-end: a CLAUDE.md with an escaping import plus a normal one. The escape
+    // target's content must NOT appear in the on-disk bundle; the normal one does.
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-e2e-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret.md"), "HOST_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    writeFileSync(
+      join(ws, "CLAUDE.md"),
+      ["# WS", "", "@../secret.md", "@/etc/hostname", "@local.md", ""].join("\n"),
+      "utf8",
+    );
+    writeFileSync(join(ws, "local.md"), "LOCAL_IMPORT_TOKEN", "utf8");
+
+    const { value: result } = captureWarn(() => assemblePiContext(agentFor(ws, { id: "e2eescape" })));
+    assert.ok(result);
+    const bundle = readFileSync(result.appendSystemPromptPath, "utf8");
+    assert.ok(bundle.includes("LOCAL_IMPORT_TOKEN"), "the under-workspace import is inlined");
+    assert.ok(!bundle.includes("HOST_SECRET_TOKEN"), "the escaping ../ import is NOT inlined");
+    assert.ok(!/^[ \t]*@\.\.\/secret\.md[ \t]*$/m.test(bundle), "the escaping @-line is stripped");
   });
 
   it("fail-safe: a missing CLAUDE.md does not throw (rules-only bundle still assembles)", () => {
