@@ -66,14 +66,14 @@ Pi path: the new allow-check MUST run for bash write targets via `extractBashWri
 - [x] run tests — must pass.
 
 ### Task 2: guard.ts — deny-by-default allow-check + bash coverage + fail-safe
-- [ ] Add a `writeAllowlist?: readonly string[]` option to `ClassifyOptions` (alongside `orphanAllowlist?`).
-- [ ] Add a new `isAllowedPath(relPath, writeAllowlist)` helper implementing the three D17 line kinds (reuse `globToRegExp` for root-only globs; do NOT reuse `isAllowedRootComponent`).
-- [ ] In `classifyTargetPath`, when `writeAllowlist` is present: after the immutable-core check, BLOCK any write/edit/bash target whose path matches no allow line. Applies to write/edit AND bash targets (not just `write`).
-- [ ] Make the block message actionable: name the blocked relative path, point to `schema.md`, suggest the exact line to add, mention the notify-the-owner step. Keep the existing immutable-core message unchanged.
-- [ ] Fail-safe: if `writeAllowlist` is absent/empty (missing schema.md block), immutable-core still blocks; the allow-check fails CLOSED with the actionable "schema.md missing → add it / set PI_EXTENSIONS_DISABLED=1" message. Preserve the existing unknown-root fail-closed.
-- [ ] Preserve `workspaceRoot`/`resolveRoot` separation + subagent-cwd behaviour.
-- [ ] write tests (see Task 6) — separate step.
-- [ ] run tests — must pass.
+- [x] Add a `writeAllowlist?: readonly string[]` option to `ClassifyOptions` (alongside `orphanAllowlist?`).
+- [x] Add a new `isAllowedPath(relPath, writeAllowlist)` helper implementing the three D17 line kinds (reuse `globToRegExp` for root-only globs; do NOT reuse `isAllowedRootComponent`).
+- [x] In `classifyTargetPath`, when `writeAllowlist` is present: after the immutable-core check, BLOCK any write/edit/bash target whose path matches no allow line. Applies to write/edit AND bash targets (not just `write`).
+- [x] Make the block message actionable: name the blocked relative path, point to `schema.md`, suggest the exact line to add, mention the notify-the-owner step. Keep the existing immutable-core message unchanged.
+- [x] Fail-safe: if `writeAllowlist` is absent/empty (missing schema.md block), immutable-core still blocks; the allow-check fails CLOSED with the actionable "schema.md missing → add it / set PI_EXTENSIONS_DISABLED=1" message. Preserve the existing unknown-root fail-closed.
+- [x] Preserve `workspaceRoot`/`resolveRoot` separation + subagent-cwd behaviour.
+- [x] write tests (see Task 6) — separate step.
+- [x] run tests — must pass.
 
 ### Task 3: guardian-protect-files.ts wrapper — parse schema.md directly
 - [ ] Add `readWriteAllowlist(workspaceRoot)`: read `<workspaceRoot>/schema.md`, extract the single ```` ```write-allowlist ```` fenced block, strip `#` comments + blank lines + trim (identical to the existing `readOrphanAllowlist` stripping), return the lines. Cache per process.
