@@ -1,11 +1,20 @@
-import { describe, it } from "node:test";
+import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { Readable } from "node:stream";
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { _resetPiContextCache } from "../pi-context-assembler.js";
 import {
   NewlineOnlyJsonlSplitter,
   PI_EXTENSION_WRAPPER_RELPATHS,
@@ -147,15 +156,19 @@ describe("buildPiSpawnArgs", () => {
     assert.strictEqual(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.5");
   });
 
-  it("passes the agent system prompt as an append-system-prompt argument", () => {
+  it("does NOT invoke the context assembler for a non-pi agent (no context args)", () => {
+    // testAgent carries no `provider` (semantically claude). The assembler is
+    // gated on provider:"pi", so none of its CLI layers may appear — and the
+    // legacy `agent.systemPrompt → --append-system-prompt` branch is gone, so a
+    // config systemPrompt must NOT leak into the args either.
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "You are precise.",
     }, undefined, NO_EXTENSIONS);
-    const promptIndex = args.indexOf("--append-system-prompt");
 
-    assert.notStrictEqual(promptIndex, -1);
-    assert.strictEqual(args[promptIndex + 1], "You are precise.");
+    assert.ok(!args.includes("--system-prompt"));
+    assert.ok(!args.includes("--append-system-prompt"));
+    assert.ok(!args.includes("--no-context-files"));
   });
 
   it("omits Claude-only flags", () => {
@@ -187,6 +200,146 @@ describe("buildPiSpawnArgs", () => {
       !buildPiSpawnArgs(testAgent, "", NO_EXTENSIONS).includes("--session"),
       "blank id => fresh start",
     );
+  });
+});
+
+describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
+  const fixtures: string[] = [];
+
+  after(() => {
+    for (const dir of fixtures) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The assembler caches per agentId at module scope; reset between tests so a
+  // prior fixture's manifest can never satisfy a later test's cache lookup.
+  beforeEach(() => {
+    _resetPiContextCache();
+  });
+
+  interface WorkspaceSpec {
+    claudeMd?: string;
+    files?: Record<string, string>;
+  }
+
+  /** Build a throwaway pi workspace from a spec and register it for cleanup. */
+  function makePiWorkspace(spec: WorkspaceSpec): string {
+    const ws = mkdtempSync(join(tmpdir(), "pi-spawn-ctx-"));
+    fixtures.push(ws);
+    if (spec.claudeMd !== undefined) {
+      writeFileSync(join(ws, "CLAUDE.md"), spec.claudeMd, "utf8");
+    }
+    for (const [rel, content] of Object.entries(spec.files ?? {})) {
+      const abs = join(ws, rel);
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, content, "utf8");
+    }
+    return ws;
+  }
+
+  function piAgent(ws: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
+    return { id: "pi", workspaceCwd: ws, model: "gpt-5.5", provider: "pi", ...overrides };
+  }
+
+  /** A realistic pi workspace: a CLAUDE.md body, one rule, an output-style persona. */
+  function fullPiWorkspace(): string {
+    return makePiWorkspace({
+      claudeMd: "# Pi Agent\n\nBODY_TOKEN here.",
+      files: {
+        ".claude/rules/platform/x.md": "PLATFORM_RULE_TOKEN",
+        ".claude/settings.local.json": JSON.stringify({ outputStyle: "persona-style" }),
+        ".claude/output-styles/persona-style.md": "PERSONA_TOKEN body",
+      },
+    });
+  }
+
+  it("injects --system-prompt (persona), --append-system-prompt (bundle), and --no-context-files", () => {
+    const ws = fullPiWorkspace();
+    const args = buildPiSpawnArgs(piAgent(ws), undefined, NO_EXTENSIONS);
+
+    const personaIdx = args.indexOf("--system-prompt");
+    const bundleIdx = args.indexOf("--append-system-prompt");
+    assert.notStrictEqual(personaIdx, -1, "persona delivered via --system-prompt");
+    assert.notStrictEqual(bundleIdx, -1, "bundle delivered via --append-system-prompt");
+    assert.ok(args.includes("--no-context-files"), "Pi must not double-load flat context");
+
+    // The args carry FILE PATHS (not inline content), pointing at the stable
+    // per-agent temp artifacts that exist on disk.
+    const personaPath = args[personaIdx + 1];
+    const bundlePath = args[bundleIdx + 1];
+    assert.ok(personaPath.endsWith(join(".tmp", "pi-context-pi.persona.md")), personaPath);
+    assert.ok(bundlePath.endsWith(join(".tmp", "pi-context-pi.bundle.md")), bundlePath);
+    assert.ok(existsSync(personaPath) && existsSync(bundlePath), "artifacts written to disk");
+
+    assert.strictEqual(readFileSync(personaPath, "utf8"), "PERSONA_TOKEN body");
+    const bundle = readFileSync(bundlePath, "utf8");
+    assert.ok(bundle.includes("PLATFORM_RULE_TOKEN") && bundle.includes("## Memory access"));
+  });
+
+  it("omits --system-prompt when the agent has no persona (rides Pi base), keeping the bundle + flag", () => {
+    const ws = makePiWorkspace({
+      claudeMd: "# Pi Agent\n\nBODY",
+      files: { ".claude/rules/platform/r.md": "RULE" },
+    });
+    const args = buildPiSpawnArgs(piAgent(ws), undefined, NO_EXTENSIONS);
+
+    assert.ok(!args.includes("--system-prompt"), "no persona => ride Pi's base prompt");
+    assert.ok(args.includes("--append-system-prompt"), "bundle still delivered");
+    assert.ok(args.includes("--no-context-files"));
+  });
+
+  it("emits at most ONE --system-prompt and ONE --append-system-prompt (legacy branch removed)", () => {
+    // Both an output-style AND a config systemPrompt resolve. The persona must be
+    // a single merged file (output-style then config prompt), NOT a second
+    // --append-system-prompt arg from the deleted legacy branch.
+    const ws = fullPiWorkspace();
+    const args = buildPiSpawnArgs(piAgent(ws, { systemPrompt: "CONFIG_PROMPT" }), undefined, NO_EXTENSIONS);
+
+    assert.strictEqual(args.filter((a) => a === "--system-prompt").length, 1);
+    assert.strictEqual(args.filter((a) => a === "--append-system-prompt").length, 1);
+
+    const personaPath = args[args.indexOf("--system-prompt") + 1];
+    assert.strictEqual(readFileSync(personaPath, "utf8"), "PERSONA_TOKEN body\n\nCONFIG_PROMPT");
+  });
+
+  it("composes with --extension args: context args precede extensions; --session stays last", () => {
+    const FAKE_DIR = "/fake/ext";
+    const ws = fullPiWorkspace();
+    const args = buildPiSpawnArgs(piAgent(ws), "pi-sess-resume", {
+      extensionsDir: FAKE_DIR,
+      env: {},
+      exists: () => true,
+    });
+
+    const noContextIdx = args.indexOf("--no-context-files");
+    const firstExtension = args.indexOf("--extension");
+    const session = args.indexOf("--session");
+
+    assert.notStrictEqual(noContextIdx, -1);
+    assert.notStrictEqual(firstExtension, -1);
+    assert.ok(noContextIdx < firstExtension, "context args must precede --extension args");
+    assert.ok(firstExtension < session, "--extension args must precede --session");
+    assert.strictEqual(args[session + 1], "pi-sess-resume");
+    // All three extension wrappers still resolve alongside the new context args.
+    assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
+  });
+
+  it("degrades to a bare spawn (no context args) for an empty pi workspace", () => {
+    // No CLAUDE.md, no rules, no persona => assemblePiContext returns null =>
+    // none of the context CLI layers are emitted (fail-safe bare spawn).
+    const ws = makePiWorkspace({});
+    const args = buildPiSpawnArgs(piAgent(ws), undefined, NO_EXTENSIONS);
+
+    assert.ok(!args.includes("--system-prompt"));
+    assert.ok(!args.includes("--append-system-prompt"));
+    assert.ok(!args.includes("--no-context-files"));
+    // The base command is intact.
+    assert.deepStrictEqual(args, [
+      "--mode", "rpc",
+      "--provider", "openai-codex",
+      "--model", "openai-codex/gpt-5.5",
+    ]);
   });
 });
 

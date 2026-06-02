@@ -12,6 +12,7 @@ import type {
   ResultMessage,
 } from "./types.js";
 import { log } from "./logger.js";
+import { assemblePiContext } from "./pi-context-assembler.js";
 
 const PI_BIN = "pi";
 const PI_PROVIDER = "openai-codex";
@@ -223,8 +224,36 @@ export function buildPiSpawnArgs(
     "--model", normalizePiModel(agent.model),
   ];
 
-  if (agent.systemPrompt) {
-    args.push("--append-system-prompt", agent.systemPrompt);
+  // Spawn-time context assembly — provider: "pi" ONLY (the claude path never
+  // reaches here). The assembler (pi-context-assembler.ts) gives full Claude→Pi
+  // context parity from the agent's LIVE workspace files, delivered as three CLI
+  // layers, REPLACING the old `agent.systemPrompt → --append-system-prompt` branch:
+  //   --system-prompt <persona>   REPLACES Pi's base prompt (omitted when no persona
+  //                               resolves — the agent then rides Pi's base prompt).
+  //   --append-system-prompt <bundle>  the CLAUDE.md + @-imports + rules bundle.
+  //   --no-context-files          so Pi does NOT ALSO flat-load CLAUDE.md/AGENTS.md
+  //                               from cwd (avoids double context).
+  // At most ONE --system-prompt and ONE --append-system-prompt are emitted. The
+  // assembler is fail-safe by construction (a bad source → warn+skip; a total
+  // failure or empty workspace → null → bare spawn), but a write into an
+  // unwritable `.tmp/` could still throw — wrap it so a throw degrades to a bare
+  // spawn (log.error) and NEVER blocks the spawn.
+  if (agent.provider === "pi") {
+    try {
+      const context = assemblePiContext(agent);
+      if (context) {
+        if (context.systemPromptPath) {
+          args.push("--system-prompt", context.systemPromptPath);
+        }
+        args.push("--append-system-prompt", context.appendSystemPromptPath);
+        args.push("--no-context-files");
+      }
+    } catch (err) {
+      log.error(
+        "pi-rpc",
+        `Pi context assembly threw for agent "${agent.id}", spawning bare: ${(err as Error).message}`,
+      );
+    }
   }
 
   // Load A1-A3 as repeatable `--extension <abs-path>` args (per-spawn is

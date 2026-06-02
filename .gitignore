@@ -33,6 +33,9 @@ orphan-allowlist.local.txt
 .consolidation-state.json
 *.consolidation-backup
 
+# Pi context-assembler spawn artifacts (.tmp/pi-context-<agentId>.{bundle,persona}.md)
+.tmp/
+
 # Ralphex
 completed/
 
