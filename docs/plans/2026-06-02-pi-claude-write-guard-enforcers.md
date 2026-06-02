@@ -76,9 +76,9 @@ Pi path: the new allow-check MUST run for bash write targets via `extractBashWri
 - [x] run tests — must pass.
 
 ### Task 3: guardian-protect-files.ts wrapper — parse schema.md directly
-- [ ] Add `readWriteAllowlist(workspaceRoot)`: read `<workspaceRoot>/schema.md`, extract the single ```` ```write-allowlist ```` fenced block, strip `#` comments + blank lines + trim (identical to the existing `readOrphanAllowlist` stripping), return the lines. Cache per process.
-- [ ] Inject the result as `writeAllowlist` into `classifyToolCall` for write/edit AND bash (not only `write`). Inject `writeAllowlist` (new model) — do NOT also inject `orphanAllowlist`.
-- [ ] If `schema.md` or the block is missing → inject empty/undefined so the fail-safe path triggers (do not throw).
+- [x] Add `readWriteAllowlist(workspaceRoot)`: read `<workspaceRoot>/schema.md`, extract the single ```` ```write-allowlist ```` fenced block, strip `#` comments + blank lines + trim (identical to the existing `readOrphanAllowlist` stripping), return the lines. Cache per process.
+- [x] Inject the result as `writeAllowlist` into `classifyToolCall` for write/edit AND bash (not only `write`). Inject `writeAllowlist` (new model) — do NOT also inject `orphanAllowlist`.
+- [x] If `schema.md` or the block is missing → inject empty/undefined so the fail-safe path triggers (do not throw).
 
 ### Task 4: guardian.sh — root-component → path-prefix, parse schema.md
 - [ ] Replace `ROOT_COMPONENT="${REL_PATH%%/*}"` root-component matching with full-relative-path matching against `schema.md`'s fenced block. Extract the block with `awk '/^```write-allowlist$/{f=1;next}/^```/{f=0}f' "$WORKSPACE/schema.md"`, strip `#`/blank lines (same as the existing allowlist stripping).
