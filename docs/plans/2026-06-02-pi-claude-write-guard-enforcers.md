@@ -81,15 +81,15 @@ Pi path: the new allow-check MUST run for bash write targets via `extractBashWri
 - [x] If `schema.md` or the block is missing → inject empty/undefined so the fail-safe path triggers (do not throw).
 
 ### Task 4: guardian.sh — root-component → path-prefix, parse schema.md
-- [ ] Replace `ROOT_COMPONENT="${REL_PATH%%/*}"` root-component matching with full-relative-path matching against `schema.md`'s fenced block. Extract the block with `awk '/^```write-allowlist$/{f=1;next}/^```/{f=0}f' "$WORKSPACE/schema.md"`, strip `#`/blank lines (same as the existing allowlist stripping).
-- [ ] Implement the three D17 line kinds in bash: directory-prefix (`[[ "$REL_PATH" == p || "$REL_PATH" == p/* ]]`), root-only-glob (match only when `REL_PATH` has no `/` and the `case` glob matches), exact-root-file (`[[ "$REL_PATH" == name ]]`). Add a comment block documenting the three kinds.
-- [ ] PRESERVE: the `..`-traversal block, the `//`/`/./` normalization, and the existing-file overwrite exemption — all BEFORE the new allow-check.
-- [ ] Add `WRITE_GUARD_BYPASS=1` (logged to stderr).
-- [ ] Make the block message actionable (path + schema.md + the exact line + notify step).
-- [ ] Fail-safe: missing/empty `schema.md` block → fail CLOSED with the actionable message (mirror the existing missing-allowlist fail-closed).
-- [ ] Add a comment noting the claude-path bash-redirect gap (D16 tracked known-gap) — only `tool_input.file_path` is inspected.
-- [ ] write the bash test harness (Task 6) — separate step.
-- [ ] run the harness — must pass.
+- [x] Replace `ROOT_COMPONENT="${REL_PATH%%/*}"` root-component matching with full-relative-path matching against `schema.md`'s fenced block. Extract the block with `awk '/^```write-allowlist$/{f=1;next}/^```/{f=0}f' "$WORKSPACE/schema.md"`, strip `#`/blank lines (same as the existing allowlist stripping).
+- [x] Implement the three D17 line kinds in bash: directory-prefix (`[[ "$REL_PATH" == p || "$REL_PATH" == p/* ]]`), root-only-glob (match only when `REL_PATH` has no `/` and the `case` glob matches), exact-root-file (`[[ "$REL_PATH" == name ]]`). Add a comment block documenting the three kinds.
+- [x] PRESERVE: the `..`-traversal block, the `//`/`/./` normalization, and the existing-file overwrite exemption — all BEFORE the new allow-check.
+- [x] Add `WRITE_GUARD_BYPASS=1` (logged to stderr). Also mirrored protect-files.sh's other two bypass triggers (ralphex worktree, upstream dev-repo origin) so a schema-less workspace — the upstream dev repo itself, or a ralphex worktree — is not bricked by the fail-closed default (honors "never silently brick-all").
+- [x] Make the block message actionable (path + schema.md + the exact line + notify step).
+- [x] Fail-safe: missing/empty `schema.md` block → fail CLOSED with the actionable message (mirror the existing missing-allowlist fail-closed).
+- [x] Add a comment noting the claude-path bash-redirect gap (D16 tracked known-gap) — only `tool_input.file_path` is inspected.
+- [x] write the bash test harness (Task 6) — separate step. Created `.claude/hooks/__tests__/write-guard.test.sh` (drives the protect-files.sh + guardian.sh chain against a temp schema.md fixture).
+- [x] run the harness — must pass. 19/19 assertions pass; shellcheck clean.
 
 ### Task 5: protect-files.sh + .gitleaks.toml + docs
 - [ ] Confirm `protect-files.sh`'s 10-path immutable `case` block is unchanged and runs as the deny-overlay; confirm the hook order in `.claude/settings.json` runs `protect-files.sh` (deny) before `guardian.sh` (allow) so deny-overlay-wins holds for the `.claude/` split.
