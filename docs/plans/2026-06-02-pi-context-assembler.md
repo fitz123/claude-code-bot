@@ -64,11 +64,11 @@ Write bundle + persona to STABLE per-agent paths under the agent's workspace `.t
 - [x] write tests for the assembler (Task 3). (`bot/src/__tests__/context-assembler.test.ts`, 20 tests green.)
 
 ### Task 2: wire into the Pi spawn path [HIGH]
-- [ ] In `bot/src/pi-rpc-protocol.ts buildPiSpawnArgs`: for `provider: "pi"` agents, call `assemblePiContext(agent)`; push `--system-prompt <personaPath>` IF present, `--append-system-prompt <bundlePath>`, and `--no-context-files`.
-- [ ] REMOVE the old `agent.systemPrompt → --append-system-prompt` branch (persona now via `--system-prompt`; bundle via `--append-system-prompt`). Exactly ONE `--system-prompt` and ONE `--append-system-prompt` arg max.
-- [ ] Wrap the assembler call so a thrown error (should not happen — fail-safe) degrades to a bare spawn + `log.error`, never blocks the spawn.
-- [ ] Confirm the existing `--extension` (write-guard etc.) args still compose correctly alongside the new args.
-- [ ] write tests for the spawn-args wiring (Task 3).
+- [x] In `bot/src/pi-rpc-protocol.ts buildPiSpawnArgs`: for `provider: "pi"` agents, call `assemblePiContext(agent)`; push `--system-prompt <personaPath>` IF present, `--append-system-prompt <bundlePath>`, and `--no-context-files`.
+- [x] REMOVE the old `agent.systemPrompt → --append-system-prompt` branch (persona now via `--system-prompt`; bundle via `--append-system-prompt`). Exactly ONE `--system-prompt` and ONE `--append-system-prompt` arg max.
+- [x] Wrap the assembler call so a thrown error (should not happen — fail-safe) degrades to a bare spawn + `log.error`, never blocks the spawn.
+- [x] Confirm the existing `--extension` (write-guard etc.) args still compose correctly alongside the new args. (Test: context args precede `--extension`, which precede `--session`; all 3 wrappers still resolve.)
+- [x] write tests for the spawn-args wiring (Task 3). (`bot/src/__tests__/pi-rpc-protocol.test.ts` — new "context assembly (provider: pi)" block, 5 tests; legacy-branch test replaced. Full suite 1373 green, lint clean.)
 
 ### Task 3: tests [HIGH]
 - [ ] `bot/src/__tests__/context-assembler.test.ts` (`node:test`, fixture via `fs.mkdtempSync(os.tmpdir()+"/pi-ctx-")`): build a fixture workspace (CLAUDE.md with one `@import.md` line + a MEMORY.md import, one `.claude/rules/platform/x.md`, one `.claude/rules/custom/y.md`, a `.claude/settings.local.json` + an output-style file). Assert: bundle contains the expanded import section + both rule sections + the fixed memory directive, in the deterministic order; `@`-lines removed from the body; persona resolved from the output-style; a missing import file → warn + skip (no throw); no output-style → no persona path.
