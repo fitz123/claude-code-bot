@@ -211,6 +211,17 @@ describe("expandImports", () => {
     assert.strictEqual(sections.length, 0);
     assert.strictEqual(bodyWithoutImports, "email me at me@host.com please");
   });
+
+  it("matches @-import lines on CRLF (Windows) bodies and strips them cleanly", () => {
+    // A CRLF body splits on \n into lines ending in \r. The import line must
+    // still expand (clean path token, no stray \r) and be removed from the body.
+    const ws = makeWorkspace({ files: { "a.md": "AAA" } });
+    const body = ["top", "@a.md", "bottom"].join("\r\n");
+    const { bodyWithoutImports, sections } = expandImports(body, ws);
+
+    assert.deepStrictEqual(sections, [{ relpath: "a.md", content: "AAA" }]);
+    assert.strictEqual(bodyWithoutImports, "top\r\nbottom");
+  });
 });
 
 describe("collectRules", () => {

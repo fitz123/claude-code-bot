@@ -59,8 +59,14 @@ export type PiArtifactKind = "bundle" | "persona";
  * non-whitespace path token, optional trailing whitespace, nothing else. This is
  * deliberately strict so an inline `user@host` or `@pkg/name` inside prose never
  * matches — only a line that IS an import (e.g. `@MEMORY.md`).
+ *
+ * The trailing `\r?` tolerates CRLF (Windows) line endings: bodies are split on
+ * `\n`, so a CRLF line arrives as `@MEMORY.md\r`. Without this, that line would
+ * match neither as an import (so it is never expanded) nor get stripped from the
+ * body (so the literal `@MEMORY.md` text leaks into the bundle). `\S+` stops at
+ * the `\r` (it is whitespace), so the captured path token stays clean.
  */
-const IMPORT_LINE = /^[ \t]*@(\S+)[ \t]*$/;
+const IMPORT_LINE = /^[ \t]*@(\S+)[ \t]*\r?$/;
 
 /**
  * The fixed `## Memory access` directive (verbatim). MEMORY.md itself reaches the
