@@ -53,15 +53,15 @@ Write bundle + persona to STABLE per-agent paths under the agent's workspace `.t
 ## Tasks
 
 ### Task 1: the assembler module [HIGH]
-- [ ] Create `bot/src/pi-context-assembler.ts` exporting `assemblePiContext(agent)` → `{ systemPromptPath?: string, appendSystemPromptPath: string }` (paths; or omit systemPromptPath when no persona).
-- [ ] Implement `expandImports(body, baseDir)`: extract `@<path>` lines, return `{ bodyWithoutImports, sections: [{relpath, content}] }`; read each path relative to baseDir; 1-level; `log.warn` on a nested `@`-line (no recursion); missing import file → warn + skip.
-- [ ] Implement `collectRules(workspaceCwd)`: read `.claude/rules/platform/*.md` + `.claude/rules/custom/*.md`, sorted by relpath, as `{relpath, content}`; tolerate a missing dir.
-- [ ] Implement `buildBundle(workspaceCwd)`: read CLAUDE.md → expandImports → assemble per the Bundle spec order (1-5) into one string; the fixed memory directive verbatim.
-- [ ] Implement `resolvePersona(agent)` per the Persona spec (output-style + optional config systemPrompt; null when none).
-- [ ] Implement `writeTempArtifact(workspaceCwd, agentId, kind, content)` atomic (write `.tmp.<pid>` → rename) to the stable path.
-- [ ] Implement the manifest mtime/size cache (per agentId): skip re-read+re-assemble when no source changed.
-- [ ] Wrap all FS in fail-safe (missing → warn+skip, never throw).
-- [ ] write tests for the assembler (Task 3).
+- [x] Create `bot/src/pi-context-assembler.ts` exporting `assemblePiContext(agent)` → `{ systemPromptPath?: string, appendSystemPromptPath: string }` (paths; or omit systemPromptPath when no persona). (Returns null on a totally-empty workspace / total failure → bare spawn.)
+- [x] Implement `expandImports(body, baseDir)`: extract `@<path>` lines, return `{ bodyWithoutImports, sections: [{relpath, content}] }`; read each path relative to baseDir; 1-level; `log.warn` on a nested `@`-line (no recursion); missing import file → warn + skip.
+- [x] Implement `collectRules(workspaceCwd)`: read `.claude/rules/platform/*.md` + `.claude/rules/custom/*.md`, sorted by relpath, as `{relpath, content}`; tolerate a missing dir.
+- [x] Implement `buildBundle(workspaceCwd)`: read CLAUDE.md → expandImports → assemble per the Bundle spec order (1-5) into one string; the fixed memory directive verbatim.
+- [x] Implement `resolvePersona(agent)` per the Persona spec (output-style + optional config systemPrompt; null when none).
+- [x] Implement `writeTempArtifact(workspaceCwd, agentId, kind, content)` atomic (write `.tmp.<pid>` → rename) to the stable path.
+- [x] Implement the manifest mtime/size cache (per agentId): skip re-read+re-assemble when no source changed.
+- [x] Wrap all FS in fail-safe (missing → warn+skip, never throw).
+- [x] write tests for the assembler (Task 3). (`bot/src/__tests__/context-assembler.test.ts`, 20 tests green.)
 
 ### Task 2: wire into the Pi spawn path [HIGH]
 - [ ] In `bot/src/pi-rpc-protocol.ts buildPiSpawnArgs`: for `provider: "pi"` agents, call `assemblePiContext(agent)`; push `--system-prompt <personaPath>` IF present, `--append-system-prompt <bundlePath>`, and `--no-context-files`.
