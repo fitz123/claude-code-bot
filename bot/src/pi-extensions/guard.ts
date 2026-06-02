@@ -738,6 +738,14 @@ function extractTargetDirFlag(args: string[]): string | undefined {
  * `>` / `>>` redirects, `tee` file args, `mv` (sources + dest), `cp` (dest).
  * Returns deduped, non-empty target strings. Defense-in-depth on top of the
  * solid write/edit guarantee — not a full shell parser.
+ *
+ * Bash-redirect asymmetry (D16 — by design for v1): this Pi-path coverage has NO
+ * claude-path counterpart. `guardian.sh` inspects only `tool_input.file_path`
+ * (the Write/Edit target) and never parses bash, so on the claude path a redirect
+ * like `echo x > unregistered/y` is UNGUARDED. The Pi path runs the same
+ * deny-by-default allow-check over these extracted targets (so the redirect IS
+ * blocked here); closing the claude-path gap is a tracked, deliberately deferred
+ * known-gap (see guardian.sh's D16 comment + the design plan).
  */
 export function extractBashWriteTargets(command: string): string[] {
   const toks = lexShell(command);

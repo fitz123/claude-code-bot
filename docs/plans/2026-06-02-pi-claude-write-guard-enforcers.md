@@ -112,5 +112,5 @@ Pi path: the new allow-check MUST run for bash write targets via `extractBashWri
 - NOTE: the wrapper's `readWriteAllowlist` (schema.md parse) + guardian.sh's awk extraction are runtime/jiti paths verified LIVE post-merge by the operator (not in the node test suite) — same as other extension wrappers. The pure `classifyToolCall` + the bash harness ARE covered here.
 
 ### Task 8: Update documentation
-- [ ] Ensure code comments in `guard.ts` + `guardian.sh` document the D17 match semantics + the bash-redirect asymmetry.
-- [ ] Confirm `bot-code-readonly.md` reflects the unified model.
+- [x] Ensure code comments in `guard.ts` + `guardian.sh` document the D17 match semantics + the bash-redirect asymmetry. Verified: guard.ts documents the three D17 line kinds in `isAllowedPath` (~200-233) and now carries an explicit bash-redirect asymmetry note at `extractBashWriteTargets` cross-referencing the D16 claude-path gap; guardian.sh documents the D17 kinds (~17-25) and the D16 bash-redirect known-gap (~27-32).
+- [x] Confirm `bot-code-readonly.md` reflects the unified model. Verified: it frames the 10-path immutable core as the deny-overlay of the schema-enforced write-guard, names both enforcers (guard.ts + protect-files.sh/guardian.sh chain), states precedence (deny-overlay > allow > default-deny), notes guard.ts now pins all 10, and explains directory-prefix vs root-only-exact file matching.
