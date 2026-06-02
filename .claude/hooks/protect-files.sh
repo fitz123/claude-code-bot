@@ -102,19 +102,28 @@ if [ -n "$bypass" ]; then
   exit 0
 fi
 
+# Case-insensitive (APFS): README.MD and README.md are the SAME file, so this
+# deny-overlay MUST fold case the way guard.ts (isProtectedPath) and guardian.sh's
+# allow-check already do. Without it, a case-variant slips past this deny and a
+# schema.md glob (e.g. `*.md`) re-allows the immutable file — breaking the
+# "immutable core can never be unlocked via schema.md" invariant.
+# Directory entries also match their bare name (a root file literally named
+# `bot`), mirroring isProtectedPath's `lc === base` — full parity with the Pi path.
+shopt -s nocasematch
 case "$REL_PATH" in
-  bot/*) match=1 ;;
-  .claude/hooks/*) match=1 ;;
-  .claude/rules/platform/*) match=1 ;;
-  .claude/skills/workspace-health/scripts/*) match=1 ;;
-  .github/workflows/*) match=1 ;;
-  .githooks/*) match=1 ;;
+  bot|bot/*) match=1 ;;
+  .claude/hooks|.claude/hooks/*) match=1 ;;
+  .claude/rules/platform|.claude/rules/platform/*) match=1 ;;
+  .claude/skills/workspace-health/scripts|.claude/skills/workspace-health/scripts/*) match=1 ;;
+  .github/workflows|.github/workflows/*) match=1 ;;
+  .githooks|.githooks/*) match=1 ;;
   .gitleaks.toml) match=1 ;;
   .gitleaksignore) match=1 ;;
   README.md) match=1 ;;
   config.local.yaml.example) match=1 ;;
   *) match=0 ;;
 esac
+shopt -u nocasematch
 
 if [ "$match" = "1" ]; then
   echo "BLOCKED by protect-files: '$FILE_PATH' is upstream-owned (see .claude/rules/platform/bot-code-readonly.md)." >&2

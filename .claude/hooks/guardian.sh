@@ -31,6 +31,13 @@
 # closing this gap in the bash hook is deliberately deferred (see the design plan
 # docs/plans/2026-06-02-pi-claude-write-guard-enforcers.md).
 #
+# Symlink limitation: paths are matched LEXICALLY (only `..`/`//`/`/./` are
+# collapsed — no realpath). A symlink at an allow-listed path that points into a
+# protected/unregistered dir is matched on its own name, not its target. This is
+# OUT of the threat model on purpose — the guard is anti-drift / footgun-prevention
+# for a trusted operator, NOT a defense against a malicious agent deliberately
+# planting symlinks. The Pi classifier (guard.ts) shares this lexical-match design.
+#
 # Rules:
 # - Edit tool: always allowed (edits existing content)
 # - Write tool: allowed if file exists (overwrite) or path matches schema.md
@@ -167,12 +174,14 @@ if [[ ! -f "$SCHEMA" ]]; then
   block_failclosed
 fi
 
-# Extract the single ```write-allowlist fenced block — the lines strictly between
+# Extract the FIRST ```write-allowlist fenced block — the lines strictly between
 # an opening fence that is EXACTLY ```write-allowlist and the next line starting
-# with ``` — then strip #-comments / blank lines / surrounding whitespace. This
-# awk + stripping is identical to the Pi wrapper's readWriteAllowlist parse, so
-# both enforcers read the SAME allow-list (no drift).
-ALLOW_RAW="$(awk '/^```write-allowlist$/{f=1;next}/^```/{f=0}f' "$SCHEMA")"
+# with ``` — then strip #-comments / blank lines / surrounding whitespace. The
+# `exit` at the first closing fence stops after one block, identical to the Pi
+# wrapper's readWriteAllowlist parse (which `break`s on the first closing fence),
+# so both enforcers read the SAME allow-list even if schema.md (against its
+# contract) carries a second block (no drift).
+ALLOW_RAW="$(awk '/^```write-allowlist$/{f=1;next} f&&/^```/{exit} f' "$SCHEMA")"
 
 allow_lines=()
 while IFS= read -r line; do

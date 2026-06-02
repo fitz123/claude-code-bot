@@ -87,6 +87,11 @@ const CASES: ReadonlyArray<readonly [path: string, expected: "ALLOW" | "BLOCK"]>
   [".githooks/pre-commit", "BLOCK"],
   // immutable core — root-only-exact files (blocked even though *.md would allow)
   ["README.md", "BLOCK"],
+  // Case-variant of an immutable file (APFS: README.MD == README.md). DISCRIMINATING:
+  // `*.md` is allow-listed, so without case-folding in protect-files.sh the claude
+  // chain would ALLOW this while the Pi path BLOCKs it — the exact divergence the
+  // case-insensitive deny-overlay fix closes. Locks the "never unlockable" invariant.
+  ["README.MD", "BLOCK"],
   [".gitleaks.toml", "BLOCK"],
   [".gitleaksignore", "BLOCK"],
   ["config.local.yaml.example", "BLOCK"],

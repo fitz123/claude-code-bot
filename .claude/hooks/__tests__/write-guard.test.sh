@@ -92,6 +92,11 @@ assert ALLOW "$(run_chain Write memory)" "bare dir name matches its prefix line"
 # Immutable core wins over the allow-list (README.md immutable though *.md allowed).
 assert BLOCK "$(run_chain Write README.md)" "immutable README.md blocked despite *.md"
 
+# Case-variant of an immutable FILE must still be blocked (APFS: README.MD == README.md).
+# Without case-folding in protect-files.sh this slips past the deny-overlay and the
+# *.md allow-line in schema.md re-allows the immutable file.
+assert BLOCK "$(run_chain Write README.MD)" "case-variant immutable README.MD blocked despite *.md"
+
 # Immutable file entries are ROOT-ONLY-EXACT — docs/README.md is NOT immutable.
 assert ALLOW "$(run_chain Write docs/README.md)" "docs/README.md allowed (docs/ in schema; immutable file is root-only)"
 
@@ -123,6 +128,29 @@ assert ALLOW "$(run_chain Write unregistered/y.txt WRITE_GUARD_BYPASS=1)" "WRITE
 
 # Bypass does NOT override the immutable-core deny (protect-files.sh runs first).
 assert BLOCK "$(run_chain Write README.md WRITE_GUARD_BYPASS=1)" "WRITE_GUARD_BYPASS does NOT override immutable core"
+
+# Fail-closed: schema.md is PRESENT but its write-allowlist block is empty (only a
+# comment / blank lines). The block must yield zero allow-lines → deny everything
+# non-immutable (distinct from the missing-schema.md case, which is also fail-closed).
+WS2="$(mktemp -d)"
+cat > "$WS2/schema.md" <<'SCHEMA'
+# schema with an empty write-allowlist block
+```write-allowlist
+# only a comment — no real entries
+
+```
+SCHEMA
+empty_block_verdict() {
+  local input
+  input="$(printf '{"tool_name":"Write","tool_input":{"file_path":"%s"}}' "$WS2/newfile.txt")"
+  if printf '%s' "$input" | env -i PATH="$PATH" CLAUDE_PROJECT_DIR="$WS2" bash "$GUARDIAN" >/dev/null 2>&1; then
+    echo ALLOW
+  else
+    echo BLOCK
+  fi
+}
+assert BLOCK "$(empty_block_verdict)" "schema.md present but write-allowlist block empty → fail-closed"
+rm -rf "$WS2"
 
 echo "---"
 echo "$PASS passed, $FAIL failed"

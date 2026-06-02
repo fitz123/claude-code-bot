@@ -48,9 +48,11 @@ const writeAllowlistCache = new Map<string, string[]>();
  * Read the workspace write allow-list — the lines of the single
  * ```` ```write-allowlist ```` fenced block in `<workspaceRoot>/schema.md`.
  * Mirrors the awk extraction `guardian.sh` uses
- * (`/^```write-allowlist$/{f=1;next}/^```/{f=0}f`): the lines strictly between an
- * opening fence that is EXACTLY ```` ```write-allowlist ```` and the next line
- * starting with ```` ``` ````. Each extracted line then has `#` comments
+ * (`/^```write-allowlist$/{f=1;next} f&&/^```/{exit} f`): the lines strictly
+ * between an opening fence that is EXACTLY ```` ```write-allowlist ```` and the
+ * next line starting with ```` ``` ````. Both stop after the FIRST block (the awk
+ * `exit`s, this loop `break`s) so they stay identical even if schema.md carries a
+ * second block against its contract. Each extracted line then has `#` comments
  * stripped, is trimmed, and blanks dropped — the same stripping the guardian
  * orphan-allowlist uses.
  *

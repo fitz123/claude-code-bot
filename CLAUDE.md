@@ -23,8 +23,8 @@ To activate one, copy it into `.claude/rules/custom/`.
 
 Six hooks are wired in `.claude/settings.json`:
 - `inject-message.sh` — delivers mid-turn user messages and echo context updates (PreToolUse, all tools)
-- `protect-files.sh` — blocks cron/autonomous agents from modifying skill files (PreToolUse, Edit|Write)
-- `guardian.sh` — blocks new files outside allowed workspace structure (PreToolUse, Edit|Write)
+- `protect-files.sh` — immutable-core deny-overlay: blocks all sessions from writing the 10 upstream-owned paths, plus cron/autonomous agents from modifying skill files (PreToolUse, Edit|Write)
+- `guardian.sh` — schema-enforced deny-by-default write-guard: blocks new files whose path is not in `schema.md`'s `write-allowlist` block (PreToolUse, Edit|Write); `WRITE_GUARD_BYPASS=1` to bypass
 - `auto-stage.sh` — stages files after Edit/Write (PostToolUse)
 - `session-end-commit.sh` — commits staged changes on session exit (SessionEnd)
 - `session-start-recovery.sh` — recovers orphaned staged changes (SessionStart)
