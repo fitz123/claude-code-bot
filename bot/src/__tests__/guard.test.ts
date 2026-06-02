@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   classifyToolCall,
   extractBashWriteTargets,
+  isAllowedPath,
   isAllowedRootComponent,
   isProtectedPath,
   PROTECTED_PREFIXES,
@@ -18,10 +19,21 @@ function block(call: ToolCallLike, opts: ClassifyOptions = inWs): boolean {
 }
 
 describe("guard: PROTECTED_PREFIXES (pinned canonical set)", () => {
-  it("is exactly the 4 upstream-owned prefixes the plan/criterion 2 names", () => {
+  it("is exactly the 10 upstream-owned immutable-core paths (6 dirs + 4 root files)", () => {
     assert.deepStrictEqual(
       [...PROTECTED_PREFIXES],
-      ["bot/", ".claude/rules/platform/", ".github/workflows/", ".githooks/"],
+      [
+        "bot/",
+        ".claude/hooks/",
+        ".claude/rules/platform/",
+        ".claude/skills/workspace-health/scripts/",
+        ".github/workflows/",
+        ".githooks/",
+        ".gitleaks.toml",
+        ".gitleaksignore",
+        "README.md",
+        "config.local.yaml.example",
+      ],
     );
   });
 });
@@ -54,6 +66,61 @@ describe("guard: isProtectedPath", () => {
   it("does NOT match prefixes as mere substrings of a longer segment", () => {
     assert.equal(isProtectedPath("botanical/x.ts"), false);
     assert.equal(isProtectedPath("robot/x.ts"), false);
+  });
+});
+
+describe("guard: isProtectedPath — immutable core (file-vs-dir matching, 10-set)", () => {
+  it("matches the new directory-prefix entries", () => {
+    assert.equal(isProtectedPath(".claude/hooks/guardian.sh"), true);
+    assert.equal(isProtectedPath(".claude/hooks"), true); // bare dir name
+    assert.equal(isProtectedPath(".claude/skills/workspace-health/scripts/check.sh"), true);
+  });
+
+  it("matches root-only FILE entries EXACTLY (no prefix match)", () => {
+    assert.equal(isProtectedPath("README.md"), true);
+    assert.equal(isProtectedPath(".gitleaks.toml"), true);
+    assert.equal(isProtectedPath(".gitleaksignore"), true);
+    assert.equal(isProtectedPath("config.local.yaml.example"), true);
+  });
+
+  it("does NOT match a same-named file in a subdirectory (root-only-exact)", () => {
+    assert.equal(isProtectedPath("docs/README.md"), false);
+    assert.equal(isProtectedPath("sub/config.local.yaml.example"), false);
+    // a file entry never prefix-matches a longer path
+    assert.equal(isProtectedPath("README.md/evil"), false);
+  });
+
+  it("folds case for both dir and file entries (APFS)", () => {
+    assert.equal(isProtectedPath("readme.md"), true);
+    assert.equal(isProtectedPath(".GitLeaks.TOML"), true);
+    assert.equal(isProtectedPath(".CLAUDE/HOOKS/x.sh"), true);
+  });
+
+  it("does NOT match .claude/skills/ siblings outside the protected scripts dir", () => {
+    assert.equal(isProtectedPath(".claude/skills/custom/index.ts"), false);
+    assert.equal(isProtectedPath(".claude/skills/workspace-health/SKILL.md"), false);
+  });
+});
+
+describe("guard: write/edit into immutable-core file entries", () => {
+  it("blocks write into the root README.md but allows docs/README.md", () => {
+    assert.equal(block({ toolName: "write", input: { path: "README.md", content: "" } }), true);
+    assert.equal(block({ toolName: "write", input: { path: "docs/README.md", content: "" } }), false);
+  });
+
+  it("blocks write/edit into .claude/hooks/ and the workspace-health scripts dir", () => {
+    assert.equal(block({ toolName: "write", input: { path: ".claude/hooks/x.sh", content: "" } }), true);
+    assert.equal(
+      block(
+        { toolName: "edit", input: { path: ".claude/skills/workspace-health/scripts/x.sh", oldText: "a", newText: "b" } },
+      ),
+      true,
+    );
+  });
+
+  it("blocks write into the root gitleaks config + example files", () => {
+    assert.equal(block({ toolName: "write", input: { path: ".gitleaks.toml", content: "" } }), true);
+    assert.equal(block({ toolName: "write", input: { path: "config.local.yaml.example", content: "" } }), true);
   });
 });
 
@@ -133,6 +200,122 @@ describe("guard: isAllowedRootComponent (orphan allowlist match)", () => {
   });
 });
 
+describe("guard: isAllowedPath (schema write-allowlist — three D17 line kinds)", () => {
+  const list = ["memory/", "reference/", ".claude/rules/custom/", ".claude/skills/", "*.md", "MEMORY.md"];
+
+  it("directory-prefix matches the bare dir name and anything under it", () => {
+    assert.equal(isAllowedPath("memory", list), true);
+    assert.equal(isAllowedPath("memory/notes.md", list), true);
+    assert.equal(isAllowedPath("memory/sub/deep.txt", list), true);
+    assert.equal(isAllowedPath(".claude/rules/custom/r.md", list), true);
+    assert.equal(isAllowedPath(".claude/skills/custom/index.ts", list), true);
+  });
+
+  it("directory-prefix does NOT match a longer sibling segment", () => {
+    assert.equal(isAllowedPath("memorystuff/x", list), false);
+    assert.equal(isAllowedPath("reference-old/x", list), false);
+  });
+
+  it("root-only glob matches ONLY root-level files (no slash in path)", () => {
+    assert.equal(isAllowedPath("notes.md", list), true);
+    assert.equal(isAllowedPath("README.md", list), true); // *.md matches at root
+    assert.equal(isAllowedPath("docs/guide.md", list), false); // not root level
+  });
+
+  it("exact-root-file matches that exact relative path only", () => {
+    assert.equal(isAllowedPath("MEMORY.md", list), true);
+    assert.equal(isAllowedPath("sub/MEMORY.md", list), false);
+  });
+
+  it("is case-insensitive (APFS)", () => {
+    assert.equal(isAllowedPath("Memory/Notes.MD", list), true);
+    assert.equal(isAllowedPath("memory.md", list), true); // *.md
+  });
+
+  it("an empty allow-list matches nothing (fail-closed substrate)", () => {
+    assert.equal(isAllowedPath("memory/notes.md", []), false);
+    assert.equal(isAllowedPath("anything.md", []), false);
+  });
+});
+
+describe("guard: deny-by-default allow-check (schema writeAllowlist model)", () => {
+  const ALLOW = ["memory/", "reference/", "docs/", ".claude/rules/custom/", ".claude/skills/", "*.md"];
+  const schema: ClassifyOptions = { workspaceRoot: WS, writeAllowlist: ALLOW };
+
+  it("BLOCKS a write whose path matches no allow line, naming schema.md", () => {
+    assert.equal(block({ toolName: "write", input: { path: "unregistered/x.ts", content: "" } }, schema), true);
+    const d = classifyToolCall({ toolName: "write", input: { path: "unregistered/x.ts", content: "" } }, schema);
+    assert.match(d.reason ?? "", /schema\.md/);
+    assert.match(d.reason ?? "", /unregistered/);
+    assert.match(d.reason ?? "", /write-allowlist/);
+  });
+
+  it("ALLOWS a write whose path matches an allow line", () => {
+    assert.equal(block({ toolName: "write", input: { path: "memory/x.md", content: "" } }, schema), false);
+    assert.equal(block({ toolName: "edit", input: { path: ".claude/rules/custom/r.md", oldText: "a", newText: "b" } }, schema), false);
+    // .claude/ split: custom skills dir is allowed (only the workspace-health
+    // scripts subdir is immutable), and .claude/rules/custom/ is allowed.
+    assert.equal(block({ toolName: "write", input: { path: ".claude/skills/custom/index.ts", content: "" } }, schema), false);
+    assert.equal(block({ toolName: "write", input: { path: ".claude/rules/custom/x.md", content: "" } }, schema), false);
+  });
+
+  it("immutable core wins over a matching allow line (precedence)", () => {
+    // README.md is immutable-core (root-only-exact) yet `*.md` would allow it.
+    assert.equal(block({ toolName: "write", input: { path: "README.md", content: "" } }, schema), true);
+    // .claude/skills/ is allowed, but the workspace-health scripts subdir is immutable.
+    assert.equal(
+      block({ toolName: "write", input: { path: ".claude/skills/workspace-health/scripts/x.ts", content: "" } }, schema),
+      true,
+    );
+    // .claude/rules/platform/ is immutable even though .claude/rules/custom/ is allowed.
+    assert.equal(block({ toolName: "write", input: { path: ".claude/rules/platform/x.md", content: "" } }, schema), true);
+  });
+
+  it("immutable FILE entry is root-only-exact — docs/README.md is allowed when docs/ is", () => {
+    assert.equal(block({ toolName: "write", input: { path: "docs/README.md", content: "" } }, schema), false);
+  });
+
+  it("applies to bash write targets too (not just write/edit)", () => {
+    assert.equal(block({ toolName: "bash", input: { command: "echo x > unregistered/y" } }, schema), true);
+    assert.equal(block({ toolName: "bash", input: { command: "echo x > memory/y.md" } }, schema), false);
+  });
+
+  it("fail-safe: an EMPTY allow-list denies everything non-immutable (fail-closed)", () => {
+    const empty: ClassifyOptions = { workspaceRoot: WS, writeAllowlist: [] };
+    // immutable core still blocks
+    assert.equal(block({ toolName: "write", input: { path: "bot/x.ts", content: "" } }, empty), true);
+    // everything else fails closed
+    assert.equal(block({ toolName: "write", input: { path: "memory/x.md", content: "" } }, empty), true);
+    const d = classifyToolCall({ toolName: "write", input: { path: "memory/x.md", content: "" } }, empty);
+    assert.match(d.reason ?? "", /fail-closed/);
+    assert.match(d.reason ?? "", /schema\.md/);
+    assert.match(d.reason ?? "", /PI_EXTENSIONS_DISABLED=1/);
+  });
+
+  it("undefined writeAllowlist → deny-by-default OFF (legacy behavior preserved)", () => {
+    // No writeAllowlist injected → non-protected workspace paths are allowed.
+    assert.equal(block({ toolName: "write", input: { path: "memory/x.md", content: "" } }, inWs), false);
+    assert.equal(block({ toolName: "write", input: { path: "unregistered/x.ts", content: "" } }, inWs), false);
+  });
+
+  it("preserves traversal-escape and outside-workspace handling under the schema model", () => {
+    // relative escape still blocked
+    assert.equal(block({ toolName: "write", input: { path: "../escape.md", content: "" } }, schema), true);
+    // absolute path outside the workspace still allowed (not governed by the allow-list)
+    assert.equal(block({ toolName: "write", input: { path: "/tmp/scratch.txt", content: "" } }, schema), false);
+  });
+
+  it("subagent child: schema allow-check stays anchored at the parent workspace root", () => {
+    const childSchema: ClassifyOptions = { workspaceRoot: WS, resolveRoot: "/tmp", writeAllowlist: ALLOW };
+    // absolute write into an unregistered parent path → blocked
+    assert.equal(block({ toolName: "write", input: { path: `${WS}/unregistered/x.ts`, content: "" } }, childSchema), true);
+    // absolute write into an allowed parent path → allowed
+    assert.equal(block({ toolName: "write", input: { path: `${WS}/memory/x.md`, content: "" } }, childSchema), false);
+    // genuine relative write under the child's own cwd, outside parent → allowed
+    assert.equal(block({ toolName: "write", input: { path: "out.txt", content: "" } }, childSchema), false);
+  });
+});
+
 describe("guard: guardian orphan check (workspace-structure rule, guardian.sh parity)", () => {
   const ALLOWLIST = ["memory", "scripts", ".claude", "*.md", "*.sh"];
   // Default: nothing exists → every write is a NEW entry.
@@ -148,7 +331,8 @@ describe("guard: guardian orphan check (workspace-structure rule, guardian.sh pa
   it("allows writes whose root component IS in the allowlist", () => {
     assert.equal(block({ toolName: "write", input: { path: "memory/notes.md", content: "" } }, orphan), false);
     assert.equal(block({ toolName: "write", input: { path: "scripts/run.sh", content: "" } }, orphan), false);
-    assert.equal(block({ toolName: "write", input: { path: "README.md", content: "" } }, orphan), false); // *.md
+    // NOTES.md (a root *.md that is NOT in the immutable core — README.md now is).
+    assert.equal(block({ toolName: "write", input: { path: "NOTES.md", content: "" } }, orphan), false); // *.md
   });
 
   it("allows an OVERWRITE of an existing entry even if its root is not allowlisted", () => {

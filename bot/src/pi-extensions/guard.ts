@@ -9,10 +9,11 @@
  * from a `tool_call` handler and returns `{ block, reason }` to Pi.
  *
  * Single source of truth: {@link PROTECTED_PREFIXES} pins the upstream-owned
- * path prefixes that `protect-files.sh` / `bot-code-readonly.md` encode. Per the
- * plan's "no policy engine" guidance this is the 4 highest-value upstream dirs,
- * NOT the full `protect-files.sh` enumeration; a pinned test (`guard.test.ts`)
- * locks the set so drift is caught.
+ * paths that `protect-files.sh` / `bot-code-readonly.md` encode — the full
+ * 10-path IMMUTABLE CORE (6 directory prefixes + 4 root-only files). This is the
+ * deny-overlay of the schema-enforced write guard: it is checked FIRST and ALWAYS
+ * blocks, even when the workspace allow-list would match. A pinned test
+ * (`guard.test.ts`) locks the set so drift is caught.
  *
  * This re-implementation deliberately FIXES four bugs in the bash hooks:
  *  1. traversal — the hook resolves `..` with a fragile sed loop; here
@@ -33,19 +34,31 @@
 import { basename, isAbsolute, normalize, relative, resolve } from "node:path";
 
 /**
- * Upstream-owned path prefixes (relative to the workspace root) a guarded Pi
- * session may NOT write into. Trailing slash = directory prefix. Matching is
- * case-insensitive (APFS) and also matches the bare directory name itself.
+ * Upstream-owned paths (relative to the workspace root) a guarded session may NOT
+ * write into — the IMMUTABLE CORE / deny-overlay of the schema-enforced write
+ * guard. Two entry kinds, distinguished by the trailing slash:
+ *   - Directory prefix (trailing slash, e.g. `bot/`): matches the bare directory
+ *     name itself OR anything under it.
+ *   - Root-only file (no slash, e.g. `README.md`): matches that EXACT root-level
+ *     path only — `README.md` blocks the root file but NOT `docs/README.md`.
+ * Matching is case-insensitive (APFS).
  *
- * PINNED by `guard.test.ts` against the canonical set. To change: edit the
+ * This is the full 10-path set `protect-files.sh` / `bot-code-readonly.md` encode
+ * (no longer a narrowed 4). PINNED by `guard.test.ts`. To change: edit the
  * upstream rule (`bot-code-readonly.md` / `protect-files.sh`) and this list
  * together — they are the doc and its enforcement.
  */
 export const PROTECTED_PREFIXES = [
   "bot/",
+  ".claude/hooks/",
   ".claude/rules/platform/",
+  ".claude/skills/workspace-health/scripts/",
   ".github/workflows/",
   ".githooks/",
+  ".gitleaks.toml",
+  ".gitleaksignore",
+  "README.md",
+  "config.local.yaml.example",
 ] as const;
 
 /** Built-in Pi tools that write a single file at `input.path`. */
@@ -104,6 +117,20 @@ export interface ClassifyOptions {
    */
   orphanAllowlist?: readonly string[];
   /**
+   * Schema-driven write allow-list — the lines of `schema.md`'s
+   * ```` ```write-allowlist ```` fenced block (comments/blanks already stripped
+   * by the wrapper). When PRESENT (defined, even if empty), the guard switches to
+   * DENY-BY-DEFAULT: after the immutable-core deny, a write/edit/bash target is
+   * ALLOWED only if its workspace-relative path matches an allow line; otherwise
+   * it is BLOCKED with an actionable message naming `schema.md`. An EMPTY array
+   * means the `schema.md` block is missing/empty/unparseable → the allow-check
+   * fails CLOSED (the immutable core still blocks; everything else is denied).
+   * `undefined` → deny-by-default is OFF and the legacy {@link orphanAllowlist}
+   * model (if injected) is in force instead. The wrapper injects exactly ONE
+   * model per session — never both. See {@link isAllowedPath}.
+   */
+  writeAllowlist?: readonly string[];
+  /**
    * Existence probe for overwrite detection (the wrapper passes `fs.existsSync`).
    * An EXISTING target is an overwrite, never a new root-level entry, so it is
    * exempt from the orphan check (guardian.sh parity). Default: nothing exists.
@@ -121,15 +148,24 @@ function toPosix(p: string): string {
 }
 
 /**
- * Is `relPath` (a workspace-root-relative POSIX path) inside one of the
- * {@link PROTECTED_PREFIXES}? Case-insensitive (APFS bug fix); also matches the
- * bare directory name (e.g. `bot` as well as `bot/x`).
+ * Is `relPath` (a workspace-root-relative POSIX path) covered by the immutable
+ * {@link PROTECTED_PREFIXES}? Two entry kinds:
+ *   - trailing-slash directory entry → prefix match (also matches the bare
+ *     directory name, e.g. `bot` as well as `bot/x`).
+ *   - no-slash file entry → ROOT-ONLY EXACT match (`README.md` blocks the root
+ *     file but NOT `docs/README.md`; a file entry never prefix-matches).
+ * Case-insensitive (APFS bug fix).
  */
 export function isProtectedPath(relPath: string): boolean {
   const lc = toPosix(relPath).replace(/^\.\//, "").toLowerCase();
-  return PROTECTED_PREFIXES.some((prefix) => {
-    const base = prefix.slice(0, -1); // strip trailing slash → bare dir name
-    return lc === base || lc.startsWith(prefix);
+  return PROTECTED_PREFIXES.some((entry) => {
+    const e = entry.toLowerCase();
+    if (e.endsWith("/")) {
+      const base = e.slice(0, -1); // strip trailing slash → bare dir name
+      return lc === base || lc.startsWith(e);
+    }
+    // No-slash file entry: ROOT-ONLY EXACT (no prefix match).
+    return lc === e;
   });
 }
 
@@ -159,6 +195,52 @@ export function isAllowedRootComponent(rootComponent: string, allowlist: readonl
     }
     return globToRegExp(pat).test(rc);
   });
+}
+
+/**
+ * Does `relPath` (a workspace-root-relative POSIX path) match an entry in the
+ * schema-driven write allow-list? Implements the three D17 line kinds, all
+ * case-insensitively (APFS parity with the rest of this module):
+ *   - **Directory prefix** (trailing slash, e.g. `memory/`): matches the bare
+ *     directory name itself OR anything under it (`memory` and `memory/x.md`).
+ *   - **Root-only glob** (a bare glob with `*`/`?`, e.g. `*.md`): matches a
+ *     ROOT-LEVEL file only — `relPath` has no `/` AND the glob matches it.
+ *   - **Exact root-file** (no slash, no glob, e.g. `MEMORY.md`): matches that
+ *     exact relative path only.
+ * Reuses {@link globToRegExp} for the root-only-glob kind. Deliberately does NOT
+ * reuse {@link isAllowedRootComponent} — that matches the FIRST path component
+ * only, which is the wrong granularity here (this check is full-relative-path).
+ */
+export function isAllowedPath(relPath: string, writeAllowlist: readonly string[]): boolean {
+  const lc = toPosix(relPath).replace(/^\.\//, "").toLowerCase();
+  return writeAllowlist.some((raw) => {
+    const pat = raw.trim().toLowerCase();
+    if (!pat) {
+      return false;
+    }
+    if (pat.endsWith("/")) {
+      // Directory prefix: the bare dir name OR anything under it.
+      const base = pat.slice(0, -1);
+      return lc === base || lc.startsWith(pat);
+    }
+    if (pat.includes("*") || pat.includes("?")) {
+      // Root-only glob: a ROOT-LEVEL file only (no `/` in the relative path).
+      return !lc.includes("/") && globToRegExp(pat).test(lc);
+    }
+    // Exact root-file: that exact relative path only (never a prefix match).
+    return lc === pat;
+  });
+}
+
+/**
+ * Suggest the `schema.md` allow-list line that would unblock `relPath`: the
+ * first directory component as a directory-prefix line when the path is nested
+ * (`docs/x.md` → `docs/`), or the exact path for a root-level file (`notes.md` →
+ * `notes.md`). Used to make the deny-by-default block message actionable.
+ */
+function suggestAllowLine(relPath: string): string {
+  const slash = relPath.indexOf("/");
+  return slash === -1 ? relPath : relPath.slice(0, slash + 1);
 }
 
 interface CollectedTargets {
@@ -193,10 +275,12 @@ function collectTargets(call: ToolCallLike): CollectedTargets {
 
 /**
  * Classify one target path (relative or absolute) against the workspace root.
- * Returns a block decision for protected prefixes, for traversal escapes, and
- * (for `write`) for guardian orphan-allowlist violations; allows everything else
- * (incl. absolute paths that simply live outside the workspace, matching the
- * legacy hook's within-workspace scope).
+ * Returns a block decision for protected prefixes (immutable core), for traversal
+ * escapes, for schema deny-by-default allow-list misses (when a `writeAllowlist`
+ * is injected — the new model), and (for `write`, legacy model) for guardian
+ * orphan-allowlist violations; allows everything else (incl. absolute paths that
+ * simply live outside the workspace, matching the legacy hook's within-workspace
+ * scope). Precedence: immutable-core deny > schema allow > default-deny.
  *
  * `workspaceRoot` anchors the protected-prefix/orphan check (the IMMUTABLE top of
  * the protected tree); `resolveRoot` is the cwd RELATIVE targets resolve against.
@@ -267,6 +351,33 @@ function classifyTargetPath(
         `come from upstream (see .claude/rules/platform/bot-code-readonly.md). ` +
         `Change it via a PR in the public repo, then merge upstream.`,
     };
+  }
+
+  // Schema-enforced DENY-BY-DEFAULT allow-check. This runs AFTER the immutable
+  // core (deny-overlay > allow > default-deny) and is the NEW model, gated on a
+  // provided `writeAllowlist`. When present, a write/edit/bash target is allowed
+  // ONLY if its workspace-relative path matches an allow line (the three D17
+  // kinds in `isAllowedPath`); otherwise it is BLOCKED. An EMPTY allow-list
+  // (missing/empty/unparseable `schema.md` block) denies everything non-immutable
+  // — the fail-CLOSED path (security never relaxes; never silently allow-all).
+  // `undefined` → this model is OFF and the legacy orphan check below applies
+  // instead (the wrapper injects exactly ONE model per session, never both).
+  if (opts.writeAllowlist !== undefined) {
+    if (isAllowedPath(relProtect, opts.writeAllowlist)) {
+      return { block: false };
+    }
+    const reason =
+      opts.writeAllowlist.length === 0
+        ? `Blocked (deny-by-default, fail-closed): ${tool} target "${relProtect}" — the ` +
+          `workspace write allow-list is empty or unreadable (schema.md is missing, or its ` +
+          "```write-allowlist``` block is empty/unparseable). Add the block to schema.md and " +
+          `register this path, notify the workspace owner, then retry. To bypass for one ` +
+          `session set PI_EXTENSIONS_DISABLED=1.`
+        : `Blocked (deny-by-default): ${tool} target "${relProtect}" is not in the workspace ` +
+          "write allow-list. Add a line to schema.md's ```write-allowlist``` block (e.g. " +
+          `"${suggestAllowLine(relProtect)}"), notify the workspace owner, then retry. To ` +
+          `bypass for one session set PI_EXTENSIONS_DISABLED=1.`;
+    return { block: true, reason };
   }
 
   // Guardian orphan check — the "workspace-structure rule" of criterion 2,
@@ -627,6 +738,14 @@ function extractTargetDirFlag(args: string[]): string | undefined {
  * `>` / `>>` redirects, `tee` file args, `mv` (sources + dest), `cp` (dest).
  * Returns deduped, non-empty target strings. Defense-in-depth on top of the
  * solid write/edit guarantee — not a full shell parser.
+ *
+ * Bash-redirect asymmetry (D16 — by design for v1): this Pi-path coverage has NO
+ * claude-path counterpart. `guardian.sh` inspects only `tool_input.file_path`
+ * (the Write/Edit target) and never parses bash, so on the claude path a redirect
+ * like `echo x > unregistered/y` is UNGUARDED. The Pi path runs the same
+ * deny-by-default allow-check over these extracted targets (so the redirect IS
+ * blocked here); closing the claude-path gap is a tracked, deliberately deferred
+ * known-gap (see guardian.sh's D16 comment + the design plan).
  */
 export function extractBashWriteTargets(command: string): string[] {
   const toks = lexShell(command);
