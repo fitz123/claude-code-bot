@@ -625,6 +625,25 @@ describe("Pi RPC prompt and steer commands", () => {
     });
   });
 
+  it("attaches streamingBehavior to a prompt command only when requested (Defect B)", () => {
+    // followUp variant: the queue-driven send path delivers every Pi prompt with
+    // followUp so a desynced bare prompt can never collide with a live turn.
+    assert.deepStrictEqual(buildPiPromptCommand("hello", "followUp"), {
+      type: "prompt",
+      message: "hello",
+      streamingBehavior: "followUp",
+    });
+    assert.deepStrictEqual(buildPiPromptCommand("hello", "steer"), {
+      type: "prompt",
+      message: "hello",
+      streamingBehavior: "steer",
+    });
+    // Regression: a bare prompt (no behavior) keeps its historical shape exactly —
+    // the field must be ABSENT, not `undefined`, so JSON framing is unchanged.
+    const bare = buildPiPromptCommand("hello");
+    assert.ok(!("streamingBehavior" in bare), "bare prompt must omit the field entirely");
+  });
+
   it("builds a no-argument get_state command object", () => {
     assert.deepStrictEqual(buildGetStateCommand(), { type: "get_state" });
   });
@@ -661,6 +680,25 @@ describe("Pi RPC prompt and steer commands", () => {
     assert.deepStrictEqual(JSON.parse(Buffer.concat(chunks).toString().trim()), {
       type: "prompt",
       message: "hello",
+    });
+  });
+
+  it("writes a prompt command carrying streamingBehavior:followUp when asked (Defect B)", () => {
+    const chunks: Buffer[] = [];
+    const stdin = new Writable({
+      write(chunk, _enc, cb) {
+        chunks.push(Buffer.from(chunk));
+        cb();
+      },
+    });
+    const child = createMockChild({ stdin });
+
+    sendPiPrompt(child, "hello", "followUp");
+
+    assert.deepStrictEqual(JSON.parse(Buffer.concat(chunks).toString().trim()), {
+      type: "prompt",
+      message: "hello",
+      streamingBehavior: "followUp",
     });
   });
 

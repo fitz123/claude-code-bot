@@ -128,6 +128,18 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
 export interface PiPromptCommand {
   type: "prompt";
   message: string;
+  /**
+   * Pi's mid-turn concurrency control. When the agent is STREAMING (a turn is
+   * live), a `prompt` with no `streamingBehavior` is REJECTED with the "already
+   * processing" error (vendor `dist/core/agent-session.js`). Supplying
+   * `"followUp"` queues the message to run after the live turn; `"steer"`
+   * interrupts. When the agent is IDLE (not streaming) the field is IGNORED and
+   * the prompt runs immediately. The send path therefore attaches `"followUp"`
+   * to every Pi prompt: a no-op when idle, and the fix for Defect B when the
+   * bot's busy-tracking has desynced and the child is actually still mid-turn —
+   * the message is queued, never rejected-and-dropped.
+   */
+  streamingBehavior?: "steer" | "followUp";
 }
 
 export interface PiSteerCommand {
@@ -345,8 +357,18 @@ export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string):
   return child;
 }
 
-export function buildPiPromptCommand(text: string): PiPromptCommand {
-  return { type: "prompt", message: text };
+export function buildPiPromptCommand(
+  text: string,
+  streamingBehavior?: "steer" | "followUp",
+): PiPromptCommand {
+  const command: PiPromptCommand = { type: "prompt", message: text };
+  // Only attach the field when requested so a bare prompt (no behavior) stays
+  // byte-identical to its historical shape — callers that pass nothing get the
+  // exact `{ type, message }` object Pi accepted before Defect B's fix.
+  if (streamingBehavior) {
+    command.streamingBehavior = streamingBehavior;
+  }
+  return command;
 }
 
 export function buildPiSteerCommand(text: string): PiSteerCommand {
@@ -357,8 +379,19 @@ export function buildGetStateCommand(): PiGetStateCommand {
   return { type: "get_state" };
 }
 
-export function sendPiPrompt(child: ChildProcess, text: string): void {
-  writePiCommand(child, buildPiPromptCommand(text));
+/**
+ * Send a `prompt` command. Pass `streamingBehavior: "followUp"` for the
+ * queue-driven send path: it is a no-op when the Pi agent is idle (the prompt
+ * runs immediately) and queues the message behind a live turn when the agent is
+ * still streaming — so a bare prompt can never collide with an active turn and
+ * trigger Pi's "already processing" rejection (Defect B).
+ */
+export function sendPiPrompt(
+  child: ChildProcess,
+  text: string,
+  streamingBehavior?: "steer" | "followUp",
+): void {
+  writePiCommand(child, buildPiPromptCommand(text, streamingBehavior));
 }
 
 export function sendPiSteer(child: ChildProcess, text: string): void {

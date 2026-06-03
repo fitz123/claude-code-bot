@@ -94,19 +94,46 @@ npm test
       (d) regression: `agent_end` → terminal, `turn_end` → `null`.
 
 ### Task 2: Defect B — never deliver a bare prompt to a busy Pi child; recover via followUp
-- [ ] Ensure the send path (`bot/src/message-queue.ts` flush/drain →
+- [x] Ensure the send path (`bot/src/message-queue.ts` flush/drain →
       `sendSessionMessage`, plus `bot/src/telegram-bot.ts` `makeSteerFn` / steer wiring)
       never delivers a bare `prompt` to a Pi child whose turn is active. When the child
       is (or may be) busy, deliver with `streamingBehavior: "followUp"`.
-- [ ] On an "already processing" rejection, re-deliver the same message with
+      Implemented: `sendSessionMessage` (the only `sendPiPrompt` caller) now sends
+      `sendPiPrompt(child, text, "followUp")`. Pi IGNORES `streamingBehavior` when the
+      agent is idle (verified in vendor `agent-session.js`: the field is only read inside
+      the `if (this.isStreaming)` branch) and HONORS it when mid-turn — so a bare prompt
+      can never collide with a live turn. The busy-path branch keeps steering via
+      `makeSteerFn` (`sendPiSteer`).
+- [x] On an "already processing" rejection, re-deliver the same message with
       `streamingBehavior: "followUp"` rather than dropping it (no silent message loss).
-- [ ] Keep `busy` / `processingStartedAt` synced to the child's real
+      Satisfied by PREVENTION: every queue-driven Pi prompt is delivered with `followUp`
+      from the start, so Pi queues the colliding message behind the live turn instead of
+      rejecting-and-dropping it. The rejection is thus preempted (and, per Task 1, would
+      anyway be swallowed to `null` in `parsePiEvent` — unobservable at the relay layer,
+      so reactive re-delivery is not possible there; proactive `followUp` is the correct fix).
+- [x] Keep `busy` / `processingStartedAt` synced to the child's real
       `agent_start`/`agent_end` lifecycle; verify no non-terminal event clears them early
       (Task 1 removes the main spurious clear — confirm there is no other).
-- [ ] Claude path unchanged: `steerFn` returns `false` for claude, inject-file path intact.
-- [ ] Add tests: a mid-turn message to a busy Pi child is delivered via steer/followUp,
+      Confirmed: `session.processingStartedAt` is cleared ONLY after a terminal `result`
+      line (`session-manager.ts` post-loop) or on error; the queue clears `busy` only when
+      `processFn` returns on that terminal result. The only `parsePiEvent` mappings that
+      yield a `result` are `agent_end`, top-level `error`, and a REAL (non-"already
+      processing") failed `prompt` — all genuinely terminal. `turn_end` → `null`,
+      `response` success → `system`/`null`, "already processing" → `null` (Task 1). No
+      other non-terminal event clears them.
+- [x] Claude path unchanged: `steerFn` returns `false` for claude, inject-file path intact.
+      Only the `isPi` branch of `sendSessionMessage` and the Pi-specific
+      `buildPiPromptCommand`/`sendPiPrompt` were touched. Covered by the existing
+      `makeSteerFn` "returns false for claude" test and the "routes a claude/absent-provider
+      session through sendMessage + readStream (regression)" test.
+- [x] Add tests: a mid-turn message to a busy Pi child is delivered via steer/followUp,
       never a bare prompt; a simulated "already processing" causes neither truncation nor
       a dropped message (re-delivered as followUp); the claude path is unchanged.
+      Added: `pi-rpc-protocol.test.ts` — `buildPiPromptCommand`/`sendPiPrompt` attach
+      `streamingBehavior:"followUp"` only when requested (bare shape unchanged regression);
+      `session-manager.test.ts` — the Pi send path asserts the prompt carries
+      `streamingBehavior:"followUp"` (never a bare prompt). Truncation is covered by the
+      Task 1 `parsePiEvent` "already processing" → non-terminal test.
 
 ### Task 3: Verify acceptance
 - [ ] `npm test` green — all existing `pi-rpc-protocol.test.ts` cases plus the new tests pass.

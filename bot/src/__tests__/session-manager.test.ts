@@ -2017,6 +2017,15 @@ describe("SessionManager provider dispatch", () => {
     const sent = JSON.parse(stdinWrites[0]);
     assert.strictEqual(sent.type, "prompt", "pi path must write a Pi prompt command");
     assert.strictEqual(sent.message, "hello pi");
+    // Defect B: the queue-driven Pi send path must NEVER deliver a bare prompt —
+    // it always carries streamingBehavior:"followUp" so a prompt sent into a
+    // busy child (bot busy-tracking desynced from the child's real lifecycle) is
+    // queued behind the live turn instead of rejected as "already processing".
+    assert.strictEqual(
+      sent.streamingBehavior,
+      "followUp",
+      "pi prompt must carry streamingBehavior:followUp (never a bare prompt)",
+    );
 
     // Read routed to readPiStream: agent_end became the single terminal result
     // carrying the FINAL assistant text; turn_end produced no line.

@@ -558,7 +558,14 @@ export class SessionManager {
       };
       try {
         if (isPi) {
-          sendPiPrompt(session.child, text);
+          // Always deliver Pi prompts with streamingBehavior:"followUp" (Defect
+          // B). Pi ignores the field when the agent is idle (the prompt runs as
+          // a fresh turn) and honors it when the agent is still mid-turn — the
+          // bot's MessageQueue.busy / processingStartedAt tracking can desync
+          // from the child's real lifecycle, and a bare prompt sent into that
+          // window would be rejected with "already processing" and the message
+          // lost. followUp queues it behind the live turn instead.
+          sendPiPrompt(session.child, text, "followUp");
         } else {
           sendMessage(session.child, text, session.sessionId);
         }
