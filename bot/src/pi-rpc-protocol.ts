@@ -134,10 +134,10 @@ export interface PiPromptCommand {
    * processing" error (vendor `dist/core/agent-session.js`). Supplying
    * `"followUp"` queues the message to run after the live turn; `"steer"`
    * interrupts. When the agent is IDLE (not streaming) the field is IGNORED and
-   * the prompt runs immediately. The send path therefore attaches `"followUp"`
-   * to every Pi prompt: a no-op when idle, and the fix for Defect B when the
-   * bot's busy-tracking has desynced and the child is actually still mid-turn —
-   * the message is queued, never rejected-and-dropped.
+   * the prompt runs immediately. The queue-driven SessionManager send path uses
+   * `"followUp"` for every Pi prompt: a no-op when idle, and the fix for
+   * Defect B when the bot's busy-tracking has desynced and the child is
+   * actually still mid-turn — the message is queued, never rejected-and-dropped.
    */
   streamingBehavior?: "steer" | "followUp";
 }
@@ -618,7 +618,8 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
       //    (a) truncate the live answer, (b) relay Pi's internal error to the
       //    user as the "answer", (c) clear busy/processingStartedAt early →
       //    wedge. Log + return null so the in-flight turn proceeds untouched;
-      //    the send path re-delivers the colliding message via followUp.
+      //    the queue-driven send path proactively uses followUp to avoid the
+      //    collision in the first place.
       //  - a failed side-command response (`steer`, `get_state`, `set_model`, …)
       //    must NOT be mapped to a terminal result: a mid-turn `steer` rejection
       //    would otherwise truncate the in-flight response (and the steered
