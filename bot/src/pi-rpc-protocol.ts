@@ -444,6 +444,28 @@ function extractAssistantText(message: unknown): string {
 }
 
 /**
+ * True when a failed `prompt` response is Pi's "already processing" CONCURRENCY
+ * rejection — a second prompt sent mid-turn with no `streamingBehavior`. Pi
+ * throws this (vendor `dist/core/agent-session.js`) when the turn is STILL ALIVE,
+ * so it is NOT terminal: the in-flight turn will still emit its own `agent_end`.
+ *
+ * Matched defensively (lowercased substring, not exact-string) so a reworded or
+ * reframed vendor message still classifies — the literal text is:
+ *   "Agent is already processing. Specify streamingBehavior ('steer' or
+ *    'followUp') to queue the message."
+ * The discriminating phrase is "already processing"; we additionally require the
+ * "agent" subject so an unrelated error that merely contains those words does not
+ * get mis-classified as recoverable.
+ */
+export function isPiAlreadyProcessingRejection(error: string | undefined | null): boolean {
+  if (typeof error !== "string") {
+    return false;
+  }
+  const normalized = error.toLowerCase();
+  return normalized.includes("already processing") && normalized.includes("agent");
+}
+
+/**
  * Extract the run's final assistant text from `agent_end.messages` by
  * concatenating the text blocks of the LAST assistant message.
  */
@@ -484,10 +506,13 @@ function extractFinalAssistantText(messages: unknown): string {
  * - `response` → a successful `get_state`/`get_session_stats` reply yields a
  *   `SystemInit` capturing `data.sessionId` (the ONLY place Pi exposes the
  *   session id — no event carries it). A failed reply (`success: false`) is
- *   correlated by `command`: a failed `prompt` yields an error `ResultMessage`
- *   (the turn cannot proceed), but a failed side-command (`steer`, `get_state`,
- *   `set_model`, …) returns null + logs — mapping it to a terminal result would
- *   truncate the in-flight prompt turn whose stdout it shares.
+ *   correlated by `command`: a failed `prompt` with a REAL rejection yields an
+ *   error `ResultMessage` (the turn cannot proceed), but Pi's "already
+ *   processing" concurrency rejection returns null + logs (the in-flight turn is
+ *   still alive and will emit its own `agent_end`). A failed side-command
+ *   (`steer`, `get_state`, `set_model`, …) likewise returns null + logs —
+ *   mapping it to a terminal result would truncate the in-flight prompt turn
+ *   whose stdout it shares.
  * - `auto_retry_start` / `auto_retry_end` → `RateLimitEvent` (raw error message
  *   preserved for the Task 4 retry classifier).
  * - `error` → error `ResultMessage` (`subtype: "error_during_execution"`).
@@ -550,9 +575,17 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
       // top-level `error`). A `response` shares the same stdout the active turn
       // is reading, so it must be correlated by `command` before being treated
       // as terminal:
-      //  - a failed `prompt` response IS terminal — the prompt was rejected, so
-      //    no `agent_end` will ever arrive; surface it as an error result so the
-      //    turn ends now instead of hanging until the activity timeout.
+      //  - a failed `prompt` response with a REAL rejection IS terminal — the
+      //    prompt was rejected with no live turn behind it, so no `agent_end`
+      //    will ever arrive; surface it as an error result so the turn ends now
+      //    instead of hanging until the activity timeout.
+      //  - EXCEPT Pi's "already processing" concurrency rejection (a second,
+      //    concurrent prompt colliding with a turn that is STILL ALIVE). That
+      //    turn will still emit its own `agent_end`, so terminating here would
+      //    (a) truncate the live answer, (b) relay Pi's internal error to the
+      //    user as the "answer", (c) clear busy/processingStartedAt early →
+      //    wedge. Log + return null so the in-flight turn proceeds untouched;
+      //    the send path re-delivers the colliding message via followUp.
       //  - a failed side-command response (`steer`, `get_state`, `set_model`, …)
       //    must NOT be mapped to a terminal result: a mid-turn `steer` rejection
       //    would otherwise truncate the in-flight response (and the steered
@@ -562,6 +595,13 @@ export function parsePiEvent(rawEvent: PiRpcEvent | null | undefined): StreamLin
       // session id (no event exposes it) and is captured below.
       if (rawEvent.success === false) {
         if (rawEvent.command === "prompt") {
+          if (isPiAlreadyProcessingRejection(rawEvent.error)) {
+            log.warn(
+              "pi-rpc",
+              `Pi rejected a concurrent prompt as "already processing" — NOT terminating the in-flight turn: ${rawEvent.error ?? "(none)"}`,
+            );
+            return null;
+          }
           const result: ResultMessage = {
             type: "result",
             subtype: "error_during_execution",

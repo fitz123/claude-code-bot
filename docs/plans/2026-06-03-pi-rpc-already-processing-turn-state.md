@@ -79,15 +79,15 @@ npm test
 ## Tasks
 
 ### Task 1: Defect A — `parsePiEvent` must not terminate the turn on an "already processing" rejection
-- [ ] In `bot/src/pi-rpc-protocol.ts` `parsePiEvent` `case "response"`, when a failed
+- [x] In `bot/src/pi-rpc-protocol.ts` `parsePiEvent` `case "response"`, when a failed
       `prompt` response carries Pi's "already processing" concurrency rejection, do NOT
       return a terminal `ResultMessage`. Return `null` (or a non-terminal recoverable
       signal) and log it — so the in-flight turn is neither truncated nor has Pi's
       internal error relayed to the user.
-- [ ] Preserve all other mappings: a failed `prompt` with a *different* error stays
+- [x] Preserve all other mappings: a failed `prompt` with a *different* error stays
       terminal (`error_during_execution`); failed side-commands (`steer`/`get_state`/…)
       stay `null`; `agent_end` stays terminal; `turn_end` stays `null`.
-- [ ] Add unit tests in `bot/src/__tests__/pi-rpc-protocol.test.ts`:
+- [x] Add unit tests in `bot/src/__tests__/pi-rpc-protocol.test.ts`:
       (a) "already processing" `prompt`-failure → NOT terminal;
       (b) a different `prompt`-failure error → still terminal `error_during_execution`;
       (c) `steer`/`get_state` failure → `null`;
