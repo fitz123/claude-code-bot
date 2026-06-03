@@ -2036,6 +2036,57 @@ describe("SessionManager provider dispatch", () => {
     await manager.closeAll();
   });
 
+  it("does not truncate the in-flight Pi turn when an 'already processing' rejection arrives mid-stream (Defects A+B wedge)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout } = makeCapturingChild();
+    injectSession(manager, "pi-wedge", "pi", child, "pi");
+
+    const gen = manager.sendSessionMessage("pi-wedge", "pi", "hello pi");
+
+    // The integrated failure mode: while the turn is live, Pi rejects a colliding
+    // concurrent prompt with its "already processing" error. The read loop must
+    // SKIP that rejection (parsePiEvent → null → not yielded), NOT terminate the
+    // turn, and still complete on the real agent_end. Before Defect A's fix the
+    // rejection became a terminal error result here — truncating the live answer
+    // and relaying Pi's internal error to the user as the "answer".
+    setTimeout(() => {
+      stdout.push(JSON.stringify({ type: "turn_end", sessionId: "pi-real" }) + "\n");
+      stdout.push(
+        JSON.stringify({
+          type: "response",
+          command: "prompt",
+          success: false,
+          error:
+            "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+        }) + "\n",
+      );
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [
+            { role: "assistant", content: [{ type: "text", text: "final pi answer" }] },
+          ],
+        }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string; is_error?: boolean }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string; is_error?: boolean });
+    }
+
+    // Exactly one terminal result — from the real agent_end, NOT the rejection.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "the rejection must not produce a terminal result");
+    assert.strictEqual(results[0].result, "final pi answer", "must relay the real answer, not Pi's error");
+    assert.notStrictEqual(results[0].is_error, true, "the surviving result must not be an error");
+
+    await manager.closeAll();
+  });
+
   it("records Pi read-loop telemetry: one retry per auto_retry_start (not auto_retry_end) + one turn duration", async () => {
     const { SessionManager } = await import("../session-manager.js");
     const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);

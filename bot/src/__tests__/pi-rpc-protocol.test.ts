@@ -980,6 +980,12 @@ describe("parsePiEvent", () => {
     // rejection, even if it mentions the agent.
     assert.strictEqual(isPiAlreadyProcessingRejection("agent crashed"), false);
     assert.strictEqual(isPiAlreadyProcessingRejection("still processing the file"), false);
+    // The match requires BOTH "already processing" AND "agent": the phrase alone,
+    // without the "agent" subject, is deliberately NOT classified as recoverable
+    // (guards against an unrelated error that merely contains the phrase).
+    assert.strictEqual(isPiAlreadyProcessingRejection("already processing the request"), false);
+    // Empty string is a string input that fails both substring checks.
+    assert.strictEqual(isPiAlreadyProcessingRejection(""), false);
     assert.strictEqual(isPiAlreadyProcessingRejection(undefined), false);
     assert.strictEqual(isPiAlreadyProcessingRejection(null), false);
   });
@@ -999,6 +1005,20 @@ describe("parsePiEvent", () => {
     const result = line as unknown as Record<string, unknown>;
     assert.strictEqual(result.subtype, "error_during_execution");
     assert.strictEqual(result.result, "Model refused the request");
+    assert.strictEqual(result.is_error, true);
+  });
+
+  it("surfaces a failed prompt response with no error field as a terminal result with the default message", () => {
+    // A failed `prompt` with no `error` field is NOT the "already processing"
+    // rejection (the detector returns false for a missing string), so it stays
+    // terminal — falling back to the default message rather than hanging.
+    const line = parsePiEvent({ type: "response", command: "prompt", success: false });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    const result = line as unknown as Record<string, unknown>;
+    assert.strictEqual(result.subtype, "error_during_execution");
+    assert.strictEqual(result.result, "Pi RPC command failed");
     assert.strictEqual(result.is_error, true);
   });
 
