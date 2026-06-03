@@ -134,10 +134,13 @@ export interface PiPromptCommand {
    * processing" error (vendor `dist/core/agent-session.js`). Supplying
    * `"followUp"` queues the message to run after the live turn; `"steer"`
    * interrupts. When the agent is IDLE (not streaming) the field is IGNORED and
-   * the prompt runs immediately. The queue-driven SessionManager send path uses
-   * `"followUp"` for every Pi prompt: a no-op when idle, and the fix for
-   * Defect B when the bot's busy-tracking has desynced and the child is
+   * the prompt runs immediately. The queue-driven SessionManager send path
+   * passes `"followUp"` on the prompts it sends: a no-op when idle, and the fix
+   * for Defect B when the bot's busy-tracking has desynced and the child is
    * actually still mid-turn — the message is queued, never rejected-and-dropped.
+   * The field is OPTIONAL though: `buildPiPromptCommand`/`sendPiPrompt` still
+   * emit a bare prompt when no behavior is given (the historical shape some
+   * callers and tests rely on), so it is not attached unconditionally.
    */
   streamingBehavior?: "steer" | "followUp";
 }
