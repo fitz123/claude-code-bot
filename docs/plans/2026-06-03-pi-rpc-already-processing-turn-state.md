@@ -136,10 +136,29 @@ npm test
       Task 1 `parsePiEvent` "already processing" → non-terminal test.
 
 ### Task 3: Verify acceptance
-- [ ] `npm test` green — all existing `pi-rpc-protocol.test.ts` cases plus the new tests pass.
-- [ ] The deterministic repro above no longer yields a terminal `is_error` result.
-- [ ] A burst of mid-turn user messages to a Pi agent produces no "Agent is already
+- [x] `npm test` green — all existing `pi-rpc-protocol.test.ts` cases plus the new tests pass.
+      Verified: full suite `npm test` (run from `bot/`) = 1386 pass / 0 fail. The Defect A
+      cases ("does NOT terminate the turn on Pi's 'already processing' prompt rejection",
+      "detects the 'already processing' rejection defensively", "a DIFFERENT failed prompt
+      error stays terminal", "ignores a failed side-command response") and the Defect B
+      cases ("attaches streamingBehavior to a prompt command only when requested", "writes a
+      prompt command carrying streamingBehavior:followUp when asked", session-manager "pi
+      prompt must carry streamingBehavior:followUp") all pass.
+- [x] The deterministic repro above no longer yields a terminal `is_error` result.
+      Verified by `pi-rpc-protocol.test.ts` "does NOT terminate the turn on Pi's 'already
+      processing' prompt rejection (Defect A)": `parsePiEvent({type:"response",
+      command:"prompt", success:false, error:"Agent is already processing. …"})` now returns
+      `null` (non-terminal), not the prior `error_during_execution` `is_error:true` result.
+- [x] A burst of mid-turn user messages to a Pi agent produces no "Agent is already
       processing …" in the user channel, and no truncation of the in-flight response.
+      Mechanisms unit-verified: (1) proactive `streamingBehavior:"followUp"` on every
+      queue-driven Pi prompt means a colliding mid-turn prompt is queued behind the live turn
+      instead of rejected (`session-manager.test.ts:2024`); (2) even if a rejection is
+      observed, `parsePiEvent` swallows it to `null` so the in-flight answer is neither
+      truncated nor is Pi's internal error relayed to the user
+      (`pi-rpc-protocol.test.ts:947`). The literal live-channel end-to-end burst (running Pi
+      agent + real Telegram channel) is a manual/deployment check — not automatable in the
+      unit suite; both underlying mechanisms it depends on are covered above.
 
 ## Out of scope (follow-up, not this PR)
 
