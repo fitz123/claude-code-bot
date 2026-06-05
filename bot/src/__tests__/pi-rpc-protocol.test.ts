@@ -34,7 +34,6 @@ import {
   sendPiSteer,
   type PiExtensionResolveOptions,
 } from "../pi-rpc-protocol.js";
-import { buildSpawnArgs } from "../cli-protocol.js";
 import type { AgentConfig, StreamLine } from "../types.js";
 
 const testAgent: AgentConfig = {
@@ -484,16 +483,6 @@ describe("Pi extension loading (--extension)", () => {
     assert.notStrictEqual(session, -1);
     assert.ok(lastExtension < session, "--extension args must precede --session");
     assert.strictEqual(args[session + 1], "pi-sess-resume");
-  });
-
-  it("regression: the Claude spawn path is unchanged — never emits --extension or the Pi provider", () => {
-    const claudeArgs = buildSpawnArgs({ agent: testAgent, sessionId: "claude-sess" });
-
-    assert.ok(!claudeArgs.includes("--extension"), "claude path must not gain --extension");
-    assert.ok(!claudeArgs.includes("openai-codex"), "claude path must not gain the Pi provider");
-    // Claude path keeps its own distinctive flags (proof we touched only Pi).
-    assert.ok(claudeArgs.includes("--add-dir"));
-    assert.ok(claudeArgs.includes("--permission-mode"));
   });
 
   // End-to-end smoke (real disk, no mocks): the resolver's fail-CLOSED contract

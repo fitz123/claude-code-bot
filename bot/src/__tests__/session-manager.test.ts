@@ -95,7 +95,6 @@ function piAgentEnd(result: string, sessionId = "pi-session"): string {
   }) + "\n";
 }
 
-// We need to mock spawnClaudeSession to return our mock child
 let mockChildFactory: () => ChildProcess;
 
 // Instead of mocking the module, we'll test SessionStore and SessionManager behavior
@@ -1468,8 +1467,8 @@ describe("SessionManager crash backoff", () => {
     // Use crash count 1 (not MAX-1) to keep backoff delay short (5s vs 40s)
     restartCounts.set("ok-chat", 1);
 
-    // This should not throw from backoff — it will throw from spawnClaudeSession
-    // because we're not mocking it, but we verify the error is NOT "Session blocked"
+    // This should not throw from backoff. It may throw during process startup
+    // because we're not mocking it, but we verify the error is NOT "Session blocked".
     try {
       await manager.getOrCreateSession("ok-chat", "main");
     } catch (err) {

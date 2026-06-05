@@ -378,7 +378,7 @@ No agent ships on `provider: pi` by default; flipping one is a deliberate per-de
 
 #### Pi extensions (A1-A3)
 
-Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions reach capability parity with the `claude` path. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs (those are for `/reload`). The `claude` path is unaffected: [bot/src/cli-protocol.ts](bot/src/cli-protocol.ts) is byte-identical.
+Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions reach parity with the workspace guard, web-tools, and subagent capabilities expected by deployed agents. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs (those are for `/reload`).
 
 | Extension | Wrapper | What it does |
 |---|---|---|

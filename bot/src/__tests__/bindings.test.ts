@@ -4,7 +4,6 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveBinding, isAuthorized } from "../telegram-bot.js";
-import { buildSpawnArgs } from "../cli-protocol.js";
 import type { TelegramBinding, AgentConfig, BotConfig } from "../types.js";
 
 // Unique temp directory per test run to avoid collisions
@@ -108,16 +107,15 @@ describe("Workspace verification: each cwd exists with CLAUDE.md", () => {
   }
 });
 
-describe("Workspace routing: each binding uses correct --add-dir", () => {
+describe("Workspace routing: each binding resolves to the configured workspace", () => {
   for (const binding of BINDINGS) {
-    it(`chatId ${binding.chatId} (${binding.label}) spawns with correct workspace`, () => {
-      const agent = AGENTS[binding.agentId];
-      assert.ok(agent, `Agent ${binding.agentId} not found`);
+    it(`chatId ${binding.chatId} (${binding.label}) maps to a workspace-backed agent`, () => {
+      const resolved = resolveBinding(binding.chatId, BINDINGS);
+      assert.ok(resolved, `Binding ${binding.label} not found`);
 
-      const args = buildSpawnArgs({ agent, sessionId: "test-uuid" });
-      const addDirIdx = args.indexOf("--add-dir");
-      assert.ok(addDirIdx >= 0, "Missing --add-dir flag");
-      assert.strictEqual(args[addDirIdx + 1], agent.workspaceCwd);
+      const agent = AGENTS[resolved.agentId];
+      assert.ok(agent, `Agent ${resolved.agentId} not found`);
+      assert.strictEqual(agent.workspaceCwd, AGENTS[binding.agentId].workspaceCwd);
     });
   }
 });
@@ -166,14 +164,4 @@ describe("Session isolation: different chats get different sessions", () => {
     assert.notStrictEqual(AGENTS[user1.agentId].workspaceCwd, AGENTS[user2.agentId].workspaceCwd);
   });
 
-  it("spawn args for different agents produce different --add-dir values", () => {
-    const user1Agent = AGENTS["main"];
-    const user2Agent = AGENTS["agent-b"];
-    const user1Args = buildSpawnArgs({ agent: user1Agent, sessionId: "a" });
-    const user2Args = buildSpawnArgs({ agent: user2Agent, sessionId: "b" });
-
-    const user1Dir = user1Args[user1Args.indexOf("--add-dir") + 1];
-    const user2Dir = user2Args[user2Args.indexOf("--add-dir") + 1];
-    assert.notStrictEqual(user1Dir, user2Dir);
-  });
 });

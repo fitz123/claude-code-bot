@@ -28,21 +28,12 @@ function cleanup() {
 // Captures + tunables driven by the module mocks below.
 // ---------------------------------------------------------------------------
 
-/** Opts captured from the mocked claude spawnClaudeSession. */
-interface ClaudeSpawnOpts {
-  agent: { model: string; [key: string]: unknown };
-  sessionId?: string;
-  resume?: boolean;
-  [key: string]: unknown;
-}
-
 /** Args captured from the mocked Pi spawnPiRpcSession. */
 interface PiSpawnCapture {
   agent: AgentConfig;
   resumeSessionId?: string;
 }
 
-const claudeSpawnCaptures: ClaudeSpawnOpts[] = [];
 const piSpawnCaptures: PiSpawnCapture[] = [];
 
 /**
@@ -185,21 +176,10 @@ function createSpawnThenExitChild(failStderr: string): ChildProcess {
 }
 
 // ---------------------------------------------------------------------------
-// Mock BOTH protocol modules BEFORE importing session-manager so the mocks are
+// Mock the Pi protocol module BEFORE importing session-manager so the mock is
 // in place when session-manager's static imports resolve. The spawn path needs
 // the REAL session-manager but stubbed protocol fns (mirrors hot-reload.test.ts).
 // ---------------------------------------------------------------------------
-mock.module("../cli-protocol.js", {
-  namedExports: {
-    spawnClaudeSession(opts: ClaudeSpawnOpts) {
-      claudeSpawnCaptures.push(opts);
-      return createAutoSpawnChild();
-    },
-    sendMessage() {},
-    async *readStream(): AsyncGenerator<StreamLine> {},
-  },
-});
-
 mock.module("../pi-rpc-protocol.js", {
   namedExports: {
     spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string) {
@@ -284,7 +264,6 @@ describe("SessionManager Pi session-id capture + resume", () => {
   beforeEach(() => {
     cleanup();
     mkdirSync(TEST_DIR, { recursive: true });
-    claudeSpawnCaptures.length = 0;
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
@@ -426,7 +405,6 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
   beforeEach(() => {
     cleanup();
     mkdirSync(TEST_DIR, { recursive: true });
-    claudeSpawnCaptures.length = 0;
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";

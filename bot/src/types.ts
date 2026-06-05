@@ -225,16 +225,3 @@ export type StreamLine =
   | ControlRequest
   | RateLimitEvent
   | ResultMessage;
-
-export interface CliCapabilities {
-  version: string;
-  flags: Set<string>;
-  hasStreamJson: boolean;
-  hasIncludePartialMessages: boolean;
-  hasFallbackModel: boolean;
-  hasAddDir: boolean;
-  hasAppendSystemPrompt: boolean;
-  hasDangerouslySkipPermissions: boolean;
-  hasMaxTurns: boolean;
-  hasTools: boolean;
-}

@@ -93,10 +93,10 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 2: Delete obsolete Claude protocol/capability modules
 
-- [ ] Delete `bot/src/cli-protocol.ts`.
-- [ ] Delete `bot/src/cli-capabilities.ts` if no remaining imports exist.
-- [ ] Delete or rewrite tests whose only purpose is Claude CLI protocol/capability behavior.
-- [ ] Ensure no import path references those modules.
+- [x] Delete `bot/src/cli-protocol.ts`.
+- [x] Delete `bot/src/cli-capabilities.ts` if no remaining imports exist.
+- [x] Delete or rewrite tests whose only purpose is Claude CLI protocol/capability behavior.
+- [x] Ensure no import path references those modules.
 
 ### Task 3: Simplify config model and validation
 

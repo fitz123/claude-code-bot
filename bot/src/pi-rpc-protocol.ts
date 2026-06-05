@@ -350,8 +350,7 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   // ambient credentials such as provider tokens or SSH agent sockets.
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.ANTHROPIC_API_KEY;
-  // Parity with the Claude path (cli-protocol.ts): never leak the Claude Code
-  // session marker into a spawned agent subprocess.
+  // Never leak the Claude Code session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
   // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
   // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
@@ -797,9 +796,7 @@ export function parsePiRecord(record: string): StreamLine | null {
 }
 
 /**
- * Extract streamable text from a translated Pi `StreamLine`, mirroring
- * `extractTextDelta` from cli-protocol so the relay treats both providers
- * identically.
+ * Extract streamable text from a translated Pi `StreamLine`.
  */
 export function extractPiTextDelta(msg: StreamLine): string | null {
   if (msg.type === "stream_event") {
