@@ -1,5 +1,3 @@
-#!/usr/bin/env npx tsx
-
 import { runCodexQuotaSamplerFromCli } from "../src/codex-quota-sampler.js";
 
 runCodexQuotaSamplerFromCli().catch((error: unknown) => {
