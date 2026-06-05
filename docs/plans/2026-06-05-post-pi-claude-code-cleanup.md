@@ -52,7 +52,7 @@ Important non-goal: do **not** delete or rename workspace context files just bec
 |---|---|
 | Accidentally removing `CLAUDE.md`/rules/skills context support | Explicit non-goal; add tests that Pi context assembler still loads `CLAUDE.md` + `.claude/rules`. |
 | Breaking public users who still configure `provider: claude` | Make config error explicit: Claude runtime removed, set/remove provider for Pi. Mention in README/CHANGELOG if applicable. |
-| Removing Claude code before Plan C lands | Task 0 gate: fail if `cron-runner` still calls `runClaude`/`claude`. |
+| Removing Claude code before Plan C lands | Task 0 gate: fail if `cron-runner` lacks the Pi cron path from Plan C. Remaining `runClaude` is removed by this cleanup. |
 | Metrics/dashboard break from renaming `bot_claude_*` | Either keep metric names with updated help, or add new names in a separate monitoring migration. No silent rename in this plan. |
 | Tests only assert deletion, not behavior | Keep end-to-end Pi session-manager tests and cron Pi print-mode tests as acceptance gates. |
 
