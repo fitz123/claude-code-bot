@@ -117,11 +117,11 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 5: Clean cron-runner after Plan C
 
-- [ ] Ensure no `runClaude` export remains.
-- [ ] Ensure LLM cron execution uses the Pi print-mode runner from Plan C.
-- [ ] Update log strings from `Claude returned ...` to `LLM returned ...` or `Pi returned ...`.
-- [ ] Update tests to cover Pi cron execution and failure notification paths.
-- [ ] Remove hard-coded Claude models and fallback models.
+- [x] Ensure no `runClaude` export remains.
+- [x] Ensure LLM cron execution uses the Pi print-mode runner from Plan C.
+- [x] Update log strings from `Claude returned ...` to `LLM returned ...` or `Pi returned ...`.
+- [x] Update tests to cover Pi cron execution and failure notification paths.
+- [x] Remove hard-coded Claude models and fallback models.
 
 ### Task 6: Update metrics names/help carefully
 

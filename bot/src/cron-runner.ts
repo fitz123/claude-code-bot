@@ -1,6 +1,6 @@
 // cron-runner.ts — CLI entry point for running scheduled cron tasks
 // Usage: npx tsx src/cron-runner.ts --task <name>
-// Loads cron definition from crons.yaml, runs claude -p one-shot, delivers output to Telegram
+// Loads cron definition from crons.yaml, runs a Pi print-mode one-shot, delivers output to Telegram
 
 import { readFileSync, appendFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
 import { loadRawMergedConfig } from "./config.js";
@@ -262,8 +262,11 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
 
   let engine: CronJob["engine"];
   if (cronType === "llm" && c.engine !== undefined) {
-    if (c.engine !== "claude" && c.engine !== "pi") {
-      throw new Error(`Task "${taskName}" has invalid 'engine' "${c.engine}" (must be "claude" or "pi")`);
+    if (c.engine === "claude") {
+      throw new Error(`Task "${taskName}" uses engine: claude, but Claude cron runtime was removed; remove engine or set engine: pi`);
+    }
+    if (c.engine !== "pi") {
+      throw new Error(`Task "${taskName}" has invalid 'engine' "${c.engine}" (must be "pi" or omitted)`);
     }
     engine = c.engine;
   }
@@ -433,62 +436,13 @@ function runScript(cron: CronJob): string {
   }
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  // Strip sensitive env vars — match runClaude's sanitization
   const env = { ...process.env };
-  delete env.CLAUDECODE;
-  delete env.ANTHROPIC_API_KEY;
-  delete env.CLAUDE_CODE_OAUTH_TOKEN;
 
   const output = execSync(cron.command, {
     encoding: "utf8",
     timeout: timeoutMs,
     shell: "/bin/bash",
     env,
-    maxBuffer: 10 * 1024 * 1024, // 10MB
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  return output.trim();
-}
-
-function runClaude(cron: CronJob, workspaceCwd: string): string {
-  const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
-  const systemInstruction = buildCronSystemInstruction();
-
-  const args: string[] = [
-    "claude",
-    "-p",
-    cron.prompt!,
-    "--output-format",
-    "text",
-    "--no-session-persistence",
-    "--dangerously-skip-permissions",
-    "--model",
-    "claude-opus-4-6",
-    "--fallback-model",
-    "claude-sonnet-4-6",
-    "--max-turns",
-    "50",
-    "--add-dir",
-    workspaceCwd,
-    "--append-system-prompt",
-    systemInstruction,
-  ];
-
-  // Build env without CLAUDECODE and without ANTHROPIC_API_KEY
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
-  delete env.ANTHROPIC_API_KEY;
-  env.HOME = homedir();
-  env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
-  env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
-  env.CLAUDE_CODE_DISABLE_CRON = "1";
-
-  const output = execSync(args.map(shellEscape).join(" "), {
-    encoding: "utf8",
-    timeout: timeoutMs,
-    env,
-    cwd: workspaceCwd,
     maxBuffer: 10 * 1024 * 1024, // 10MB
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -601,7 +555,7 @@ const defaultPiDeps: PiRunDeps = {
 
 function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtensionArgs): string[] {
   if (process.env[PI_EXTENSIONS_DISABLED_ENV] === "1") {
-    throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; set CRON_PI_DISABLED=1 to run Pi crons on Claude`);
+    throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; unset it before running Pi crons`);
   }
 
   const extensionArgs = resolveExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
@@ -686,21 +640,21 @@ function runPi(
   return classified.output;
 }
 
-function resolveCronEngine(cron: CronJob): "claude" | "pi" {
-  const engine = cron.engine ?? "claude";
-  if (engine === "pi" && process.env.CRON_PI_DISABLED === "1") {
-    return "claude";
+function resolveCronEngine(cron: CronJob): "pi" {
+  if (cron.engine !== undefined && cron.engine !== "pi") {
+    throw new Error(`Cron task "${cron.name}" uses unsupported engine "${cron.engine}"; only Pi cron execution is supported`);
   }
-  return engine;
+  if (process.env.CRON_PI_DISABLED === "1") {
+    throw new Error("CRON_PI_DISABLED=1 is no longer supported; LLM crons only run via Pi print mode");
+  }
+  return "pi";
 }
 
 interface OneShotDeps {
-  runClaude: (cron: CronJob, workspaceCwd: string) => string;
   runPi: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => string;
 }
 
 const defaultOneShotDeps: OneShotDeps = {
-  runClaude,
   runPi: (cron, workspaceCwd, agentData) => runPi(cron, workspaceCwd, defaultPiDeps, agentData),
 };
 
@@ -710,15 +664,8 @@ function runOneShot(
   deps: OneShotDeps = defaultOneShotDeps,
   agentData?: CronAgentData,
 ): string {
-  const engine = resolveCronEngine(cron);
-  if (engine === "pi") {
-    return deps.runPi(cron, workspaceCwd, agentData);
-  }
-  return deps.runClaude(cron, workspaceCwd);
-}
-
-function shellEscape(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
+  resolveCronEngine(cron);
+  return deps.runPi(cron, workspaceCwd, agentData);
 }
 
 export interface CronRunnerMainDeps {
@@ -731,7 +678,6 @@ export interface CronRunnerMainDeps {
   loadAdminChatId: (configPath?: string) => number | undefined;
   resolveCronAgentData: (agentId: string, configPath?: string) => CronAgentData;
   runScript: (cron: CronJob) => string;
-  runClaude: (cron: CronJob, workspaceCwd: string) => string;
   runPi: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => string;
   deliver: (chatId: number, message: string, threadId?: number) => void;
   handleDeliveryFailure: (
@@ -752,7 +698,6 @@ const defaultMainDeps: Omit<CronRunnerMainDeps, "argv"> = {
   loadAdminChatId,
   resolveCronAgentData,
   runScript,
-  runClaude,
   runPi: (cron, workspaceCwd, agentData) => runPi(cron, workspaceCwd, defaultPiDeps, agentData),
   deliver,
   handleDeliveryFailure,
@@ -809,14 +754,13 @@ async function main(overrides: Partial<CronRunnerMainDeps> = {}): Promise<void> 
     } else {
       const cronAgentData = deps.resolveCronAgentData(cron.agentId);
       const workspaceCwd = cronAgentData.workspaceCwd;
-      const engine = resolveCronEngine(cron);
       output = runOneShot(
         cron,
         workspaceCwd,
-        { runClaude: deps.runClaude, runPi: deps.runPi },
+        { runPi: deps.runPi },
         cronAgentData,
       );
-      deps.log(taskName, `LLM engine=${engine} returned ${output.length} chars`);
+      deps.log(taskName, `Pi returned ${output.length} chars`);
     }
   } catch (err) {
     const error = errorFromUnknown(err);
@@ -877,4 +821,4 @@ if (isMain) {
   main();
 }
 
-export { loadCronTask, resolveCronAgentData, buildPiCronAgentConfig, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, runPi, runOneShot, resolveCronEngine, classifyPiResult, writeCronHealthMetric, runScript, shellEscape, main };
+export { loadCronTask, resolveCronAgentData, buildPiCronAgentConfig, getAgentWorkspace, deliver, buildDeliverCommand, runPi, runOneShot, resolveCronEngine, classifyPiResult, writeCronHealthMetric, runScript, main };
