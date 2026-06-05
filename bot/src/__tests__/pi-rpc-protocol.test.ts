@@ -25,6 +25,7 @@ import {
   buildPiSpawnEnv,
   buildPiSteerCommand,
   extractPiTextDelta,
+  isPiAlreadyProcessingRejection,
   parsePiEvent,
   readPiStream,
   resolvePiExtensionArgs,
@@ -624,6 +625,25 @@ describe("Pi RPC prompt and steer commands", () => {
     });
   });
 
+  it("attaches streamingBehavior to a prompt command only when requested (Defect B)", () => {
+    // followUp variant: the queue-driven send path delivers every Pi prompt with
+    // followUp so a desynced bare prompt can never collide with a live turn.
+    assert.deepStrictEqual(buildPiPromptCommand("hello", "followUp"), {
+      type: "prompt",
+      message: "hello",
+      streamingBehavior: "followUp",
+    });
+    assert.deepStrictEqual(buildPiPromptCommand("hello", "steer"), {
+      type: "prompt",
+      message: "hello",
+      streamingBehavior: "steer",
+    });
+    // Regression: a bare prompt (no behavior) keeps its historical shape exactly —
+    // the field must be ABSENT, not `undefined`, so JSON framing is unchanged.
+    const bare = buildPiPromptCommand("hello");
+    assert.ok(!("streamingBehavior" in bare), "bare prompt must omit the field entirely");
+  });
+
   it("builds a no-argument get_state command object", () => {
     assert.deepStrictEqual(buildGetStateCommand(), { type: "get_state" });
   });
@@ -660,6 +680,25 @@ describe("Pi RPC prompt and steer commands", () => {
     assert.deepStrictEqual(JSON.parse(Buffer.concat(chunks).toString().trim()), {
       type: "prompt",
       message: "hello",
+    });
+  });
+
+  it("writes a prompt command carrying streamingBehavior:followUp when asked (Defect B)", () => {
+    const chunks: Buffer[] = [];
+    const stdin = new Writable({
+      write(chunk, _enc, cb) {
+        chunks.push(Buffer.from(chunk));
+        cb();
+      },
+    });
+    const child = createMockChild({ stdin });
+
+    sendPiPrompt(child, "hello", "followUp");
+
+    assert.deepStrictEqual(JSON.parse(Buffer.concat(chunks).toString().trim()), {
+      type: "prompt",
+      message: "hello",
+      streamingBehavior: "followUp",
     });
   });
 
@@ -889,7 +928,7 @@ describe("parsePiEvent", () => {
     );
   });
 
-  it("surfaces a failed prompt response as a terminal error ResultMessage", () => {
+  it("surfaces a failed prompt response (a REAL rejection) as a terminal error ResultMessage", () => {
     const line = parsePiEvent({
       type: "response",
       command: "prompt",
@@ -902,6 +941,84 @@ describe("parsePiEvent", () => {
     const result = line as unknown as Record<string, unknown>;
     assert.strictEqual(result.subtype, "error_during_execution");
     assert.strictEqual(result.result, "prompt rejected");
+    assert.strictEqual(result.is_error, true);
+  });
+
+  it("does NOT terminate the turn on Pi's 'already processing' prompt rejection (Defect A)", () => {
+    // A second, concurrent prompt collided with a turn that is STILL ALIVE. Pi's
+    // concurrency guard rejects it, but the in-flight turn will still emit its own
+    // agent_end. Mapping this to a terminal result would truncate the live answer
+    // and relay Pi's internal error to the user — so it must be NON-terminal (null).
+    assert.strictEqual(
+      parsePiEvent({
+        type: "response",
+        command: "prompt",
+        success: false,
+        error:
+          "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+      }),
+      null,
+    );
+  });
+
+  it("detects the 'already processing' rejection defensively (case-insensitive substring, not exact match)", () => {
+    // Reworded / recased vendor message still classifies as the recoverable
+    // concurrency rejection — the detection is a normalized substring match, not
+    // an exact-string equality check.
+    assert.strictEqual(
+      parsePiEvent({
+        type: "response",
+        command: "prompt",
+        success: false,
+        error: "Error: the agent is ALREADY PROCESSING a turn; pass streamingBehavior.",
+      }),
+      null,
+    );
+    assert.strictEqual(isPiAlreadyProcessingRejection("Agent is already processing."), true);
+    assert.strictEqual(isPiAlreadyProcessingRejection("AGENT IS ALREADY PROCESSING"), true);
+    // A different error that lacks the discriminating phrase is NOT a concurrency
+    // rejection, even if it mentions the agent.
+    assert.strictEqual(isPiAlreadyProcessingRejection("agent crashed"), false);
+    assert.strictEqual(isPiAlreadyProcessingRejection("still processing the file"), false);
+    // The match requires BOTH "already processing" AND "agent": the phrase alone,
+    // without the "agent" subject, is deliberately NOT classified as recoverable
+    // (guards against an unrelated error that merely contains the phrase).
+    assert.strictEqual(isPiAlreadyProcessingRejection("already processing the request"), false);
+    // Empty string is a string input that fails both substring checks.
+    assert.strictEqual(isPiAlreadyProcessingRejection(""), false);
+    assert.strictEqual(isPiAlreadyProcessingRejection(undefined), false);
+    assert.strictEqual(isPiAlreadyProcessingRejection(null), false);
+  });
+
+  it("a DIFFERENT failed prompt error stays terminal even when a live turn is not the cause", () => {
+    // Constraint: a genuinely failed prompt with a different error (real rejection,
+    // no live turn) must STILL be terminal so the turn does not hang.
+    const line = parsePiEvent({
+      type: "response",
+      command: "prompt",
+      success: false,
+      error: "Model refused the request",
+    });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    const result = line as unknown as Record<string, unknown>;
+    assert.strictEqual(result.subtype, "error_during_execution");
+    assert.strictEqual(result.result, "Model refused the request");
+    assert.strictEqual(result.is_error, true);
+  });
+
+  it("surfaces a failed prompt response with no error field as a terminal result with the default message", () => {
+    // A failed `prompt` with no `error` field is NOT the "already processing"
+    // rejection (the detector returns false for a missing string), so it stays
+    // terminal — falling back to the default message rather than hanging.
+    const line = parsePiEvent({ type: "response", command: "prompt", success: false });
+
+    assert.ok(line);
+    assert.strictEqual(line.type, "result");
+    const result = line as unknown as Record<string, unknown>;
+    assert.strictEqual(result.subtype, "error_during_execution");
+    assert.strictEqual(result.result, "Pi RPC command failed");
     assert.strictEqual(result.is_error, true);
   });
 

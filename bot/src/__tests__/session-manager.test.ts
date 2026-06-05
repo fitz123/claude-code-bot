@@ -2017,12 +2017,72 @@ describe("SessionManager provider dispatch", () => {
     const sent = JSON.parse(stdinWrites[0]);
     assert.strictEqual(sent.type, "prompt", "pi path must write a Pi prompt command");
     assert.strictEqual(sent.message, "hello pi");
+    // Defect B: the queue-driven Pi send path must NEVER deliver a bare prompt —
+    // it always carries streamingBehavior:"followUp" so a prompt sent into a
+    // busy child (bot busy-tracking desynced from the child's real lifecycle) is
+    // queued behind the live turn instead of rejected as "already processing".
+    assert.strictEqual(
+      sent.streamingBehavior,
+      "followUp",
+      "pi prompt must carry streamingBehavior:followUp (never a bare prompt)",
+    );
 
     // Read routed to readPiStream: agent_end became the single terminal result
     // carrying the FINAL assistant text; turn_end produced no line.
     const results = lines.filter((l) => l.type === "result");
     assert.strictEqual(results.length, 1, "exactly one terminal result from agent_end");
     assert.strictEqual(results[0].result, "final pi answer");
+
+    await manager.closeAll();
+  });
+
+  it("does not truncate the in-flight Pi turn when an 'already processing' rejection arrives mid-stream (Defects A+B wedge)", async () => {
+    const { SessionManager } = await import("../session-manager.js");
+    const manager = new SessionManager(() => dispatchConfig, TEST_STORE_PATH);
+
+    const { child, stdout } = makeCapturingChild();
+    injectSession(manager, "pi-wedge", "pi", child, "pi");
+
+    const gen = manager.sendSessionMessage("pi-wedge", "pi", "hello pi");
+
+    // The integrated failure mode: while the turn is live, Pi rejects a colliding
+    // concurrent prompt with its "already processing" error. The read loop must
+    // SKIP that rejection (parsePiEvent → null → not yielded), NOT terminate the
+    // turn, and still complete on the real agent_end. Before Defect A's fix the
+    // rejection became a terminal error result here — truncating the live answer
+    // and relaying Pi's internal error to the user as the "answer".
+    setTimeout(() => {
+      stdout.push(JSON.stringify({ type: "turn_end", sessionId: "pi-real" }) + "\n");
+      stdout.push(
+        JSON.stringify({
+          type: "response",
+          command: "prompt",
+          success: false,
+          error:
+            "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+        }) + "\n",
+      );
+      stdout.push(
+        JSON.stringify({
+          type: "agent_end",
+          sessionId: "pi-real",
+          messages: [
+            { role: "assistant", content: [{ type: "text", text: "final pi answer" }] },
+          ],
+        }) + "\n",
+      );
+    }, 30);
+
+    const lines: { type: string; result?: string; is_error?: boolean }[] = [];
+    for await (const line of gen) {
+      lines.push(line as { type: string; result?: string; is_error?: boolean });
+    }
+
+    // Exactly one terminal result — from the real agent_end, NOT the rejection.
+    const results = lines.filter((l) => l.type === "result");
+    assert.strictEqual(results.length, 1, "the rejection must not produce a terminal result");
+    assert.strictEqual(results[0].result, "final pi answer", "must relay the real answer, not Pi's error");
+    assert.notStrictEqual(results[0].is_error, true, "the surviving result must not be an error");
 
     await manager.closeAll();
   });
