@@ -2,15 +2,29 @@
 // Usage: npx tsx src/cron-runner.ts --task <name>
 // Loads cron definition from crons.yaml, runs claude -p one-shot, delivers output to Telegram
 
-import { readFileSync, appendFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, appendFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
 import { loadRawMergedConfig } from "./config.js";
-import { execSync } from "node:child_process";
+import {
+  execSync,
+  spawnSync,
+  type SpawnSyncOptionsWithStringEncoding,
+  type SpawnSyncReturns,
+} from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 import { parse as parseYaml } from "yaml";
 import type { CronJob, AgentConfig } from "./types.js";
 import { shouldSuppressNoReply } from "./no-reply.js";
+import {
+  buildPiSpawnEnv,
+  resolvePiExtensionArgs,
+  PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+  PI_EXTENSIONS_DISABLED_ENV,
+  shouldIncludePiChildEnvKey,
+} from "./pi-rpc-protocol.js";
+import { assemblePiContext } from "./pi-context-assembler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
@@ -20,6 +34,45 @@ const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
 
 const DEFAULT_TIMEOUT_MS = 900000; // 15 minutes
+const DEFAULT_CRON_HEALTH_TEXTFILE_DIR = "/opt/homebrew/var/node_exporter/textfile";
+const PI_CRON_MODEL = "openai-codex/gpt-5.5";
+const PI_BIN = "pi";
+const PI_ERROR_EXCERPT_CHARS = 1000;
+type PiThinkingLevel = NonNullable<AgentConfig["effort"]>;
+const PI_THINKING_LEVELS = new Set<PiThinkingLevel>(["low", "medium", "high"]);
+export interface CronAgentData {
+  id: string;
+  workspaceCwd: string;
+  systemPrompt?: string;
+  effort?: AgentConfig["effort"];
+}
+
+export type PiRunResult =
+  | { status: "ok"; output: string }
+  | { status: "error"; message: string; diagnostics?: string };
+type PiErrorRunResult = Extract<PiRunResult, { status: "error" }>;
+
+class CronRunError extends Error {
+  diagnostics?: string;
+
+  constructor(message: string, diagnostics?: string) {
+    super(message);
+    this.name = "CronRunError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+function errorFromUnknown(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+function cronErrorDiagnostics(err: unknown): string | undefined {
+  if (typeof err !== "object" || err === null || !("diagnostics" in err)) {
+    return undefined;
+  }
+  const diagnostics = (err as { diagnostics?: unknown }).diagnostics;
+  return typeof diagnostics === "string" && diagnostics.trim() ? diagnostics : undefined;
+}
 
 function log(taskName: string, msg: string): void {
   mkdirSync(LOG_DIR, { recursive: true });
@@ -27,6 +80,76 @@ function log(taskName: string, msg: string): void {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   appendFileSync(logFile, line);
   process.stderr.write(line);
+}
+
+function shortStableHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function sanitizeCronMetricStem(cronName: string): string {
+  const safeName = cronName.trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `${safeName || "unnamed"}_${shortStableHash(cronName)}`;
+}
+
+function escapePrometheusLabelValue(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/"/g, "\\\"");
+}
+
+function writeAtomicTextFile(dir: string, fileName: string, content: string): void {
+  const filePath = join(dir, fileName);
+  const tmpPath = join(
+    dir,
+    `.${fileName}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+  );
+  writeFileSync(tmpPath, content, "utf8");
+  renameSync(tmpPath, filePath);
+}
+
+function writeCronHealthMetric(cronName: string, exitCode: number, success: boolean): void {
+  const fileStem = sanitizeCronMetricStem(cronName);
+  const label = escapePrometheusLabelValue(cronName);
+  const dir = process.env.CRON_HEALTH_TEXTFILE_DIR ?? DEFAULT_CRON_HEALTH_TEXTFILE_DIR;
+  const normalizedExitCode = Number.isFinite(exitCode) ? Math.trunc(exitCode) : 1;
+
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    process.stderr.write(
+      `[cron-runner] WARN: failed to prepare cron health metric dir for "${cronName}": ${(err as Error).message}\n`,
+    );
+    return;
+  }
+
+  if (success) {
+    try {
+      writeAtomicTextFile(
+        dir,
+        `minime_cron_${fileStem}.success.prom`,
+        `minime_cron_last_success_timestamp{cron="${label}"} ${Math.floor(Date.now() / 1000)}\n`,
+      );
+    } catch (err) {
+      process.stderr.write(
+        `[cron-runner] WARN: failed to write cron health success metric for "${cronName}": ${(err as Error).message}\n`,
+      );
+    }
+  }
+
+  try {
+    writeAtomicTextFile(
+      dir,
+      `minime_cron_${fileStem}.exit.prom`,
+      `minime_cron_last_exit_code{cron="${label}"} ${normalizedExitCode}\n`,
+    );
+  } catch (err) {
+    process.stderr.write(
+      `[cron-runner] WARN: failed to write cron health exit metric for "${cronName}": ${(err as Error).message}\n`,
+    );
+  }
 }
 
 interface CronsYaml {
@@ -135,6 +258,15 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   if (typeof c.timeout === "number" && (!Number.isFinite(c.timeout) || c.timeout <= 0)) {
     throw new Error(`Task "${taskName}" has invalid 'timeout' (${c.timeout}): must be a positive number`);
   }
+
+  let engine: CronJob["engine"];
+  if (cronType === "llm" && c.engine !== undefined) {
+    if (c.engine !== "claude" && c.engine !== "pi") {
+      throw new Error(`Task "${taskName}" has invalid 'engine' "${c.engine}" (must be "claude" or "pi")`);
+    }
+    engine = c.engine;
+  }
+
   return {
     name: String(c.name),
     schedule: String(c.schedule ?? ""),
@@ -146,18 +278,70 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
     deliveryThreadId,
     timeout: typeof c.timeout === "number" ? c.timeout : undefined,
     enabled: c.enabled === false ? false : undefined,
+    engine,
   };
 }
 
-function getAgentWorkspace(agentId: string): string {
-  const raw = loadRawMergedConfig() as {
+function isCronPiEffort(value: unknown): value is PiThinkingLevel {
+  return typeof value === "string" && PI_THINKING_LEVELS.has(value as PiThinkingLevel);
+}
+
+function resolveCronAgentData(agentId: string, configPath?: string): CronAgentData {
+  const raw = loadRawMergedConfig(configPath) as {
     agents?: Record<string, unknown>;
   };
-  if (!raw?.agents?.[agentId]) {
+  if (
+    typeof raw?.agents !== "object" ||
+    raw.agents === null ||
+    !Object.prototype.hasOwnProperty.call(raw.agents, agentId)
+  ) {
     throw new Error(`Agent "${agentId}" not found in config.yaml / config.local.yaml`);
   }
-  const agent = raw.agents[agentId] as AgentConfig;
-  return agent.workspaceCwd;
+  const rawAgent = raw.agents[agentId];
+  if (typeof rawAgent !== "object" || rawAgent === null) {
+    throw new Error(`Agent "${agentId}" missing workspaceCwd`);
+  }
+
+  const agent = rawAgent as Record<string, unknown>;
+  if (typeof agent.workspaceCwd !== "string" || !agent.workspaceCwd.trim()) {
+    throw new Error(`Agent "${agentId}" missing workspaceCwd`);
+  }
+
+  const result: CronAgentData = {
+    id: agentId,
+    workspaceCwd: agent.workspaceCwd,
+  };
+  if (typeof agent.systemPrompt === "string") {
+    result.systemPrompt = agent.systemPrompt;
+  }
+  if (isCronPiEffort(agent.effort)) {
+    result.effort = agent.effort;
+  }
+  return result;
+}
+
+function buildPiCronAgentConfig(agentId: string, configPath?: string): AgentConfig {
+  return buildPiCronAgentConfigFromData(resolveCronAgentData(agentId, configPath));
+}
+
+function buildPiCronAgentConfigFromData(agent: CronAgentData): AgentConfig {
+  const result: AgentConfig = {
+    id: agent.id,
+    workspaceCwd: agent.workspaceCwd,
+    provider: "pi",
+    model: PI_CRON_MODEL,
+  };
+  if (agent.systemPrompt !== undefined) {
+    result.systemPrompt = agent.systemPrompt;
+  }
+  if (agent.effort !== undefined) {
+    result.effort = agent.effort;
+  }
+  return result;
+}
+
+function getAgentWorkspace(agentId: string, configPath?: string): string {
+  return resolveCronAgentData(agentId, configPath).workspaceCwd;
 }
 
 export function loadAdminChatId(configPath?: string): number | undefined {
@@ -267,8 +451,8 @@ function runScript(cron: CronJob): string {
 }
 
 function runClaude(cron: CronJob, workspaceCwd: string): string {
-  const today = new Date().toISOString().split("T")[0];
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
+  const systemInstruction = buildCronSystemInstruction();
 
   const args: string[] = [
     "claude",
@@ -287,7 +471,7 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
     "--add-dir",
     workspaceCwd,
     "--append-system-prompt",
-    `Today is ${today}. Respond concisely.`,
+    systemInstruction,
   ];
 
   // Build env without CLAUDECODE and without ANTHROPIC_API_KEY
@@ -311,102 +495,377 @@ function runClaude(cron: CronJob, workspaceCwd: string): string {
   return output.trim();
 }
 
+function normalizeSpawnOutput(value: string | Buffer | null | undefined): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString("utf8");
+  }
+  return value;
+}
+
+function buildCronSystemInstruction(): string {
+  const today = new Date().toISOString().split("T")[0];
+  return `Today is ${today}. Respond concisely.`;
+}
+
+function sanitizeCapturedOutput(value: string): string {
+  return value
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "?")
+    .trim();
+}
+
+function formatCapturedOutputExcerpt(label: "stdout" | "stderr", value: string): string | undefined {
+  const trimmed = sanitizeCapturedOutput(value);
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.length <= PI_ERROR_EXCERPT_CHARS) {
+    return `${label}: ${trimmed}`;
+  }
+
+  const excerpt = trimmed.slice(0, PI_ERROR_EXCERPT_CHARS);
+  return `${label} (first ${PI_ERROR_EXCERPT_CHARS} chars): ${excerpt}... [truncated ${trimmed.length - PI_ERROR_EXCERPT_CHARS} chars]`;
+}
+
+function piErrorResult(summary: string, stdout: string, stderr: string): PiErrorRunResult {
+  const details = [
+    formatCapturedOutputExcerpt("stderr", stderr),
+    formatCapturedOutputExcerpt("stdout", stdout),
+  ].filter((line): line is string => line !== undefined);
+  return {
+    status: "error",
+    message: summary,
+    diagnostics: details.length > 0 ? details.join("; ") : undefined,
+  };
+}
+
+function classifyPiResult(
+  exitCode: number | null | undefined,
+  signal: NodeJS.Signals | string | null | undefined,
+  stdoutValue: string | Buffer | null | undefined,
+  stderrValue: string | Buffer | null | undefined,
+): PiRunResult {
+  const stdout = normalizeSpawnOutput(stdoutValue);
+  const stderr = normalizeSpawnOutput(stderrValue);
+  const trimmedStdout = stdout.trim();
+  const trimmedStderr = stderr.trim();
+
+  if (signal) {
+    return piErrorResult(`Pi cron exited with signal ${signal}`, stdout, stderr);
+  }
+  if (exitCode !== 0) {
+    const summary = typeof exitCode === "number"
+      ? `Pi cron exited with code ${exitCode}`
+      : "Pi cron exited without an exit code";
+    return piErrorResult(summary, stdout, stderr);
+  }
+  if (trimmedStdout) {
+    return { status: "ok", output: trimmedStdout };
+  }
+  if (trimmedStderr) {
+    return piErrorResult("Pi cron produced stderr without stdout", stdout, stderr);
+  }
+  return { status: "ok", output: "" };
+}
+
+type PiSpawnSync = (
+  command: string,
+  args: string[],
+  options: SpawnSyncOptionsWithStringEncoding,
+) => SpawnSyncReturns<string>;
+
+export interface PiRunDeps {
+  spawnSync: PiSpawnSync;
+  buildAgentConfig: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => AgentConfig;
+  buildEnv: (agent: AgentConfig) => Record<string, string>;
+  assembleContext: typeof assemblePiContext;
+  resolveExtensionArgs: typeof resolvePiExtensionArgs;
+}
+
+function buildPiCronAgentConfigForRun(cron: CronJob, workspaceCwd: string, agentData?: CronAgentData): AgentConfig {
+  const agent = agentData ?? resolveCronAgentData(cron.agentId);
+  return buildPiCronAgentConfigFromData({ ...agent, workspaceCwd });
+}
+
+const defaultPiDeps: PiRunDeps = {
+  spawnSync,
+  buildAgentConfig: buildPiCronAgentConfigForRun,
+  buildEnv: buildPiSpawnEnv,
+  assembleContext: assemblePiContext,
+  resolveExtensionArgs: resolvePiExtensionArgs,
+};
+
+function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtensionArgs): string[] {
+  if (process.env[PI_EXTENSIONS_DISABLED_ENV] === "1") {
+    throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; set CRON_PI_DISABLED=1 to run Pi crons on Claude`);
+  }
+
+  const extensionArgs = resolveExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
+  if (extensionArgs.length === 0) {
+    throw new Error("Pi cron extension resolver returned no guard extension; refusing to spawn an unguarded Pi cron");
+  }
+  return extensionArgs;
+}
+
+function hardenPiCronEnv(rawEnv: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rawEnv)) {
+    if (shouldIncludePiChildEnvKey(key)) {
+      env[key] = value;
+    }
+  }
+  return env;
+}
+
+function buildPiCronPromptArg(prompt: string): string {
+  // Pi parses leading "-" as options and leading "@" as file references.
+  return prompt.startsWith("-") || prompt.startsWith("@") ? ` ${prompt}` : prompt;
+}
+
+function runPi(
+  cron: CronJob,
+  workspaceCwd: string,
+  deps: PiRunDeps = defaultPiDeps,
+  agentData?: CronAgentData,
+): string {
+  if (!cron.prompt) {
+    throw new Error(`Pi cron "${cron.name}" has no prompt`);
+  }
+
+  const agent = deps.buildAgentConfig(cron, workspaceCwd, agentData);
+  const thinking = isCronPiEffort(agent.effort) ? agent.effort : "medium";
+  const systemInstruction = buildCronSystemInstruction();
+  const args: string[] = [
+    "-p",
+    buildPiCronPromptArg(cron.prompt),
+    "--no-session",
+    "--no-extensions",
+    "--model",
+    PI_CRON_MODEL,
+    "--thinking",
+    thinking,
+  ];
+
+  const context = deps.assembleContext(agent);
+  if (context) {
+    if (context.systemPromptPath) {
+      args.push("--system-prompt", context.systemPromptPath);
+    }
+    args.push("--append-system-prompt", context.appendSystemPromptPath);
+    args.push("--no-context-files");
+  }
+
+  args.push("--append-system-prompt", systemInstruction);
+  args.push(...resolvePiCronExtensionArgs(deps.resolveExtensionArgs));
+
+  const env = hardenPiCronEnv(deps.buildEnv(agent));
+  // Pi authenticates via ~/.pi/agent/auth.json, not Claude OAuth credentials.
+  env.HOME ||= homedir();
+
+  const result = deps.spawnSync(PI_BIN, args, {
+    cwd: workspaceCwd,
+    timeout: cron.timeout ?? DEFAULT_TIMEOUT_MS,
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    env,
+  });
+
+  if (result.error) {
+    const spawnError = piErrorResult(`Pi cron spawn failed: ${result.error.message}`, result.stdout, result.stderr);
+    throw new CronRunError(spawnError.message, spawnError.diagnostics);
+  }
+
+  const classified = classifyPiResult(result.status, result.signal, result.stdout, result.stderr);
+  if (classified.status === "error") {
+    throw new CronRunError(classified.message, classified.diagnostics);
+  }
+  return classified.output;
+}
+
+function resolveCronEngine(cron: CronJob): "claude" | "pi" {
+  const engine = cron.engine ?? "claude";
+  if (engine === "pi" && process.env.CRON_PI_DISABLED === "1") {
+    return "claude";
+  }
+  return engine;
+}
+
+interface OneShotDeps {
+  runClaude: (cron: CronJob, workspaceCwd: string) => string;
+  runPi: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => string;
+}
+
+const defaultOneShotDeps: OneShotDeps = {
+  runClaude,
+  runPi: (cron, workspaceCwd, agentData) => runPi(cron, workspaceCwd, defaultPiDeps, agentData),
+};
+
+function runOneShot(
+  cron: CronJob,
+  workspaceCwd: string,
+  deps: OneShotDeps = defaultOneShotDeps,
+  agentData?: CronAgentData,
+): string {
+  const engine = resolveCronEngine(cron);
+  if (engine === "pi") {
+    return deps.runPi(cron, workspaceCwd, agentData);
+  }
+  return deps.runClaude(cron, workspaceCwd);
+}
+
 function shellEscape(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
-async function main(): Promise<void> {
-  const taskIdx = process.argv.indexOf("--task");
-  if (taskIdx === -1 || !process.argv[taskIdx + 1]) {
-    console.error("Usage: cron-runner.ts --task <name>");
-    process.exit(1);
-  }
-  const taskName = process.argv[taskIdx + 1];
+export interface CronRunnerMainDeps {
+  argv: string[];
+  consoleError: (message?: unknown, ...optionalParams: unknown[]) => void;
+  exit: (code: number) => never;
+  log: (taskName: string, msg: string) => void;
+  loadDefaultDelivery: (configPath?: string) => DeliveryDefaults;
+  loadCronTask: (taskName: string, cronsPath?: string, defaults?: DeliveryDefaults) => CronJob;
+  loadAdminChatId: (configPath?: string) => number | undefined;
+  resolveCronAgentData: (agentId: string, configPath?: string) => CronAgentData;
+  runScript: (cron: CronJob) => string;
+  runClaude: (cron: CronJob, workspaceCwd: string) => string;
+  runPi: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => string;
+  deliver: (chatId: number, message: string, threadId?: number) => void;
+  handleDeliveryFailure: (
+    cronName: string,
+    targetChatId: number,
+    errorMsg: string,
+    adminChatId: number | undefined,
+  ) => void;
+  writeCronHealthMetric: (cronName: string, exitCode: number, success: boolean) => void;
+}
 
-  log(taskName, `Starting cron task: ${taskName}`);
+const defaultMainDeps: Omit<CronRunnerMainDeps, "argv"> = {
+  consoleError: console.error,
+  exit: (code: number): never => process.exit(code),
+  log,
+  loadDefaultDelivery,
+  loadCronTask,
+  loadAdminChatId,
+  resolveCronAgentData,
+  runScript,
+  runClaude,
+  runPi: (cron, workspaceCwd, agentData) => runPi(cron, workspaceCwd, defaultPiDeps, agentData),
+  deliver,
+  handleDeliveryFailure,
+  writeCronHealthMetric,
+};
+
+async function main(overrides: Partial<CronRunnerMainDeps> = {}): Promise<void> {
+  const deps: CronRunnerMainDeps = {
+    ...defaultMainDeps,
+    argv: process.argv,
+    ...overrides,
+  };
+
+  const taskIdx = deps.argv.indexOf("--task");
+  if (taskIdx === -1 || !deps.argv[taskIdx + 1]) {
+    deps.consoleError("Usage: cron-runner.ts --task <name>");
+    deps.writeCronHealthMetric("unknown", 1, false);
+    deps.exit(1);
+  }
+  const taskName = deps.argv[taskIdx + 1];
+
+  deps.log(taskName, `Starting cron task: ${taskName}`);
 
   let defaults: DeliveryDefaults = {};
   try {
-    defaults = loadDefaultDelivery();
+    defaults = deps.loadDefaultDelivery();
   } catch (err) {
-    log(taskName, `WARN: could not load delivery defaults from config: ${(err as Error).message}`);
+    deps.log(taskName, `WARN: could not load delivery defaults from config: ${(err as Error).message}`);
   }
 
   let cron: CronJob;
   try {
-    cron = loadCronTask(taskName, undefined, defaults);
+    cron = deps.loadCronTask(taskName, undefined, defaults);
   } catch (err) {
-    log(taskName, `FAIL: ${(err as Error).message}`);
-    process.exit(1);
+    deps.log(taskName, `FAIL: ${(err as Error).message}`);
+    deps.writeCronHealthMetric(taskName, 1, false);
+    deps.exit(1);
   }
 
   let adminChatId: number | undefined;
   try {
-    adminChatId = loadAdminChatId();
+    adminChatId = deps.loadAdminChatId();
   } catch (err) {
-    log(taskName, `WARN: could not load adminChatId from config: ${(err as Error).message}`);
+    deps.log(taskName, `WARN: could not load adminChatId from config: ${(err as Error).message}`);
   }
 
-  log(taskName, `Loaded: type=${cron.type}, agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
-
-  let workspaceCwd: string | undefined;
-  if (cron.type !== "script") {
-    try {
-      workspaceCwd = getAgentWorkspace(cron.agentId);
-    } catch (err) {
-      log(taskName, `FAIL: ${(err as Error).message}`);
-      process.exit(1);
-    }
-  }
+  deps.log(taskName, `Loaded: type=${cron.type}, agent=${cron.agentId}, deliver=${cron.deliveryChatId}${cron.deliveryThreadId ? `, thread=${cron.deliveryThreadId}` : ""}`);
 
   let output: string;
   try {
     if (cron.type === "script") {
-      output = runScript(cron);
-      log(taskName, `Script returned ${output.length} chars`);
+      output = deps.runScript(cron);
+      deps.log(taskName, `Script returned ${output.length} chars`);
     } else {
-      output = runClaude(cron, workspaceCwd!);
-      log(taskName, `Claude returned ${output.length} chars`);
+      const cronAgentData = deps.resolveCronAgentData(cron.agentId);
+      const workspaceCwd = cronAgentData.workspaceCwd;
+      const engine = resolveCronEngine(cron);
+      output = runOneShot(
+        cron,
+        workspaceCwd,
+        { runClaude: deps.runClaude, runPi: deps.runPi },
+        cronAgentData,
+      );
+      deps.log(taskName, `LLM engine=${engine} returned ${output.length} chars`);
     }
   } catch (err) {
-    const errMsg = `Cron task "${taskName}" failed: ${(err as Error).message}`;
-    log(taskName, `FAIL: ${errMsg}`);
+    const error = errorFromUnknown(err);
+    const errMsg = `Cron task "${taskName}" failed: ${error.message}`;
+    deps.log(taskName, `FAIL: ${errMsg}`);
+    const diagnostics = cronErrorDiagnostics(err);
+    if (diagnostics) {
+      deps.log(taskName, `FAIL diagnostics: ${diagnostics}`);
+    }
 
     // Send failure notification to delivery chat; use admin fallback if delivery fails
     try {
-      deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`, cron.deliveryThreadId);
+      deps.deliver(cron.deliveryChatId, `⚠️ Cron FAIL: ${taskName}\n${errMsg.slice(0, 500)}`, cron.deliveryThreadId);
     } catch (deliveryErr) {
-      handleDeliveryFailure(
+      deps.handleDeliveryFailure(
         taskName,
         cron.deliveryChatId,
         `${errMsg.slice(0, 400)}\n(notification delivery failed: ${(deliveryErr as Error).message})`,
         adminChatId,
       );
     }
-    process.exit(1);
+    deps.writeCronHealthMetric(taskName, 1, false);
+    deps.exit(1);
   }
 
   if (!output) {
-    log(taskName, "WARN: empty output — skipping delivery");
-    log(taskName, "DONE");
+    deps.log(taskName, "WARN: empty output — skipping delivery");
+    deps.writeCronHealthMetric(taskName, 0, true);
+    deps.log(taskName, "DONE");
     return;
   }
   if (cron.type === "llm" && shouldSuppressNoReply(output)) {
-    log(taskName, "NO_REPLY — skipping delivery");
-    log(taskName, "DONE");
+    deps.log(taskName, "NO_REPLY — skipping delivery");
+    deps.writeCronHealthMetric(taskName, 0, true);
+    deps.log(taskName, "DONE");
     return;
   }
 
   // Deliver output to target chat
   try {
-    deliver(cron.deliveryChatId, output, cron.deliveryThreadId);
-    log(taskName, `Delivered to chat ${cron.deliveryChatId}${cron.deliveryThreadId ? ` thread ${cron.deliveryThreadId}` : ""}`);
+    deps.deliver(cron.deliveryChatId, output, cron.deliveryThreadId);
+    deps.log(taskName, `Delivered to chat ${cron.deliveryChatId}${cron.deliveryThreadId ? ` thread ${cron.deliveryThreadId}` : ""}`);
   } catch (err) {
-    handleDeliveryFailure(taskName, cron.deliveryChatId, (err as Error).message, adminChatId);
-    process.exit(1);
+    deps.handleDeliveryFailure(taskName, cron.deliveryChatId, (err as Error).message, adminChatId);
+    deps.writeCronHealthMetric(taskName, 1, false);
+    deps.exit(1);
   }
 
-  log(taskName, "DONE");
+  deps.writeCronHealthMetric(taskName, 0, true);
+  deps.log(taskName, "DONE");
 }
 
 // Only run main() when executed directly (not when imported in tests)
@@ -417,4 +876,4 @@ if (isMain) {
   main();
 }
 
-export { loadCronTask, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, runScript, shellEscape };
+export { loadCronTask, resolveCronAgentData, buildPiCronAgentConfig, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, runPi, runOneShot, resolveCronEngine, classifyPiResult, writeCronHealthMetric, runScript, shellEscape, main };

@@ -63,7 +63,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 **Context injection:** Each message includes metadata — current time, chat type (DM/group/topic), topic name, sender username, and emoji reactions. The agent knows where it is, when it is, and who it's talking to. Reactions are delivered as messages so the agent can respond to a thumbs-up or a ❤️ without the user typing anything.
 
-**Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot `claude -p` session with the cron's prompt.
+**Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot coding-agent session with the cron's prompt. LLM crons use Claude by default and can opt into Pi print mode per cron.
 
 **Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). User-specific overrides live in `config.local.yaml` (gitignored, deep-merged over `config.yaml`). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
 
@@ -75,6 +75,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 - Node.js 20+ and npm
 - `jq` — required by hook scripts (`brew install jq`)
 - [Claude Code CLI](https://claude.ai/code) with Max subscription
+- Optional for `engine: pi` crons or Pi-backed agents: the `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) (or Discord bot token)
 
 ### Steps
@@ -126,7 +127,7 @@ claude setup-token
 security add-generic-password -s 'claude-code-oauth-token' -a 'minime' -w 'YOUR_OAUTH_TOKEN'
 ```
 
-The bot reads this token at startup via `start-bot.sh` and `run-cron.sh` — it does not use `claude auth login`.
+The bot reads this token at startup via `start-bot.sh` and Claude-engine crons read it via `run-cron.sh` when available — it does not use `claude auth login`. Pi-engine crons can run without `CLAUDE_CODE_OAUTH_TOKEN`; Pi uses its own `~/.pi/agent/auth.json`.
 
 **5. Create launchd service**
 
@@ -208,14 +209,43 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    |-------|------|----------|-------------|
    | `name` | string | yes | Unique identifier for the cron job |
    | `schedule` | string | yes | 5-field cron expression, local timezone |
-   | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs `claude -p`; `"script"` runs a shell command |
-   | `prompt` | string | for llm | Prompt sent to Claude |
+   | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs a one-shot coding-agent backend; `"script"` runs a shell command |
+   | `engine` | `"claude"` or `"pi"` | no | LLM backend for one-shot crons. Omit for `"claude"`; set `"pi"` to use Pi print mode. Ignored for script crons |
+   | `prompt` | string | for llm | Prompt sent to the selected LLM cron engine |
    | `command` | string | for script | Shell command to execute |
    | `agentId` | string | yes | Must match an agent in `config.yaml` or `config.local.yaml` |
    | `deliveryChatId` | number | no | Telegram chat ID for delivery (falls back to config default) |
    | `deliveryThreadId` | number | no | Telegram forum topic ID for delivery |
-   | `timeout` | number | no | Per-cron timeout in ms (default: 300000 = 5 min) |
+   | `timeout` | number | no | Per-cron timeout in ms (default: 900000 = 15 min) |
    | `enabled` | boolean | no | Set `false` to disable without deleting (default: `true`) |
+
+   Minimal Pi LLM example:
+   ```yaml
+   crons:
+     - name: read-only-example
+       schedule: "0 9 * * *"
+       type: llm
+       engine: pi
+       agentId: main
+       prompt: "Summarize read-only status and include NO_REPLY if there is nothing notable."
+   ```
+
+   Pi cron rollout guidance:
+
+   - `engine: pi` is opt-in per LLM cron. It is independent of the agent's `provider`, `model`, `fallbackModel`, `maxTurns`, and `allowedTools`: Pi crons always spawn `pi -p` with `--no-session --no-extensions`, the fixed model `openai-codex/gpt-5.5`, the agent `systemPrompt`/workspace context, and only the explicit A1 guard extension. Agent `effort` maps to `--thinking`; unsupported or absent effort defaults to `medium`.
+   - `engine: pi` requires the `pi` binary on the launchd cron `PATH` and Pi auth at `~/.pi/agent/auth.json` for the launchd user. Run `pi /login` as that user before enabling Pi crons.
+   - Keep browser/MCP/tool-dependent crons on Claude until Pi has equivalent browser/MCP/tool coverage for the cron path.
+   - Keep dangerous state-mutating crons on Claude until Pi has had enough soak coverage for that class of work.
+   - The safest first Pi subset is selected by criteria, not by private cron names: read-only, non-browser, non-secret, non-mutating, low blast-radius, and either visibly delivered or covered by cron-health metrics.
+   - Per-cron rollback: remove `engine: pi` or set `engine: claude`, then regenerate and reload that cron's plist.
+   - Global rollback: set `CRON_PI_DISABLED=1` in the launchd cron environment to force all LLM crons back to Claude. Put it in generated cron plists or export it from `bot/scripts/run-cron.sh`, then unload/reload the affected cron plists because launchd caches plist environment variables.
+   - Production flips are post-merge operator work after restart and observation; they are not part of the public PR.
+
+   Cron result handling:
+
+   - Empty stdout with empty stderr is a successful no-delivery run.
+   - `NO_REPLY` is a successful no-delivery LLM run.
+   - Pi stderr-only success, non-zero exit, signal exit, spawn timeout, missing A1 guard, or disabled A1 guard are failures and trigger the existing `⚠️ Cron FAIL` notification plus the failure metric.
 
 2. Generate launchd plists:
    ```bash
@@ -362,11 +392,12 @@ Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions re
 security add-generic-password -s 'tavily-api-key' -a 'minime' -w 'YOUR_TAVILY_KEY'
 ```
 
-**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi with **no** extensions — a bare, claude-parity command. This is the fast rollback path (no code change, no merge). With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session).
+**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with **no** extensions — a bare, claude-parity command. This is the fast rollback path for Pi RPC sessions (no code change, no merge). With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session). Pi crons are stricter: `engine: pi` crons require A1 and fail closed if `PI_EXTENSIONS_DISABLED=1`; use `CRON_PI_DISABLED=1` or set the cron back to `engine: claude` for cron rollback.
 
 **Rollback:**
 
-- **Fast (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi spawns drop all three extensions immediately.
+- **Fast RPC rollback (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi RPC chat spawns drop all three extensions immediately.
+- **Fast cron rollback:** set `CRON_PI_DISABLED=1` in the cron launchd environment, or change individual crons from `engine: pi` to `engine: claude` and reload the cron plists.
 - **Code:** `git revert <merge-commit>` in this repo → `git fetch upstream && git merge upstream/main` in the workspace → `bot/scripts/restart-bot.sh`.
 
 ### Logging
@@ -387,6 +418,11 @@ metricsPort: 9090
 ```
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
+
+Cron runs also write best-effort Prometheus textfile metrics for node_exporter. These do not appear on the bot's `metricsPort` endpoint. Configure node_exporter with `--collector.textfile.directory=/opt/homebrew/var/node_exporter/textfile`, or override the directory with `CRON_HEALTH_TEXTFILE_DIR` for tests or alternate installs. Ensure the launchd cron user can create and write the directory. Each cron gets collision-resistant textfiles with the raw cron name escaped as the `cron` label:
+
+- `minime_cron_last_success_timestamp{cron="<name>"}` is updated only after successful runs and remains present after later failures.
+- `minime_cron_last_exit_code{cron="<name>"}` is updated on every run.
 
 The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`, same buckets as the Claude turn histogram for direct comparison), the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter), and `bot_pi_session_resume_discarded_total` (label `agent_id`, incremented once per graceful resume-recovery — a stored Pi session id Pi could not find, discarded for one fresh start). They read zero until an agent runs with `provider: pi`.
 

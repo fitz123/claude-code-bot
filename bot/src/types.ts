@@ -75,6 +75,7 @@ export interface CronJob {
   deliveryThreadId?: number;
   timeout?: number;
   enabled?: boolean;
+  engine?: "claude" | "pi";
 }
 
 export interface SessionState {

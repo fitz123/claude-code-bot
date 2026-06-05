@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
 import type { AgentConfig } from "./types.js";
 import { log } from "./logger.js";
 
@@ -52,6 +53,18 @@ export interface ContextSection {
 }
 
 export type PiArtifactKind = "bundle" | "persona";
+
+function safeArtifactAgentId(agentId: string): string {
+  if (/^[A-Za-z0-9_-]+$/.test(agentId)) {
+    return agentId;
+  }
+  const stem = agentId
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const hash = createHash("sha256").update(agentId).digest("hex").slice(0, 12);
+  return `${stem || "agent"}-${hash}`;
+}
 
 /**
  * A standalone `@<path>` import line: optional leading whitespace, `@`, a single
@@ -345,7 +358,7 @@ function readOutputStyleContent(workspaceCwd: string): string | null {
 
 /**
  * Atomically write a bundle/persona artifact to a STABLE per-agent path under
- * `<workspaceCwd>/.tmp/`: `pi-context-<agentId>.<kind>.md`. Write a staging file
+ * `<workspaceCwd>/.tmp/`: `pi-context-<safe-agent-id>.<kind>.md`. Write a staging file
  * (`<path>.tmp.<pid>`) then `renameSync` over the final path, so a concurrent
  * reader never sees a half-written file. Stable path ⇒ no accumulation, no cleanup
  * job. Returns the final path. May throw (e.g. unwritable `.tmp/`) — the caller
@@ -359,7 +372,7 @@ export function writeTempArtifact(
 ): string {
   const tmpDir = join(workspaceCwd, ".tmp");
   mkdirSync(tmpDir, { recursive: true });
-  const finalPath = join(tmpDir, `pi-context-${agentId}.${kind}.md`);
+  const finalPath = join(tmpDir, `pi-context-${safeArtifactAgentId(agentId)}.${kind}.md`);
   const stagingPath = `${finalPath}.tmp.${process.pid}`;
   writeFileSync(stagingPath, content, "utf8");
   renameSync(stagingPath, finalPath);

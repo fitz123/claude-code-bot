@@ -23,7 +23,9 @@ agents:
     # model: opus[1m]
     # model: claude-haiku-4-5-20251001
     # provider: claude   # coding backend: "claude" (default, omit) or "pi" (Pi RPC + OpenAI Codex)
-    # thinking: xhigh    # optional for provider: pi; allowed: off, minimal, low, medium, high, xhigh
+    # thinking: xhigh    # optional for provider: pi sessions; allowed: off, minimal, low, medium, high, xhigh
+    # effort: high       # Pi crons map low/medium/high to --thinking; absent/unsupported defaults to medium
+                         # Cron engine is configured in crons*.yaml. Pi crons ignore provider/model/fallbackModel/maxTurns/allowedTools.
 
 bindings:
   - chatId: 123456789           # your Telegram user ID (get it from @userinfobot)

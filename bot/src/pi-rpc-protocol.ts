@@ -88,6 +88,50 @@ export interface PiExtensionResolveOptions {
   relpaths?: readonly string[];
 }
 
+const PI_CHILD_ENV_KEY_ALLOWLIST = new Set([
+  "CI",
+  "COLORTERM",
+  "FORCE_COLOR",
+  "HOME",
+  "LANG",
+  "LOGNAME",
+  "NO_COLOR",
+  "PATH",
+  "PI_CODING_AGENT_DIR",
+  "PI_CODING_AGENT_SESSION_DIR",
+  "PI_OFFLINE",
+  "PI_PACKAGE_DIR",
+  "PI_SHARE_VIEWER_URL",
+  "PI_SKIP_VERSION_CHECK",
+  "PI_TELEMETRY",
+  "SHELL",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "TEMP",
+  "TERM",
+  "TMP",
+  "TMPDIR",
+  "USER",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_RUNTIME_DIR",
+]);
+
+const PI_CHILD_LC_ENV_KEYS = new Set([
+  "LC_ALL",
+  "LC_COLLATE",
+  "LC_CTYPE",
+  "LC_MESSAGES",
+  "LC_MONETARY",
+  "LC_NUMERIC",
+  "LC_TIME",
+]);
+
+export function shouldIncludePiChildEnvKey(key: string): boolean {
+  return PI_CHILD_ENV_KEY_ALLOWLIST.has(key) || PI_CHILD_LC_ENV_KEYS.has(key);
+}
+
 /**
  * Resolve the repeatable `--extension <abs-path>` args for a Pi spawn.
  *
@@ -296,14 +340,14 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
 
   const env: Record<string, string> = {};
   for (const [key, val] of Object.entries(process.env)) {
-    if (val !== undefined) {
+    if (val !== undefined && shouldIncludePiChildEnvKey(key)) {
       env[key] = val;
     }
   }
 
-  // A Pi/Codex subprocess authenticates via ~/.pi/agent/auth.json and has no
-  // use for Anthropic credentials — scrub both so they never reach it (matches
-  // cron-runner.ts's sanitization of script subprocesses).
+  // A Pi/Codex subprocess authenticates via ~/.pi/agent/auth.json. Keep the
+  // child environment allowlisted so prompt-influenced agents do not inherit
+  // ambient credentials such as provider tokens or SSH agent sockets.
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.ANTHROPIC_API_KEY;
   // Parity with the Claude path (cli-protocol.ts): never leak the Claude Code
