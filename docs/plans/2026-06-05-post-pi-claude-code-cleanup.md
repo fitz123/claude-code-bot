@@ -125,10 +125,10 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 6: Update metrics names/help carefully
 
-- [ ] Audit `bot/src/metrics.ts` for `bot_claude_*` names and help strings.
-- [ ] Prefer keeping metric names for continuity but update help text/comments to say legacy metric names record agent-token usage from the active runtime.
-- [ ] If the implementation chooses to rename metrics, add a compatibility note and update monitoring config in the same PR or explicitly split to a separate PR.
-- [ ] Ensure Pi-specific metrics (`bot_pi_*`, Codex quota metrics) remain intact.
+- [x] Audit `bot/src/metrics.ts` for `bot_claude_*` names and help strings.
+- [x] Prefer keeping metric names for continuity but update help text/comments to say legacy metric names record agent-token usage from the active runtime.
+- [x] If the implementation chooses to rename metrics, add a compatibility note and update monitoring config in the same PR or explicitly split to a separate PR. Kept legacy names, so no rename compatibility migration is needed.
+- [x] Ensure Pi-specific metrics (`bot_pi_*`, Codex quota metrics) remain intact.
 
 ### Task 7: Update public defaults and docs
 
