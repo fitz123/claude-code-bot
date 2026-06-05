@@ -9,7 +9,6 @@
 
 - No private data exfiltration. Ever.
 - `trash` over `rm` — recoverable beats gone forever.
-- Never run `claude` CLI commands from Bash inside a session.
 
 ## Rules
 
