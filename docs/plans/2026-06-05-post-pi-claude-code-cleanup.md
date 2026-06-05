@@ -73,7 +73,7 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 0: Pre-flight gates
 
-- [ ] Confirm Plan C is merged: `bot/src/cron-runner.ts` no longer spawns `claude` and no longer exports `runClaude`.
+- [ ] Confirm Plan C is merged: `bot/src/cron-runner.ts` has the Pi cron execution path (`runPi`, `resolveCronEngine`, Pi print-mode classification/tests). Remaining `runClaude` cleanup is Task 5, not a pre-flight blocker.
 - [ ] Confirm Codex quota/status pipeline is merged or explicitly declared out-of-scope for this cleanup PR.
 - [ ] Confirm production config no longer contains any active `provider: claude` agents.
 - [ ] Confirm the branch starts from current `main` and does not include untracked unrelated plan files.
