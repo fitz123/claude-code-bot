@@ -13,7 +13,7 @@ import { ensureSessionMediaDir, sessionMediaDir, allocateMediaPath, releaseMedia
 // Real protocol helpers the spawn-path capture needs (parse get_state replies).
 // Resolved here BEFORE mock.module installs the stub, so these are the genuine
 // implementations; the stub below re-exports them so capture parses correctly.
-import { NewlineOnlyJsonlSplitter, parsePiRecord } from "../pi-rpc-protocol.js";
+import { NewlineOnlyJsonlSplitter, normalizePiModel, parsePiRecord } from "../pi-rpc-protocol.js";
 
 const TEST_DIR = "/tmp/minime-test-pi-spawn";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -227,6 +227,7 @@ mock.module("../pi-rpc-protocol.js", {
     },
     sendPiPrompt() {},
     sendPiSteer() {},
+    normalizePiModel,
     async *readPiStream(): AsyncGenerator<StreamLine> {
       // Message-path reader (unused by the spawn-path capture, which now reads
       // child.stdout directly). Present so session-manager's import resolves.
@@ -258,6 +259,7 @@ function makeConfig(): BotConfig {
         workspaceCwd: "/tmp/test-workspace-pi",
         model: "gpt-5.5",
         provider: "pi",
+        thinking: "xhigh",
       },
     },
     bindings: [
@@ -305,6 +307,17 @@ describe("SessionManager Pi session-id capture + resume", () => {
 
     // The in-memory session adopts the Pi-minted id (not the local UUID).
     assert.strictEqual(session.sessionId, "pi-generated-id", "session uses the captured Pi id");
+    assert.strictEqual(session.provider, "pi");
+    assert.strictEqual(session.model, "openai-codex/gpt-5.5");
+    assert.strictEqual(session.thinking, "xhigh");
+    assert.strictEqual(session.effort, undefined);
+
+    const health = manager.getSessionHealth("pi-chat");
+    assert.ok(health);
+    assert.strictEqual(health.provider, "pi");
+    assert.strictEqual(health.model, "openai-codex/gpt-5.5");
+    assert.strictEqual(health.thinking, "xhigh");
+    assert.strictEqual(health.effort, undefined);
 
     // ...and the captured id is persisted for resume across restarts.
     const store = new SessionStore(TEST_STORE_PATH);
@@ -404,6 +417,9 @@ describe("SessionManager Pi session-id capture + resume", () => {
       claudeSpawnCaptures[0].sessionId,
       "claude session keeps the bot-generated id (no Pi capture override)",
     );
+    assert.strictEqual(session.provider, "claude");
+    assert.strictEqual(session.model, "claude-opus-4-6");
+    assert.strictEqual(session.thinking, undefined);
     // The claude path must not have touched the Pi spawn path at all.
     assert.strictEqual(piSpawnCaptures.length, 0, "claude path must not spawn a Pi process");
 

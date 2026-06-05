@@ -7,7 +7,7 @@ import { on } from "node:events";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig, AgentConfig } from "./types.js";
 import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
-import { spawnPiRpcSession, sendPiPrompt, sendPiSteer, sendPiGetState, readPiStream, parsePiRecord, NewlineOnlyJsonlSplitter, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
+import { spawnPiRpcSession, sendPiPrompt, sendPiSteer, sendPiGetState, readPiStream, parsePiRecord, NewlineOnlyJsonlSplitter, normalizePiModel, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, recordPiRetry, recordPiTurnDuration, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
@@ -69,6 +69,12 @@ export interface ActiveSession {
    * fails to load must not break dispatch for a session that is still usable.
    */
   provider: "claude" | "pi";
+  /** Spawn-time model after provider-specific normalization. */
+  model: string;
+  /** Spawn-time Pi thinking level, when configured. */
+  thinking?: AgentConfig["thinking"];
+  /** Spawn-time Claude effort level, when configured. */
+  effort?: AgentConfig["effort"];
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
   /** Idle timeout baked at spawn time from config. */
@@ -91,12 +97,20 @@ export interface SessionHealth {
   alive: boolean;
   agentId: string;
   sessionId: string;
+  provider: "claude" | "pi";
+  model: string;
+  thinking?: AgentConfig["thinking"];
+  effort?: AgentConfig["effort"];
   idleMs: number;
   /** Milliseconds since current turn started, or null if not processing. */
   processingMs: number | null;
   /** Timestamp of last successful response, or null if none yet. */
   lastSuccessAt: number | null;
   restartCount: number;
+}
+
+function normalizedSessionModel(agent: AgentConfig, provider: "claude" | "pi"): string {
+  return provider === "pi" ? normalizePiModel(agent.model) : agent.model;
 }
 
 /**
@@ -469,12 +483,16 @@ export class SessionManager {
       this.restartCounts.set(chatId, 0);
     }
 
+    const provider = isPi ? "pi" : "claude";
     const session: ActiveSession = {
       child,
       sessionId: effectiveSessionId,
       agentId,
       // Pin the provider the child was actually spawned under (claude when absent).
-      provider: isPi ? "pi" : "claude",
+      provider,
+      model: normalizedSessionModel(agent, provider),
+      thinking: agent.thinking,
+      effort: agent.effort,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: freshConfig.sessionDefaults.idleTimeoutMs,
@@ -861,6 +879,10 @@ export class SessionManager {
       alive,
       agentId: session.agentId,
       sessionId: session.sessionId,
+      provider: session.provider,
+      model: session.model,
+      thinking: session.thinking,
+      effort: session.effort,
       idleMs: now - session.lastActivity,
       processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
       lastSuccessAt: session.lastSuccessAt,

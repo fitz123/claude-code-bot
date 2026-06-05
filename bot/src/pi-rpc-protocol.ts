@@ -220,7 +220,7 @@ function stripTrailingCarriageReturn(record: string): string {
   return record.endsWith("\r") ? record.slice(0, -1) : record;
 }
 
-function normalizePiModel(model: string | undefined): string {
+export function normalizePiModel(model: string | undefined): string {
   const trimmed = model?.trim();
   if (!trimmed) {
     return DEFAULT_PI_MODEL;
@@ -238,6 +238,10 @@ export function buildPiSpawnArgs(
     "--provider", PI_PROVIDER,
     "--model", normalizePiModel(agent.model),
   ];
+
+  if (agent.provider === "pi" && agent.thinking) {
+    args.push("--thinking", agent.thinking);
+  }
 
   // Spawn-time context assembly — provider: "pi" ONLY (the claude path never
   // reaches here). The assembler (pi-context-assembler.ts) gives full Claude→Pi

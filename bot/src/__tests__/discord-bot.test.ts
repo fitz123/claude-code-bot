@@ -7,11 +7,12 @@ import {
   resolveDiscordBinding,
   shouldRespondInDiscord,
   buildDiscordSourcePrefix,
+  handleDiscordChatInputCommand,
   installDiscordErrorHandlers,
   makeSteerFn,
 } from "../discord-bot.js";
 import { validateDiscordBinding } from "../config.js";
-import type { DiscordBinding } from "../types.js";
+import type { BotConfig, DiscordBinding, DiscordConfig } from "../types.js";
 import type { SessionManager } from "../session-manager.js";
 
 // --- discordSessionKey ---
@@ -166,6 +167,85 @@ describe("resolveDiscordBinding with guild-wide defaults", () => {
     const binding = resolveDiscordBinding("c999", guildBindings, "g1");
     assert.ok(binding);
     assert.strictEqual(binding.channels, undefined);
+  });
+});
+
+describe("Discord slash command status wiring", () => {
+  it("renders local status for a thread without opening or sending a session", async () => {
+    const calls: string[] = [];
+    const replies: Array<string | { content: string; ephemeral?: boolean }> = [];
+    const config: BotConfig = {
+      agents: {
+        main: { id: "main", workspaceCwd: "/tmp/test", model: "claude-opus-4-6" },
+      },
+      bindings: [],
+      sessionDefaults: {
+        idleTimeoutMs: 60_000,
+        maxConcurrentSessions: 2,
+        maxMessageAgeMs: 300_000,
+        requireMention: false,
+        maxMediaBytes: 209_715_200,
+      },
+    };
+    const discordConfig: DiscordConfig = {
+      token: "test-token",
+      bindings: [
+        { channelId: "parent-1", guildId: "guild-1", agentId: "main", kind: "channel" },
+      ],
+    };
+    const sessionManager = {
+      getActiveCount: () => 1,
+      getSessionHealth: (key: string) => {
+        calls.push(`getSessionHealth:${key}`);
+        return {
+          pid: 123,
+          alive: true,
+          agentId: "main",
+          sessionId: "session-123",
+          provider: "claude",
+          model: "claude-opus-4-6",
+          idleMs: 120_000,
+          processingMs: null,
+          lastSuccessAt: Date.now(),
+          restartCount: 0,
+        };
+      },
+      sendSessionMessage: () => { calls.push("sendSessionMessage"); throw new Error("unexpected"); },
+      getOrCreateSession: async () => { calls.push("getOrCreateSession"); throw new Error("unexpected"); },
+      closeSession: async () => { calls.push("closeSession"); },
+      destroySession: async () => { calls.push("destroySession"); },
+    } as unknown as SessionManager;
+
+    await handleDiscordChatInputCommand(
+      {
+        commandName: "status",
+        channelId: "thread-1",
+        guildId: "guild-1",
+        channel: {
+          isThread: () => true,
+          parentId: "parent-1",
+        },
+        reply: async (response) => {
+          replies.push(response);
+        },
+      },
+      {
+        config,
+        discordConfig,
+        sessionManager,
+        messageQueue: {
+          clear: (key: string) => { calls.push(`clear:${key}`); },
+        },
+      },
+    );
+
+    assert.equal(replies.length, 1);
+    assert.equal(typeof replies[0], "string");
+    assert.match(String(replies[0]), /Sessions: 1\/2/);
+    assert.match(String(replies[0]), /Session ID: session-123/);
+    assert.ok(calls.includes("getSessionHealth:discord:parent-1:thread-1"));
+    assert.ok(!calls.includes("sendSessionMessage"));
+    assert.ok(!calls.includes("getOrCreateSession"));
   });
 });
 

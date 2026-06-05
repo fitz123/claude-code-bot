@@ -71,6 +71,29 @@ bindings:
     assert.strictEqual(config.telegramToken, "env-wins");
   });
 
+  it("can validate configured Telegram secret references without resolving Keychain", () => {
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+telegramTokenService: this-keychain-service-would-fail-if-read
+bindings:
+  - chatId: 111
+    agentId: main
+    kind: dm
+`
+    );
+
+    assert.throws(
+      () => loadConfig(configPath),
+      /Failed to read Keychain service/,
+    );
+
+    const config = loadConfig(configPath, { resolveSecrets: false });
+    assert.equal(config.telegramToken, "[configured]");
+    assert.equal(config.bindings.length, 1);
+  });
+
   it("throws when telegramTokenEnv set but env var is empty string", () => {
     process.env.TEST_TELEGRAM_TOKEN_ENV = "";
     writeFileSync(
@@ -125,6 +148,30 @@ discord:
     const config = loadConfig(configPath);
     assert.ok(config.discord, "discord config should exist");
     assert.strictEqual(config.discord!.token, "dc-token-from-env");
+  });
+
+  it("can validate configured Discord secret references without resolving Keychain", () => {
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+discord:
+  tokenService: this-keychain-service-would-fail-if-read
+  bindings:
+    - guildId: "999"
+      agentId: main
+      kind: channel
+`
+    );
+
+    assert.throws(
+      () => loadConfig(configPath),
+      /Failed to read Keychain service/,
+    );
+
+    const config = loadConfig(configPath, { resolveSecrets: false });
+    assert.equal(config.discord!.token, "[configured]");
+    assert.equal(config.discord!.bindings.length, 1);
   });
 
   it("throws when discord.tokenService AND tokenEnv both missing", () => {

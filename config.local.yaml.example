@@ -23,6 +23,7 @@ agents:
     # model: opus[1m]
     # model: claude-haiku-4-5-20251001
     # provider: claude   # coding backend: "claude" (default, omit) or "pi" (Pi RPC + OpenAI Codex)
+    # thinking: xhigh    # optional for provider: pi; allowed: off, minimal, low, medium, high, xhigh
 
 bindings:
   - chatId: 123456789           # your Telegram user ID (get it from @userinfobot)

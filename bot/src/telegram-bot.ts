@@ -17,6 +17,8 @@ import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
 import { EchoWatcher, ECHO_PREFIX } from "./echo-watcher.js";
 import { injectDirForChat, writeEchoInjectFile } from "./inject-file.js";
+import { readQuotaStatus } from "./quota-status.js";
+import { buildStatusReport } from "./status-report.js";
 
 
 // Re-export for backward compatibility (tests import from here)
@@ -763,7 +765,7 @@ export function createTelegramBot(
     await ctx.reply("Session cleaned. Fresh start.");
   });
 
-  // /status command — active sessions, memory, uptime, subprocess health
+  // /status command — compact local-only session and quota health.
   bot.command("status", async (ctx) => {
     const topicId = ctx.message?.message_thread_id;
     if (ctx.message) setThread(ctx.chat.id, ctx.message.message_id, topicId);
@@ -773,46 +775,14 @@ export function createTelegramBot(
       log.debug("telegram-bot", `Discarding stale /status for chat ${ctx.chat.id} (age: ${Math.round((Date.now() - ctx.message.date * 1000) / 1000)}s)`);
       return;
     }
-    const activeCount = sessionManager.getActiveCount();
-    const memUsage = process.memoryUsage();
-    const uptimeSeconds = Math.floor(process.uptime());
-    const hours = Math.floor(uptimeSeconds / 3600);
-    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-
-    const lines = [
-      `Active sessions: ${activeCount}/${config.sessionDefaults.maxConcurrentSessions}`,
-      `Memory: ${Math.round(memUsage.rss / 1024 / 1024)}MB RSS`,
-      `Uptime: ${hours}h ${minutes}m`,
-    ];
-
-    const health = sessionManager.getSessionHealth(sessionKey(ctx.chat.id, topicId));
-    if (health) {
-      const status = health.alive ? "alive" : "dead";
-      const pidStr = health.pid !== null ? String(health.pid) : "n/a";
-      const idleMins = Math.floor(health.idleMs / 60000);
-
-      lines.push(`This session: agent "${health.agentId}", PID ${pidStr} (${status})`);
-      lines.push(`  Session ID: ${health.sessionId}`);
-
-      if (health.processingMs !== null) {
-        const procSecs = Math.floor(health.processingMs / 1000);
-        lines.push(`  Processing: ${procSecs}s`);
-      } else {
-        lines.push(`  Idle: ${idleMins}m`);
-      }
-
-      if (health.lastSuccessAt !== null) {
-        const agoMs = Date.now() - health.lastSuccessAt;
-        const agoMins = Math.floor(agoMs / 60000);
-        lines.push(`  Last success: ${agoMins}m ago`);
-      } else {
-        lines.push(`  Last success: none`);
-      }
-
-      lines.push(`  Restarts: ${health.restartCount}`);
-    }
-
-    await ctx.reply(lines.join("\n"));
+    const key = sessionKey(ctx.chat.id, topicId);
+    await ctx.reply(buildStatusReport({
+      activeCount: sessionManager.getActiveCount(),
+      maxSessions: config.sessionDefaults.maxConcurrentSessions,
+      uptimeSeconds: Math.floor(process.uptime()),
+      sessionHealth: sessionManager.getSessionHealth(key),
+      quotaStatus: readQuotaStatus(),
+    }));
   });
 
   // Handle text messages

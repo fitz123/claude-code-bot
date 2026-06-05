@@ -2,6 +2,8 @@
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
+export type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export interface AgentConfig {
   id: string;
   workspaceCwd: string;
@@ -11,6 +13,7 @@ export interface AgentConfig {
   allowedTools?: string[];
   maxTurns?: number;
   effort?: "low" | "medium" | "high";
+  thinking?: PiThinkingLevel;
   /**
    * Which coding-agent backend dispatches this agent's sessions.
    * Optional; semantically defaults to "claude" (the existing `claude -p` path).

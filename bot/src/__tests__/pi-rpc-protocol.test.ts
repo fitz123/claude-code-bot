@@ -157,6 +157,27 @@ describe("buildPiSpawnArgs", () => {
     assert.strictEqual(args[args.indexOf("--model") + 1], "openai-codex/gpt-5.5");
   });
 
+  it("includes Pi thinking when configured on a Pi agent", () => {
+    const args = buildPiSpawnArgs({
+      ...testAgent,
+      provider: "pi",
+      thinking: "xhigh",
+    }, undefined, NO_EXTENSIONS);
+
+    const idx = args.indexOf("--thinking");
+    assert.notStrictEqual(idx, -1, "should include --thinking");
+    assert.strictEqual(args[idx + 1], "xhigh");
+  });
+
+  it("does not include thinking for a non-pi agent", () => {
+    const args = buildPiSpawnArgs({
+      ...testAgent,
+      thinking: "xhigh",
+    }, undefined, NO_EXTENSIONS);
+
+    assert.ok(!args.includes("--thinking"));
+  });
+
   it("does NOT invoke the context assembler for a non-pi agent (no context args)", () => {
     // testAgent carries no `provider` (semantically claude). The assembler is
     // gated on provider:"pi", so none of its CLI layers may appear — and the

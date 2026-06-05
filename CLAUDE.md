@@ -29,6 +29,15 @@ Six hooks are wired in `.claude/settings.json`:
 - `session-end-commit.sh` — commits staged changes on session exit (SessionEnd)
 - `session-start-recovery.sh` — recovers orphaned staged changes (SessionStart)
 
+## Bot Architecture Notes
+
+- Telegram and Discord `/status` must use `bot/src/status-report.ts` for shared rendering.
+- `/status` is local-only: read quota data with `readQuotaStatus()` and never call Pi, Codex, the network, or Pi `get_state` from a status command.
+- Live Pi sessions stay on `transport: auto`; only `bot/scripts/codex-quota-sampler.ts` creates an isolated sampler cwd with `transport: "sse"`.
+- `bot/.claude/extensions/codex-usage.ts` is sampler-only and must not be added to the normal Pi RPC extension list.
+- Use `thinking` for `provider: pi`; use `effort` for Claude agents.
+- Sampler dry-run check: `cd bot && CODEX_QUOTA_TEXTFILE_DIR=/tmp/codex-quota-test CODEX_QUOTA_STATE_FILE=/tmp/codex-quota-test/state.json npx tsx scripts/codex-quota-sampler.ts --dry-run`.
+
 ## Skills
 
 Skills live in `.claude/skills/`. Each skill has a `SKILL.md` and optional helper scripts in `scripts/`.
