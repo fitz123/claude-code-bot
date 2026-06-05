@@ -57,14 +57,17 @@ If a wrapper ever grows logic worth testing, move that logic into a
 
 ## Context assembler (Claude→Pi parity at spawn)
 
-`bot/src/pi-context-assembler.ts` gives a `provider: "pi"` spawn the SAME context a
-Claude Code session loads. Pi reads context files as FLAT text — no `@`-import
-expansion, no `.claude/rules/` auto-load, no memory recall — so an agent's
-CLAUDE.md `@`-imports and rule files silently vanish under Pi. The assembler reads
-the agent's LIVE workspace files (zero drift, always fresh) and hands the result to
-Pi via CLI args. It is wired into `buildPiSpawnArgs` in
-`bot/src/pi-rpc-protocol.ts`, and runs ONLY for `provider: "pi"` — the
-`claude -p` path is untouched.
+`bot/src/pi-context-assembler.ts` gives Pi spawns the SAME context a Claude Code
+session loads. Pi reads context files as FLAT text — no `@`-import expansion, no
+`.claude/rules/` auto-load, no memory recall — so an agent's CLAUDE.md
+`@`-imports and rule files silently vanish under Pi. The assembler reads the
+agent's LIVE workspace files (zero drift, always fresh) and hands the result to Pi
+via CLI args. It is wired into `buildPiSpawnArgs` in
+`bot/src/pi-rpc-protocol.ts` for `provider: "pi"` RPC sessions, and `cron-runner.ts`
+also calls it directly for `engine: pi` print-mode crons. For crons, the runner
+builds a minimal Pi agent from `agentId`, `workspaceCwd`, optional
+`systemPrompt`, and `effort`, then injects CLAUDE/MEMORY/rules context via files.
+The `claude -p` path is untouched.
 
 ### Layer mapping
 

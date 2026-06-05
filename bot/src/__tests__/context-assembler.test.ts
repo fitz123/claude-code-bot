@@ -342,6 +342,16 @@ describe("writeTempArtifact", () => {
     assert.strictEqual(readFileSync(path, "utf8"), "BUNDLE_CONTENT");
     assert.throws(() => statSync(`${path}.tmp.${process.pid}`), "staging file is renamed away");
   });
+
+  it("keeps unsafe agent IDs inside .tmp artifact paths", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const path = writeTempArtifact(ws, "../outside/agent", "bundle", "SAFE_CONTENT");
+
+    assert.ok(path.startsWith(join(ws, ".tmp") + "/"), path);
+    assert.match(path, /pi-context-outside_agent-[a-f0-9]{12}\.bundle\.md$/);
+    assert.strictEqual(readFileSync(path, "utf8"), "SAFE_CONTENT");
+    assert.throws(() => statSync(join(ws, "outside", "agent.bundle.md")));
+  });
 });
 
 describe("assemblePiContext", () => {

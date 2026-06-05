@@ -1,21 +1,22 @@
 # Runtime Context
 
-You are running as a **Claude Code CLI subprocess**, spawned by the grammY Telegram bot.
+You are running as a **coding-agent backend** spawned by the Telegram/Discord bot. Interactive sessions may use Claude Code CLI or Pi RPC, depending on the bound agent config. Scheduled LLM crons may use Claude print mode or Pi print mode, depending on the cron `engine`.
 
 ## How you were started
 
-- The Telegram bot spawned your process via `claude -p` with stream-json protocol
+- The Telegram/Discord bot spawned your process through the configured backend (`claude -p` stream-json for Claude sessions, Pi RPC for Pi sessions)
 - Messages arrive from Telegram, routed through bot bindings to your session
-- Each Telegram chat gets its own Claude Code subprocess with separate conversation context
-- The bot runs under a Max subscription (no API keys, fixed monthly cost) — applies to all agents spawned by this bot
+- Each chat gets its own backend process with separate conversation context
+- Claude-backed sessions run under a Max subscription (no API keys, fixed monthly cost). Pi-backed sessions use Pi's own auth in `~/.pi/agent/auth.json`.
 
 ## What this means
 
-- You are a Claude Code CLI process. You have full Claude Code capabilities (Read, Edit, Write, Bash, Agent, etc.)
+- Your exact tools depend on the backend. Claude sessions have Claude Code capabilities (Read, Edit, Write, Bash, Agent, etc.). Pi RPC sessions load the bot's Pi extensions. Pi print-mode crons load only the A1 guard extension and do not have A2/A3/browser/MCP/subagent parity.
 - You are NOT running in a terminal. Messages come from Telegram users, not a keyboard
 - Your responses are sent back to Telegram via the bot's stream relay
 - Your workspace is your current working directory. Other agents live in sibling directories alongside it; check the bot's `config.yaml` (in the main workspace) for the full agent roster and which Telegram chats route to which agent
 - Bot tools are available: `bot/scripts/deliver.sh` for Telegram messaging, `launchctl` for cron management
+- Pi print-mode crons do not have automatic memory recall. Use `MEMORY.md` as the index and read specific memory files on demand.
 
 ## Session transcripts
 

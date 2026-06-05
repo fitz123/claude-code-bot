@@ -20,8 +20,11 @@ crons:
   # Your own crons:
   # - name: daily-briefing
   #   schedule: "0 9 * * *"           # 9:00 AM daily
+  #   engine: pi                       # optional for LLM crons; omit/defaults to claude
+  #                                    # separate from agent provider; uses fixed Pi model, workspaceCwd,
+  #                                    # optional systemPrompt, and effort->--thinking only
   #   prompt: >
   #     Give me a brief summary of what I should focus on today.
   #   agentId: main
   #   deliveryChatId: 123456789        # Replace with your Telegram chat ID
-  #   timeout: 300000
+  #   timeout: 900000

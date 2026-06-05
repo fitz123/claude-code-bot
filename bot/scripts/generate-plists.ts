@@ -8,6 +8,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { loadMergedCrons } from "../src/cron-runner.js";
+import { validateCronForPlist, type CronPlistDef } from "../src/cron-plist.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
@@ -19,17 +20,7 @@ const RUN_CRON_SCRIPT = resolve(BOT_DIR, "scripts", "run-cron.sh");
 
 const dryRun = process.argv.includes("--dry-run");
 
-interface CronDef {
-  name: string;
-  schedule: string;
-  type?: "llm" | "script";
-  prompt?: string;
-  command?: string;
-  agentId: string;
-  deliveryChatId?: number;
-  timeout?: number;
-  enabled?: boolean;
-}
+type CronDef = CronPlistDef;
 
 // Parse cron expression to launchd StartCalendarInterval entries
 // launchd doesn't support */N — we expand to individual entries
@@ -241,19 +232,9 @@ function main(): void {
       console.log(`[SKIP] ${cron.name} (enabled: false)`);
       continue;
     }
-    const cronType = cron.type ?? "llm";
-    if (cronType !== "llm" && cronType !== "script") {
-      console.error(`ERROR: ${cron.name} has invalid type "${cron.type}" (must be "llm" or "script")`);
-      errors++;
-      continue;
-    }
-    if (cronType === "script" && (!cron.command || !cron.command.trim())) {
-      console.error(`ERROR: ${cron.name} is type "script" but missing required "command" field`);
-      errors++;
-      continue;
-    }
-    if (cronType === "llm" && (!cron.prompt || !cron.prompt.trim())) {
-      console.error(`ERROR: ${cron.name} is type "llm" but missing required "prompt" field`);
+    const validationError = validateCronForPlist(cron);
+    if (validationError) {
+      console.error(`ERROR: ${validationError}`);
       errors++;
       continue;
     }
@@ -291,4 +272,9 @@ function main(): void {
   }
 }
 
-main();
+const isMain =
+  process.argv[1]?.endsWith("generate-plists.ts") ||
+  process.argv[1]?.endsWith("generate-plists.js");
+if (isMain) {
+  main();
+}

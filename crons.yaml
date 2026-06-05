@@ -8,17 +8,19 @@
 # Field reference:
 #   name              (string, required)  Unique identifier for the cron job
 #   schedule          (string, required)  Cron expression (5-field), local timezone
-#   type              ("llm"|"script")    "llm" (default) runs claude -p with prompt; "script" runs a shell command
-#   prompt            (string)            Prompt text sent to Claude (required for type: llm)
+#   type              ("llm"|"script")    "llm" (default) runs one-shot LLM prompt; "script" runs a shell command
+#   engine            ("claude"|"pi")     LLM backend for type: llm; default is "claude", set "pi" for fixed-model Pi print mode
+#   prompt            (string)            Prompt text sent to the selected LLM engine (required for type: llm)
 #   command           (string)            Shell command to execute (required for type: script)
 #   agentId           (string, required)  Must match an agent in config.yaml (determines workspace)
 #   deliveryChatId    (number)            Telegram chat ID for result delivery (falls back to config default)
 #   deliveryThreadId  (number)            Telegram forum topic ID for delivery (falls back to config default)
-#   timeout           (number)            Per-cron timeout in milliseconds (default: 300000 = 5 min)
+#   timeout           (number)            Per-cron timeout in milliseconds (default: 900000 = 15 min)
 #   enabled           (boolean)           Set false to skip plist generation for this cron (default: true)
 #
 # Script-mode crons execute via /bin/bash, capture stdout, and deliver like LLM crons.
 # They skip all Claude-specific setup (model, workspace, env vars). Empty output skips delivery.
+# Pi LLM crons always use pi -p --no-session --no-extensions with model openai-codex/gpt-5.5 and only the explicit A1 guard extension.
 
 crons:
   # Weekly workspace health check (uses /workspace-health skill)
@@ -45,4 +47,4 @@ crons:
   #   type: script
   #   command: "/usr/bin/backup.sh --full"
   #   agentId: main
-  #   timeout: 300000
+  #   timeout: 900000

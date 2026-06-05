@@ -7,13 +7,19 @@ set -euo pipefail
 
 # Ensure HOME and PATH are set (launchd context may not have them)
 export HOME="${HOME:-$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')}"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+PATH_PREFIX="${MINIME_PATH_PREFIX:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
+export PATH="${PATH_PREFIX}${PATH:+:${PATH}}"
 
 # Claude Code subprocess must NOT inherit CLAUDECODE
 unset CLAUDECODE
 
-# Read OAuth token from Keychain for Claude CLI subprocess
-export CLAUDE_CODE_OAUTH_TOKEN=$(security find-generic-password -s claude-code-oauth-token -w)
+# Read OAuth token from Keychain for Claude CLI subprocess when available. This
+# must be best-effort so Pi-engine crons can run without a Claude credential.
+if CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s claude-code-oauth-token -w 2>/dev/null)"; then
+  export CLAUDE_CODE_OAUTH_TOKEN
+else
+  unset CLAUDE_CODE_OAUTH_TOKEN
+fi
 unset ANTHROPIC_API_KEY
 
 # Claude Code subprocess environment

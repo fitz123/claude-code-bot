@@ -525,38 +525,80 @@ describe("Pi extension loading (--extension)", () => {
 });
 
 describe("buildPiSpawnEnv", () => {
-  it("removes Anthropic credentials while preserving unrelated env", () => {
-    const oldClaudeToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    const oldApiKey = process.env.ANTHROPIC_API_KEY;
-    const oldMarker = process.env.PI_RPC_TEST_MARKER;
+  it("allows only Pi runtime env and removes ambient credentials", () => {
+    const envKeys = [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_OAUTH_TOKEN",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_SESSION_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "DISCORD_BOT_TOKEN",
+      "GITHUB_TOKEN",
+      "GOOGLE_APPLICATION_CREDENTIALS",
+      "LC_CTYPE",
+      "LC_SECRET",
+      "NPM_TOKEN",
+      "OPENAI_API_KEY",
+      "PI_CODING_AGENT_SESSION_DIR",
+      "PI_RPC_TEST_MARKER",
+      "SSH_AUTH_SOCK",
+      "TAVILY_API_KEY",
+      "TELEGRAM_BOT_TOKEN",
+      "MINIME_SESSION_SECRET",
+    ];
+    const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
 
     try {
-      process.env.CLAUDE_CODE_OAUTH_TOKEN = "secret";
-      process.env.ANTHROPIC_API_KEY = "secret";
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = "fixture";
+      process.env.ANTHROPIC_API_KEY = "fixture";
+      process.env.ANTHROPIC_OAUTH_TOKEN = "fixture";
+      process.env.AWS_ACCESS_KEY_ID = "fixture";
+      process.env.AWS_SECRET_ACCESS_KEY = "fixture";
+      process.env.AWS_SESSION_TOKEN = "fixture";
+      process.env.DISCORD_BOT_TOKEN = "fixture";
+      process.env.GITHUB_TOKEN = "fixture";
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/google-creds.json";
+      process.env.LC_CTYPE = "UTF-8";
+      process.env.LC_SECRET = "fixture";
+      process.env.NPM_TOKEN = "fixture";
+      process.env.OPENAI_API_KEY = "fixture";
+      process.env.PI_CODING_AGENT_SESSION_DIR = "/tmp/pi-sessions";
       process.env.PI_RPC_TEST_MARKER = "keep";
+      process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
+      process.env.TAVILY_API_KEY = "fixture";
+      process.env.TELEGRAM_BOT_TOKEN = "fixture";
+      process.env.MINIME_SESSION_SECRET = "fixture";
 
       const env = buildPiSpawnEnv(testAgent);
 
       assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
-      assert.strictEqual(env.PI_RPC_TEST_MARKER, "keep");
+      assert.strictEqual(env.DISCORD_BOT_TOKEN, undefined);
+      assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
+      assert.strictEqual(env.PI_RPC_TEST_MARKER, undefined);
+      assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
+      assert.strictEqual(env.TAVILY_API_KEY, undefined);
+      assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
+      assert.strictEqual(env.MINIME_SESSION_SECRET, undefined);
+      assert.strictEqual(env.ANTHROPIC_OAUTH_TOKEN, undefined);
+      assert.strictEqual(env.AWS_ACCESS_KEY_ID, undefined);
+      assert.strictEqual(env.AWS_SECRET_ACCESS_KEY, undefined);
+      assert.strictEqual(env.AWS_SESSION_TOKEN, undefined);
+      assert.strictEqual(env.GITHUB_TOKEN, undefined);
+      assert.strictEqual(env.GOOGLE_APPLICATION_CREDENTIALS, undefined);
+      assert.strictEqual(env.LC_CTYPE, "UTF-8");
+      assert.strictEqual(env.LC_SECRET, undefined);
+      assert.strictEqual(env.NPM_TOKEN, undefined);
+      assert.strictEqual(env.OPENAI_API_KEY, undefined);
     } finally {
-      if (oldClaudeToken === undefined) {
-        delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-      } else {
-        process.env.CLAUDE_CODE_OAUTH_TOKEN = oldClaudeToken;
-      }
-
-      if (oldApiKey === undefined) {
-        delete process.env.ANTHROPIC_API_KEY;
-      } else {
-        process.env.ANTHROPIC_API_KEY = oldApiKey;
-      }
-
-      if (oldMarker === undefined) {
-        delete process.env.PI_RPC_TEST_MARKER;
-      } else {
-        process.env.PI_RPC_TEST_MARKER = oldMarker;
+      for (const key of envKeys) {
+        const oldValue = oldValues.get(key);
+        if (oldValue === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = oldValue;
+        }
       }
     }
   });
@@ -575,6 +617,24 @@ describe("buildPiSpawnEnv", () => {
       const env = buildPiSpawnEnv(testAgent);
 
       assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+    } finally {
+      if (oldPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = oldPath;
+      }
+    }
+  });
+
+  it("builds PATH without empty elements when inherited PATH is blank or has separators", () => {
+    const oldPath = process.env.PATH;
+
+    try {
+      process.env.PATH = "";
+      assert.strictEqual(buildPiSpawnEnv(testAgent).PATH, "/opt/homebrew/bin");
+
+      process.env.PATH = ":/usr/bin::/bin:";
+      assert.strictEqual(buildPiSpawnEnv(testAgent).PATH, "/opt/homebrew/bin:/usr/bin:/bin");
     } finally {
       if (oldPath === undefined) {
         delete process.env.PATH;
