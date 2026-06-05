@@ -214,8 +214,8 @@ export async function relayStream(
     let ownershipSignaled = false;
 
     for await (const msg of stream) {
-      // First event from the stream means Claude received the prompt over
-      // stdin and started processing — the conversation history now references
+      // First event from the stream means the agent received the prompt and
+      // started processing — the conversation history now references
       // any media paths in the prompt. Signal ownership so the queue won't
       // reclaim media if response delivery fails afterward (issue #99).
       if (!ownershipSignaled) {
@@ -307,7 +307,7 @@ export async function relayStream(
       }
     }
 
-    // Send any files Claude placed in the outbox directory
+    // Send any files the agent placed in the outbox directory
     if (outboxPath) {
       await sendOutboxFiles(outboxPath, platform);
     }

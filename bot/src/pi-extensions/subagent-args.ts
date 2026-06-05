@@ -4,7 +4,7 @@
  * Backs the adopted vendor `subagent` Pi extension
  * (`bot/.claude/extensions/subagent/`), which delegates a task to a specialized
  * agent by spawning an ISOLATED `pi` child process and streaming back its result.
- * The vendor example hardcodes Claude models; the only behavioral adaptation for
+ * The vendor example hardcodes non-Codex models; the only behavioral adaptation for
  * this bot is the PROVIDER WIRING — spawned children must run on the same
  * `openai-codex` provider/model the parent Pi session uses (see
  * `pi-rpc-protocol.ts`). That wiring, the child-output (JSONL) parser, the

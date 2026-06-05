@@ -2,7 +2,7 @@
  * A1 — guardian + protect-files write guard (pure, testable core).
  *
  * Ports the workspace's file-write protection (the `protect-files.sh` +
- * `guardian.sh` PreToolUse hooks, which only run for the CLAUDE path) into a
+ * `guardian.sh` PreToolUse hooks, which only run in the original hook path) into a
  * provider-agnostic classifier so a Pi (`openai-codex`) session is guarded the
  * same way. The thin Pi wrapper at
  * `bot/.claude/extensions/guardian-protect-files.ts` calls {@link classifyToolCall}

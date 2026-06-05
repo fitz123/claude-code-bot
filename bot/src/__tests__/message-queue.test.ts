@@ -504,7 +504,7 @@ describe("MessageQueue drop cleanups", () => {
     let dropFired = 0;
     let unblock!: () => void;
     // processFn that blocks WITHOUT signaling ownership — mimics a real
-    // session that hasn't yet received any stream events from Claude.
+    // session that hasn't yet received any stream events from the agent.
     const blockBeforeOwnership = async () => {
       await new Promise<void>((resolve) => { unblock = resolve; });
     };

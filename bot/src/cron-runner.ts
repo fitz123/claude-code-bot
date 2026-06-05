@@ -617,7 +617,7 @@ function runPi(
   args.push(...resolvePiCronExtensionArgs(deps.resolveExtensionArgs));
 
   const env = hardenPiCronEnv(deps.buildEnv(agent));
-  // Pi authenticates via ~/.pi/agent/auth.json, not Claude OAuth credentials.
+  // Pi authenticates via ~/.pi/agent/auth.json, not legacy OAuth credentials.
   env.HOME ||= homedir();
 
   const result = deps.spawnSync(PI_BIN, args, {

@@ -187,7 +187,7 @@ export class MessageQueue {
       // Compact: remove entries already consumed by inject hook to bound array growth.
       // Without this, arrays grow unbounded during long turns with continuous message flow.
       // Cleanups are deferred — temp files may still be in use by the active turn
-      // (e.g. Claude reading an image path delivered via additionalContext).
+      // (e.g. the agent reading an image path delivered via additionalContext).
       if (state.injectConsumed > 0) {
         const consumed = state.injectConsumed;
         state.collectBuffer.splice(0, consumed);

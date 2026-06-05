@@ -184,7 +184,7 @@ export function resolveBinding(
 
 /**
  * Build a source context prefix from binding and sender info.
- * Prepended to every message before enqueuing so Claude knows
+ * Prepended to every message before enqueuing so the agent knows
  * which chat/topic a message came from and who sent it.
  */
 export function buildSourcePrefix(
@@ -810,7 +810,7 @@ export function createTelegramBot(
     messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
   });
 
-  // Handle voice messages — transcribe with whisper-cli and send to Claude
+  // Handle voice messages — transcribe with whisper-cli and send to the agent
   bot.on("message:voice", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
@@ -850,7 +850,7 @@ export function createTelegramBot(
       // Update index with actual transcript content
       recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), transcript, "in");
 
-      // Send transcript text to Claude session
+      // Send transcript text to the agent session
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
@@ -872,7 +872,7 @@ export function createTelegramBot(
     }
   });
 
-  // Handle photo messages — download image and pass file path to Claude for vision
+  // Handle photo messages — download image and pass file path to the agent for vision
   bot.on("message:photo", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;

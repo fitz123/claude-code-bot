@@ -1,7 +1,7 @@
-/** Image MIME types supported by Claude vision */
+/** Image MIME types supported by agent vision */
 const SUPPORTED_IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"]);
 
-/** Check if a MIME type is a supported image type for Claude vision. */
+/** Check if a MIME type is a supported image type for agent vision. */
 export function isImageMimeType(mimeType: string | undefined): boolean {
   return mimeType !== undefined && SUPPORTED_IMAGE_MIMES.has(mimeType);
 }

@@ -18,8 +18,8 @@ import { log } from "./logger.js";
  * `.claude/rules/` auto-load, no memory recall (verified in
  * `@earendil-works/pi-coding-agent` resource-loader/system-prompt). Without help,
  * an agent's CLAUDE.md `@`-imports and rule files silently vanish under Pi. This
- * module assembles the SAME context a Claude Code session loads, from the agent's
- * LIVE workspace files (zero drift), and hands it to Pi via CLI args:
+ * module assembles the same workspace context convention from the agent's LIVE
+ * workspace files (zero drift), and hands it to Pi via CLI args:
  *   --system-prompt          → the persona (REPLACES Pi's base prompt)
  *   --append-system-prompt   → the context bundle (APPENDED)
  *   --no-context-files       → so Pi does not ALSO load CLAUDE.md/AGENTS.md (no double context)
@@ -84,10 +84,10 @@ const IMPORT_LINE = /^[ \t]*@(\S+)[ \t]*\r?$/;
  * The fixed `## Memory access` directive (verbatim). MEMORY.md itself reaches the
  * bundle as a `## MEMORY.md` section (it is a CLAUDE.md `@`-import) = the index;
  * the corpus under `memory/auto/*` is read ON DEMAND, not inlined. Auto-recall
- * like the Claude harness is not yet available under Pi (a tracked fast-follow).
+ * like the legacy harness is not yet available under Pi (a tracked fast-follow).
  */
 const MEMORY_ACCESS_DIRECTIVE =
-  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the Claude harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
+  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the legacy harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
 
 /** Read a file, returning null on ANY error (fail-safe: missing/unreadable → skip). */
 function safeReadFile(path: string): string | null {
@@ -317,8 +317,8 @@ export function resolvePersona(agent: AgentConfig): string | null {
 }
 
 /**
- * An output-style slug must be a single path segment — Claude resolves output
- * styles by NAME, never by path. Reject any slug containing a path separator so a
+ * An output-style slug must be a single path segment. Output styles resolve by
+ * NAME, never by path. Reject any slug containing a path separator so a
  * settings.local.json value like `"../../../../etc/passwd"` cannot escape
  * `.claude/output-styles/` and pull an arbitrary file into the `--system-prompt`.
  */

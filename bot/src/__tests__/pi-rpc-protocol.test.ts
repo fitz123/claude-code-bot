@@ -189,7 +189,7 @@ describe("buildPiSpawnArgs", () => {
     assert.ok(args.includes("--no-context-files"));
   });
 
-  it("omits Claude-only flags", () => {
+  it("omits removed-runtime flags", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "persona",

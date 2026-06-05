@@ -89,7 +89,7 @@ export function shouldRespondInDiscord(
 
 /**
  * Build a source context prefix for Discord messages.
- * Prepended to every message before enqueuing so Claude knows
+ * Prepended to every message before enqueuing so the agent knows
  * which channel a message came from and who sent it.
  */
 export function buildDiscordSourcePrefix(
@@ -334,7 +334,7 @@ export async function createDiscordBot(
 
       const key = discordSessionKey(channelId, threadId);
       const prefix = buildDiscordSourcePrefix(binding, message.author, message.createdTimestamp);
-      // Strip bot mention syntax (<@botId>) from message content so Claude
+      // Strip bot mention syntax (<@botId>) from message content so the agent
       // doesn't receive raw snowflake IDs in every requireMention message
       const botMentionRe = new RegExp(`<@!?${client.user!.id}>\\s*`, "g");
       const channel = message.channel as unknown as DiscordSendableChannel;

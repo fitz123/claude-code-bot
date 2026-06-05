@@ -69,6 +69,18 @@ rg -n "spawnClaudeSession|cli-protocol|runClaude\(|claude -p|CLAUDE_CODE_OAUTH_T
 
 Expected grep result after cleanup: no live-runtime references. Allowed residuals must be documented in an allowlist section of the PR description, e.g. `CLAUDE.md` context naming, historical docs under `docs/plans/**`, and comments that intentionally explain legacy metric names.
 
+## PR Description: Residual Reference Allowlist
+
+Residual `Claude`/`CLAUDE`/`Anthropic` references after the cleanup are intentional in these categories:
+
+- Context-convention names: `CLAUDE.md`, `.claude/rules`, `.claude/skills`, and tests/docs for the Pi context assembler remain because Pi still loads the existing workspace context convention. Hook compatibility tests also keep `CLAUDE_PROJECT_DIR` and `.CLAUDE/HOOKS` references for the current guard scripts.
+- Historical docs: old planning documents under `docs/plans/**` are retained as historical records and are excluded from the live-runtime grep.
+- Legacy metric names: `bot_claude_*` metric names remain for Prometheus dashboard continuity; help text describes active-runtime usage.
+- Migration guards and secret scrubbing: config/cron validation rejects `provider: claude`, `engine: claude`, `fallbackModel`, and `defaultFallbackModel`; Pi spawn/cron wrappers still scrub stale `CLAUDE_CODE_*`, `CLAUDECODE`, and `ANTHROPIC_*` environment variables so obsolete credentials do not leak to child processes.
+- README lineage/comparison text: Similar Projects mentions Anthropic/Claude Code only to compare external projects and project history, not as setup or runtime guidance.
+
+No obsolete live-runtime references remain: no `spawnClaudeSession`, `cli-protocol` import, `runClaude(` path, `claude -p` invocation, launch-script OAuth read, or hard-coded Claude model remains outside historical plans.
+
 ## Tasks
 
 ### Task 0: Pre-flight gates
@@ -155,13 +167,13 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 9: Residual reference audit
 
-- [ ] Run the grep from Validation Commands.
-- [ ] Categorize every remaining `Claude`/`CLAUDE`/`Anthropic` hit:
+- [x] Run the grep from Validation Commands.
+- [x] Categorize every remaining `Claude`/`CLAUDE`/`Anthropic` hit:
   - allowed context-convention names (`CLAUDE.md`, `.claude/rules`, `.claude/skills`),
   - historical docs under `docs/plans/**`,
   - legacy metric names intentionally kept,
   - obsolete runtime references that must be removed.
-- [ ] Add a short PR comment/description section documenting allowed residual references so reviewers do not chase intentional leftovers.
+- [x] Add a short PR comment/description section documenting allowed residual references so reviewers do not chase intentional leftovers.
 
 ### Task 10: Deployment / migration notes
 

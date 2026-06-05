@@ -288,7 +288,7 @@ export function buildPiSpawnArgs(
   }
 
   // Spawn-time context assembly. The assembler (pi-context-assembler.ts) gives
-  // full Claude→Pi context parity from the agent's LIVE workspace files, delivered as three CLI
+  // workspace-context parity from the agent's LIVE workspace files, delivered as three CLI
   // layers, REPLACING the old `agent.systemPrompt → --append-system-prompt` branch:
   //   --system-prompt <persona>   REPLACES Pi's base prompt (omitted when no persona
   //                               resolves — the agent then rides Pi's base prompt).
@@ -321,8 +321,8 @@ export function buildPiSpawnArgs(
   // fail-closed missing-wrapper check live in resolvePiExtensionArgs.
   args.push(...resolvePiExtensionArgs(extensionOptions));
 
-  // Pi mints its own session id (the bot cannot pre-assign one as it does for
-  // claude via --session-id). When resuming a stored session, point Pi at the
+  // Pi mints its own session id (the bot cannot pre-assign one with
+  // --session-id). When resuming a stored session, point Pi at the
   // captured id with --session; on a fresh start, omit it entirely (passing an
   // unknown id makes Pi exit 1 with "No session found matching").
   if (resumeSessionId) {
@@ -347,7 +347,7 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   // ambient credentials such as provider tokens or SSH agent sockets.
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.ANTHROPIC_API_KEY;
-  // Never leak the Claude Code session marker into a spawned agent subprocess.
+  // Never leak the legacy session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
   // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
   // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the

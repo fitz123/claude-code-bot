@@ -26,7 +26,7 @@ import type { AgentConfig } from "../types.js";
 // The verbatim memory directive — pinned here so a wording drift in the module
 // fails this test (it is part of the deterministic bundle contract, D7).
 const MEMORY_DIRECTIVE =
-  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the Claude harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
+  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the legacy harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
 
 const created: string[] = [];
 
