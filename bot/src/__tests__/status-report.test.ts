@@ -82,13 +82,12 @@ describe("buildStatusReport", () => {
     assert.doesNotMatch(text, /Restarts/);
   });
 
-  it("renders processing state and Claude effort", () => {
+  it("renders processing state and Pi thinking", () => {
     const text = baseReport({
       sessionHealth: baseHealth({
-        provider: "claude",
-        model: "claude-opus-4-6",
-        thinking: undefined,
-        effort: "high",
+        provider: "pi",
+        model: "openai-codex/gpt-5.5",
+        thinking: "high",
         processingMs: 42_500,
       }),
       quotaStatus: {
@@ -99,11 +98,11 @@ describe("buildStatusReport", () => {
       },
     });
 
-    assert.match(text, /Agent: main \(claude\)/);
-    assert.match(text, /Model: claude-opus-4-6/);
-    assert.match(text, /Effort: high/);
+    assert.match(text, /Agent: main \(pi\)/);
+    assert.match(text, /Model: openai-codex\/gpt-5\.5/);
+    assert.match(text, /Thinking: high/);
     assert.match(text, /State: processing \(42s\)/);
-    assert.doesNotMatch(text, /Codex quota/);
+    assert.match(text, /Codex quota: unavailable \(state file missing\)/);
   });
 
   it("includes PID diagnostics when the session process is dead", () => {
@@ -224,13 +223,12 @@ describe("buildStatusReport", () => {
     assert.doesNotMatch(readError, /bad json/);
   });
 
-  it("omits missing quota data for non-Pi sessions", () => {
+  it("renders missing quota data for Pi sessions", () => {
     const text = baseReport({
       sessionHealth: baseHealth({
-        provider: "claude",
-        model: "claude-opus-4-6",
-        thinking: undefined,
-        effort: "medium",
+        provider: "pi",
+        model: "openai-codex/gpt-5.5",
+        thinking: "medium",
       }),
       quotaStatus: {
         state: "unavailable",
@@ -240,6 +238,6 @@ describe("buildStatusReport", () => {
       },
     });
 
-    assert.doesNotMatch(text, /Codex quota/);
+    assert.match(text, /Codex quota: unavailable \(state file missing\)/);
   });
 });

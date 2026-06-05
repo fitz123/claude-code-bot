@@ -80,16 +80,16 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 1: Make Pi the only interactive runtime
 
-- [ ] Remove the Claude branch from `bot/src/session-manager.ts`.
-- [ ] Remove imports of `spawnClaudeSession`, `sendMessage`, and `readStream`.
-- [ ] Spawn sessions only via `spawnPiRpcSession(agent, resume ? sessionId : undefined)`.
-- [ ] Send prompts only via `sendPiPrompt(session.child, text, "followUp")`.
-- [ ] Read streams only via `readPiStream(session.child)`.
-- [ ] Simplify `ActiveSession.provider` away, or pin it to a literal Pi-only type if needed temporarily.
-- [ ] Update shutdown injection to always use `sendPiSteer`; remove the Claude inject-file branch for live subprocesses.
-- [ ] Keep inject directory cleanup only if still needed elsewhere; otherwise remove inject-dir creation from session lifecycle.
-- [ ] Update error text from `Claude subprocess ...` to provider-neutral or Pi-specific wording.
-- [ ] Preserve Pi resume-recovery, session id capture, crash backoff, media/outbox cleanup, queue semantics, and activity timeout behavior.
+- [x] Remove the Claude branch from `bot/src/session-manager.ts`.
+- [x] Remove imports of `spawnClaudeSession`, `sendMessage`, and `readStream`.
+- [x] Spawn sessions only via `spawnPiRpcSession(agent, resume ? sessionId : undefined)`.
+- [x] Send prompts only via `sendPiPrompt(session.child, text, "followUp")`.
+- [x] Read streams only via `readPiStream(session.child)`.
+- [x] Simplify `ActiveSession.provider` away, or pin it to a literal Pi-only type if needed temporarily.
+- [x] Update shutdown injection to always use `sendPiSteer`; remove the Claude inject-file branch for live subprocesses.
+- [x] Keep inject directory cleanup only if still needed elsewhere; otherwise remove inject-dir creation from session lifecycle.
+- [x] Update error text from `Claude subprocess ...` to provider-neutral or Pi-specific wording.
+- [x] Preserve Pi resume-recovery, session id capture, crash backoff, media/outbox cleanup, queue semantics, and activity timeout behavior.
 
 ### Task 2: Delete obsolete Claude protocol/capability modules
 

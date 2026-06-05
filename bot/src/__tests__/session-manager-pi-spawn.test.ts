@@ -310,14 +310,12 @@ describe("SessionManager Pi session-id capture + resume", () => {
     assert.strictEqual(session.provider, "pi");
     assert.strictEqual(session.model, "openai-codex/gpt-5.5");
     assert.strictEqual(session.thinking, "xhigh");
-    assert.strictEqual(session.effort, undefined);
 
     const health = manager.getSessionHealth("pi-chat");
     assert.ok(health);
     assert.strictEqual(health.provider, "pi");
     assert.strictEqual(health.model, "openai-codex/gpt-5.5");
     assert.strictEqual(health.thinking, "xhigh");
-    assert.strictEqual(health.effort, undefined);
 
     // ...and the captured id is persisted for resume across restarts.
     const store = new SessionStore(TEST_STORE_PATH);
@@ -400,28 +398,18 @@ describe("SessionManager Pi session-id capture + resume", () => {
     await manager.closeAll();
   });
 
-  it("claude path bot-generates --session-id and never issues get_state (regression)", async () => {
+  it("spawns an absent-provider agent via Pi and captures its Pi session id", async () => {
+    nextPiSessionId = "main-pi-id";
     const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
-    const session = await manager.getOrCreateSession("claude-chat", "main");
+    const session = await manager.getOrCreateSession("main-chat", "main");
 
-    assert.strictEqual(claudeSpawnCaptures.length, 1, "one claude spawn");
-    assert.strictEqual(claudeSpawnCaptures[0].resume, false, "fresh claude session does not resume");
-    assert.ok(
-      typeof claudeSpawnCaptures[0].sessionId === "string" && claudeSpawnCaptures[0].sessionId.length > 0,
-      "claude path bot-generates a --session-id",
-    );
-
-    // No get_state override: the session keeps the bot-generated id exactly.
-    assert.strictEqual(
-      session.sessionId,
-      claudeSpawnCaptures[0].sessionId,
-      "claude session keeps the bot-generated id (no Pi capture override)",
-    );
-    assert.strictEqual(session.provider, "claude");
-    assert.strictEqual(session.model, "claude-opus-4-6");
+    assert.strictEqual(piSpawnCaptures.length, 1, "one Pi spawn");
+    assert.strictEqual(piSpawnCaptures[0].agent.id, "main");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, undefined);
+    assert.strictEqual(session.sessionId, "main-pi-id");
+    assert.strictEqual(session.provider, "pi");
+    assert.strictEqual(session.model, "openai-codex/claude-opus-4-6");
     assert.strictEqual(session.thinking, undefined);
-    // The claude path must not have touched the Pi spawn path at all.
-    assert.strictEqual(piSpawnCaptures.length, 0, "claude path must not spawn a Pi process");
 
     await manager.closeAll();
   });

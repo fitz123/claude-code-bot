@@ -63,10 +63,7 @@ function formatSessionHealth(
 }
 
 function formatReasoningLine(health: SessionHealth): string {
-  if (health.provider === "pi") {
-    return `Thinking: ${health.thinking ?? "default"}`;
-  }
-  return `Effort: ${health.effort ?? "default"}`;
+  return `Thinking: ${health.thinking ?? "default"}`;
 }
 
 function formatSessionState(health: SessionHealth): string {

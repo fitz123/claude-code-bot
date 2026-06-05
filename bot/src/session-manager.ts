@@ -6,12 +6,10 @@ import { join } from "node:path";
 import { on } from "node:events";
 import PQueue from "p-queue";
 import type { SessionState, StreamLine, BotConfig, AgentConfig } from "./types.js";
-import { spawnClaudeSession, sendMessage, readStream } from "./cli-protocol.js";
 import { spawnPiRpcSession, sendPiPrompt, sendPiSteer, sendPiGetState, readPiStream, parsePiRecord, NewlineOnlyJsonlSplitter, normalizePiModel, type PiStartupDiagnostics } from "./pi-rpc-protocol.js";
 import { SessionStore } from "./session-store.js";
 import { log } from "./logger.js";
 import { recordResultMetrics, recordPiRetry, recordPiTurnDuration, sessionsActive, sessionCrashes, piSessionResumeDiscarded } from "./metrics.js";
-import { injectDirForChat, cleanupInjectDir, writeInjectFile } from "./inject-file.js";
 import { ensureSessionMediaDir, cleanupSessionMediaDir, cleanupStaleSessionMedia } from "./media-store.js";
 
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
@@ -35,8 +33,8 @@ export function hasExited(child: ChildProcess): boolean {
 
 /**
  * Read the startup stderr buffered on a Pi child by `spawnPiRpcSession`. Returns
- * "" for a claude child (no accessor) or before any stderr arrived. Used by the
- * spawn-failure classifier to detect Pi's "No session found matching" signal.
+ * "" before any stderr arrived or when a mock child has no accessor. Used by
+ * the spawn-failure classifier to detect Pi's "No session found matching" signal.
  */
 function piStartupStderr(child: ChildProcess): string {
   const reader = (child as unknown as PiStartupDiagnostics).piStartupStderr;
@@ -61,20 +59,12 @@ export interface ActiveSession {
   child: ChildProcess;
   sessionId: string;
   agentId: string;
-  /**
-   * Provider the child was actually spawned under, pinned at spawn time. Used
-   * for send/read dispatch instead of re-reading config: a hot-reload that
-   * flips the agent's provider must NOT switch the protocol of an already-live
-   * child (which was spawned under the old provider), and a later config that
-   * fails to load must not break dispatch for a session that is still usable.
-   */
-  provider: "claude" | "pi";
-  /** Spawn-time model after provider-specific normalization. */
+  /** Provider is retained temporarily for status/reporting while runtime is Pi-only. */
+  provider: "pi";
+  /** Spawn-time Pi model after normalization. */
   model: string;
   /** Spawn-time Pi thinking level, when configured. */
   thinking?: AgentConfig["thinking"];
-  /** Spawn-time Claude effort level, when configured. */
-  effort?: AgentConfig["effort"];
   queue: PQueue;
   idleTimer: ReturnType<typeof setTimeout> | null;
   /** Idle timeout baked at spawn time from config. */
@@ -88,8 +78,6 @@ export interface ActiveSession {
   restartCount: number;
   /** Per-session outbox directory for file delivery. */
   outboxPath: string;
-  /** Per-session inject directory for mid-turn message delivery. */
-  injectDir: string;
 }
 
 export interface SessionHealth {
@@ -97,10 +85,9 @@ export interface SessionHealth {
   alive: boolean;
   agentId: string;
   sessionId: string;
-  provider: "claude" | "pi";
+  provider: "pi";
   model: string;
   thinking?: AgentConfig["thinking"];
-  effort?: AgentConfig["effort"];
   idleMs: number;
   /** Milliseconds since current turn started, or null if not processing. */
   processingMs: number | null;
@@ -109,8 +96,8 @@ export interface SessionHealth {
   restartCount: number;
 }
 
-function normalizedSessionModel(agent: AgentConfig, provider: "claude" | "pi"): string {
-  return provider === "pi" ? normalizePiModel(agent.model) : agent.model;
+function normalizedSessionModel(agent: AgentConfig): string {
+  return normalizePiModel(agent.model);
 }
 
 /**
@@ -122,7 +109,7 @@ export function waitForSpawn(child: ChildProcess, timeoutMs: number = STARTUP_TI
     const timer = setTimeout(() => {
       removeListeners();
       child.kill("SIGKILL");
-      reject(new Error(`Claude subprocess did not start within ${timeoutMs}ms`));
+      reject(new Error(`Pi subprocess did not start within ${timeoutMs}ms`));
     }, timeoutMs);
 
     function removeListeners() {
@@ -139,12 +126,12 @@ export function waitForSpawn(child: ChildProcess, timeoutMs: number = STARTUP_TI
 
     function onError(err: Error) {
       removeListeners();
-      reject(new Error(`Claude subprocess failed to start: ${err.message}`));
+      reject(new Error(`Pi subprocess failed to start: ${err.message}`));
     }
 
     function onExit(code: number | null, signal: string | null) {
       removeListeners();
-      reject(new Error(`Claude subprocess exited during startup: code=${code} signal=${signal}`));
+      reject(new Error(`Pi subprocess exited during startup: code=${code} signal=${signal}`));
     }
 
     child.once("spawn", onSpawn);
@@ -196,14 +183,13 @@ export class SessionManager {
 
   /**
    * Capture the Pi-minted session id by issuing get_state and reading the single
-   * SystemInit record it produces, then stopping the generator. Pi (unlike the
-   * claude path, where the bot pre-assigns --session-id) mints its own id and
-   * exposes it ONLY through a get_state response. Honors the single-consumer
-   * contract: this is the lone reader of child.stdout during spawn and is fully
-   * stopped (generator.return) before any sendSessionMessage opens its own fresh
-   * readPiStream. Returns null on timeout or if no id surfaces (e.g. the process
-   * went idle without a system record) — the session stays usable on its local
-   * id, and a later resume that can't match falls to Task 4 recovery.
+   * SystemInit record it produces. Pi mints its own id and exposes it ONLY
+   * through a get_state response. Honors the single-consumer contract: this is
+   * the lone reader of child.stdout during spawn and is fully stopped before any
+   * sendSessionMessage opens its own fresh readPiStream. Returns null on timeout
+   * or if no id surfaces (e.g. the process went idle without a system record) —
+   * the session stays usable on its local id, and a later resume that can't
+   * match falls to resume recovery.
    */
   private async capturePiSessionId(child: ChildProcess): Promise<string | null> {
     const stdout = child.stdout;
@@ -361,31 +347,15 @@ export class SessionManager {
     rmSync(outboxPath, { recursive: true, force: true });
     mkdirSync(outboxPath, { recursive: true });
 
-    // Clean and recreate inject directory for mid-turn message delivery
-    const injectPath = injectDirForChat(chatId);
-    cleanupInjectDir(injectPath);
-    mkdirSync(injectPath, { recursive: true });
-
     // Ensure media directory exists (do NOT wipe: a photo may have been
     // downloaded into it moments before this spawn was triggered).
     // Cleanup happens on session close, crash recovery, and via the global cap.
     ensureSessionMediaDir(chatId);
 
-    // Spawn the agent subprocess. Pi dispatches via the Pi RPC protocol; the
-    // claude/absent path is byte-identical to before. For Pi, only a genuine
-    // resume points --session at the stored (Pi-minted) id; a fresh start omits
-    // it (an unknown id makes Pi exit with "No session found matching").
-    const isPi = agent.provider === "pi";
-    let child = isPi
-      ? spawnPiRpcSession(agent, resume ? sessionId : undefined)
-      : spawnClaudeSession({
-          agent,
-          sessionId,
-          resume,
-          includePartialMessages: true,
-          outboxPath,
-          injectDir: injectPath,
-        });
+    // Spawn the agent subprocess via Pi RPC. Only a genuine resume points
+    // --session at the stored Pi-minted id; a fresh start omits it (an unknown
+    // id makes Pi exit with "No session found matching").
+    let child = spawnPiRpcSession(agent, resume ? sessionId : undefined);
 
     // Graceful Pi resume-recovery state (signal-matched, inline, at-most-once):
     // Pi flushes a session to disk only after agent_end/SIGTERM, so a restart
@@ -398,7 +368,7 @@ export class SessionManager {
     let effectiveSessionId = sessionId;
     let alreadyRetried = false;
 
-    // Verify the subprocess started — and for Pi, capture its minted session id.
+    // Verify the subprocess started and capture its Pi-minted session id.
     // A real `pi` handed a stale --session does NOT fail at spawn: Node emits
     // 'spawn' before all other events, so waitForSpawn RESOLVES, and only THEN
     // does Pi print "No session found matching" and exit 1. So a resume failure
@@ -418,25 +388,19 @@ export class SessionManager {
           log.error("session-manager", `stdin error for chat ${chatId}: ${err.message}`);
         });
 
-        // For Pi, the session id is minted by the process — capture it now via
-        // get_state (the only place Pi exposes it) so it can be persisted and
-        // used to --session-resume after a restart. The claude/absent path keeps
-        // its bot-generated id untouched.
-        if (isPi) {
-          const piSessionId = await this.capturePiSessionId(child);
-          if (piSessionId) {
-            // Capture succeeded — the process is alive and answered get_state.
-            effectiveSessionId = piSessionId;
-          } else if (hasExited(child)) {
-            // No id AND the child already exited: it spawned but died during
-            // startup (e.g. a stale --session). Throw into the shared catch for
-            // classification (recovery vs backoff), same as a spawn rejection.
-            throw new Error(`Pi subprocess exited during startup: code=${child.exitCode}`);
-          }
-          // Else: no id but the child is still alive — capture timed out or the
-          // process went idle without a SystemInit. The session stays functional
-          // on its local id (a later resume just can't target it).
+        const piSessionId = await this.capturePiSessionId(child);
+        if (piSessionId) {
+          // Capture succeeded — the process is alive and answered get_state.
+          effectiveSessionId = piSessionId;
+        } else if (hasExited(child)) {
+          // No id AND the child already exited: it spawned but died during
+          // startup (e.g. a stale --session). Throw into the shared catch for
+          // classification (recovery vs backoff), same as a spawn rejection.
+          throw new Error(`Pi subprocess exited during startup: code=${child.exitCode}`);
         }
+        // Else: no id but the child is still alive — capture timed out or the
+        // process went idle without a SystemInit. The session stays functional
+        // on its local id (a later resume just can't target it).
         break;
       } catch (err) {
         // Ensure child is dead before inspecting/throwing.
@@ -449,7 +413,7 @@ export class SessionManager {
         // only once: discard the unresumable stored session and start fresh
         // INLINE (no recursion into getOrCreateSession, no --session). Any other
         // failure — and any second failure — falls through to crash-backoff.
-        if (isPi && effectiveResume && !alreadyRetried && this.isPiResumeNotFound(child)) {
+        if (effectiveResume && !alreadyRetried && this.isPiResumeNotFound(child)) {
           alreadyRetried = true;
           child = await this.discardUnresumablePiSession(chatId, agentId, agent, sessionId);
           effectiveResume = false;
@@ -483,16 +447,13 @@ export class SessionManager {
       this.restartCounts.set(chatId, 0);
     }
 
-    const provider = isPi ? "pi" : "claude";
     const session: ActiveSession = {
       child,
       sessionId: effectiveSessionId,
       agentId,
-      // Pin the provider the child was actually spawned under (claude when absent).
-      provider,
-      model: normalizedSessionModel(agent, provider),
+      provider: "pi",
+      model: normalizedSessionModel(agent),
       thinking: agent.thinking,
-      effort: agent.effort,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: freshConfig.sessionDefaults.idleTimeoutMs,
@@ -501,7 +462,6 @@ export class SessionManager {
       lastSuccessAt: null,
       restartCount,
       outboxPath,
-      injectDir: injectPath,
     };
 
     this.active.set(chatId, session);
@@ -530,13 +490,6 @@ export class SessionManager {
     text: string
   ): AsyncGenerator<StreamLine> {
     const session = await this.getOrCreateSession(chatId, agentId);
-
-    // Select the dispatch backend from the provider pinned at spawn time, not a
-    // fresh config read: getOrCreateSession may return an EXISTING live session
-    // without reloading config, so re-reading here could (a) throw on a broken
-    // hot-reloaded config even though the active session is fine, or (b) switch
-    // the protocol for a child spawned under the previous provider setting.
-    const isPi = session.provider === "pi";
 
     // Async channel: queue task pushes lines, generator yields them in real-time
     const buffer: StreamLine[] = [];
@@ -575,18 +528,14 @@ export class SessionManager {
         }
       };
       try {
-        if (isPi) {
-          // Always deliver Pi prompts with streamingBehavior:"followUp" (Defect
-          // B). Pi ignores the field when the agent is idle (the prompt runs as
-          // a fresh turn) and honors it when the agent is still mid-turn — the
-          // bot's MessageQueue.busy / processingStartedAt tracking can desync
-          // from the child's real lifecycle, and a bare prompt sent into that
-          // window would be rejected with "already processing" and the message
-          // lost. followUp queues it behind the live turn instead.
-          sendPiPrompt(session.child, text, "followUp");
-        } else {
-          sendMessage(session.child, text, session.sessionId);
-        }
+        // Always deliver Pi prompts with streamingBehavior:"followUp" (Defect
+        // B). Pi ignores the field when the agent is idle (the prompt runs as
+        // a fresh turn) and honors it when the agent is still mid-turn — the
+        // bot's MessageQueue.busy / processingStartedAt tracking can desync
+        // from the child's real lifecycle, and a bare prompt sent into that
+        // window would be rejected with "already processing" and the message
+        // lost. followUp queues it behind the live turn instead.
+        sendPiPrompt(session.child, text, "followUp");
         session.lastActivity = Date.now();
         session.processingStartedAt = Date.now();
         this.resetIdleTimer(chatId);
@@ -621,19 +570,18 @@ export class SessionManager {
           }, RESPONSE_ACTIVITY_TIMEOUT_MS);
         };
         resetActivityTimer();
-        // Pi turns carry no duration_ms in their result (only the Claude CLI
-        // does), so measure wall-clock from the prompt send for the Pi-specific
+        // Pi turns carry no duration_ms in their result, so measure wall-clock
+        // from the prompt send for the Pi-specific
         // histogram. processingStartedAt is reset to null after the loop, so
         // capture it now while it is still set.
         const turnStartedAt = session.processingStartedAt ?? Date.now();
-        const stream = isPi ? readPiStream(session.child) : readStream(session.child);
+        const stream = readPiStream(session.child);
         for await (const line of stream) {
           resetActivityTimer();
           push(line);
           // Pi auto-retry telemetry: increment once per retry on auto_retry_start
           // (auto_retry_end signals recovery — counting it too would double-count).
           if (
-            isPi &&
             line.type === "assistant" &&
             line.subtype === "rate_limit_event" &&
             line.pi_event_type === "auto_retry_start"
@@ -648,16 +596,14 @@ export class SessionManager {
             // Reset crash backoff on successful response
             this.restartCounts.set(chatId, 0);
             recordResultMetrics(session.agentId, line);
-            if (isPi) {
-              recordPiTurnDuration(session.agentId, (Date.now() - turnStartedAt) / 1000);
-            }
+            recordPiTurnDuration(session.agentId, (Date.now() - turnStartedAt) / 1000);
             break;
           }
         }
         clearActivityTimers();
         session.processingStartedAt = null;
         if (!gotResult) {
-          finish(new Error("Claude subprocess exited before sending a result"));
+          finish(new Error("Pi subprocess exited before sending a result"));
           return;
         }
         finish();
@@ -734,14 +680,9 @@ export class SessionManager {
     this.active.delete(chatId);
     sessionsActive.dec();
 
-    // Clean up outbox, inject, and media directories
+    // Clean up outbox and media directories
     try {
       rmSync(session.outboxPath, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
-    try {
-      cleanupInjectDir(session.injectDir);
     } catch {
       // Ignore cleanup errors
     }
@@ -775,7 +716,7 @@ export class SessionManager {
   }
 
   /**
-   * Graceful shutdown: inject notification into busy sessions, wait for
+   * Graceful shutdown: steer a notification into busy Pi sessions, wait for
    * active turns to finish (up to timeoutMs), then log outcomes.
    * Called before closeAll() during SIGTERM/SIGINT handling.
    */
@@ -786,18 +727,10 @@ export class SessionManager {
       "[System: Bot is shutting down for restart. Do NOT attempt to restart the bot — the restart is already in progress. Wrap up your current task.]";
     for (const [chatId, session] of this.active) {
       if (session.processingStartedAt !== null) {
-        // Deliver the shutdown notice through the provider's mid-turn channel.
-        // Pi has no PreToolUse inject hook (the inject file would never be read),
-        // so steer it live into the running Pi child; the claude path keeps the
-        // inject-file mechanism. Pinned provider, not config — never switch the
-        // protocol of an already-live child.
+        // Deliver the shutdown notice through Pi's live mid-turn channel.
         try {
-          if (session.provider === "pi") {
-            if (!hasExited(session.child)) {
-              sendPiSteer(session.child, shutdownNotice);
-            }
-          } else {
-            writeInjectFile(session.injectDir, [shutdownNotice]);
+          if (!hasExited(session.child)) {
+            sendPiSteer(session.child, shutdownNotice);
           }
         } catch { /* best-effort */ }
         busySessions.push({ chatId, startedAt: session.processingStartedAt });
@@ -882,7 +815,6 @@ export class SessionManager {
       provider: session.provider,
       model: session.model,
       thinking: session.thinking,
-      effort: session.effort,
       idleMs: now - session.lastActivity,
       processingMs: session.processingStartedAt ? now - session.processingStartedAt : null,
       lastSuccessAt: session.lastSuccessAt,
@@ -955,8 +887,6 @@ export class SessionManager {
       this.active.delete(chatId);
       sessionsActive.dec();
 
-      // Clean up inject directory (stale files would confuse next spawn)
-      try { cleanupInjectDir(session.injectDir); } catch { /* ignore */ }
       // Clean up media directory — files are scoped to this session's lifetime
       try { cleanupSessionMediaDir(chatId); } catch { /* ignore */ }
 

@@ -597,13 +597,9 @@ export const AUTO_RETRY_OPTIONS = {
 } as const;
 
 /**
- * Build the provider-aware mid-turn delivery decision. Pi sessions have no
- * PreToolUse inject hook, so a mid-turn message must be steered live into the
- * running Pi child; the claude path keeps the inject-file mechanism (returns
- * false). The decision is gated on the session's PINNED provider (set at spawn
- * time), NOT the live config snapshot: a session spawned under a since-
- * hot-reloaded provider would otherwise mis-route to the dead inject path and
- * lose the message.
+ * Build the Pi mid-turn delivery decision. A mid-turn message must be steered
+ * live into the running Pi child; if no live active turn is available, returning
+ * false lets the queue buffer it as a normal followup.
  */
 export function makeSteerFn(
   sessionManager: Pick<SessionManager, "getActive">,
@@ -611,7 +607,6 @@ export function makeSteerFn(
   return (chatId: string, _agentId: string, text: string): boolean => {
     const session = sessionManager.getActive(chatId);
     if (!session || hasExited(session.child)) return false;
-    if (session.provider !== "pi") return false;
     // Only steer when a Pi turn is actively processing. After `agent_end`,
     // session-manager clears `processingStartedAt` while MessageQueue.busy can
     // still be true (relay/cleanup of the final response is finishing). A
@@ -675,7 +670,7 @@ export function createTelegramBot(
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
-  // Provider-aware mid-turn delivery, gated on the session's pinned provider.
+  // Pi mid-turn delivery for live active turns.
   const steerFn = makeSteerFn(sessionManager);
 
   // Message queue: debounce rapid messages and collect mid-turn messages
@@ -728,7 +723,7 @@ export function createTelegramBot(
 
   // /reconnect command — close current session (keeps session file).
   // Session lifecycle: create → compact → reconnect → resume. The reconnect
-  // kills the Claude subprocess but the session file (with compacted conversation
+  // kills the Pi subprocess but the session file (with compacted conversation
   // history) remains on disk. When the next message arrives, getOrCreateSession()
   // finds the file and resumes with --resume, so prior context may be partially
   // retained through the compaction summary.

@@ -228,13 +228,9 @@ export function installDiscordErrorHandlers(client: Client): void {
 }
 
 /**
- * Build the provider-aware mid-turn delivery decision (mirrors telegram-bot.ts).
- * Pi sessions have no PreToolUse inject hook, so a mid-turn message must be
- * steered live into the running Pi child; the claude path keeps the inject-file
- * mechanism (returns false). The decision is gated on the session's PINNED
- * provider (set at spawn time), NOT the live config snapshot: a session spawned
- * under a since-hot-reloaded provider would otherwise mis-route to the dead
- * inject path and lose the message.
+ * Build the Pi mid-turn delivery decision (mirrors telegram-bot.ts). A mid-turn
+ * message must be steered live into the running Pi child; if no live active turn
+ * is available, returning false lets the queue buffer it as a normal followup.
  */
 export function makeSteerFn(
   sessionManager: Pick<SessionManager, "getActive">,
@@ -242,7 +238,6 @@ export function makeSteerFn(
   return (chatId: string, _agentId: string, text: string): boolean => {
     const session = sessionManager.getActive(chatId);
     if (!session || hasExited(session.child)) return false;
-    if (session.provider !== "pi") return false;
     // Only steer when a Pi turn is actively processing. After `agent_end`,
     // session-manager clears `processingStartedAt` while MessageQueue.busy can
     // still be true (relay/cleanup of the final response is finishing). A
@@ -286,7 +281,7 @@ export async function createDiscordBot(
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
-  // Provider-aware mid-turn delivery, gated on the session's pinned provider.
+  // Pi mid-turn delivery for live active turns.
   const steerFn = makeSteerFn(sessionManager);
 
   const messageQueue = new MessageQueue(
