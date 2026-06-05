@@ -177,10 +177,10 @@ No obsolete live-runtime references remain: no `spawnClaudeSession`, `cli-protoc
 
 ### Task 10: Deployment / migration notes
 
-- [ ] State that this is a post-migration breaking cleanup: configs using `provider: claude`, `fallbackModel`, or Claude OAuth env setup must be updated.
-- [ ] After merge to public repo, sync workspace via `git fetch upstream && git merge upstream/main`.
-- [ ] Restart bot with the canonical script only after operator confirmation.
-- [ ] After deployment, verify at least one live Pi session and one LLM cron execution.
+- [x] State that this is a post-migration breaking cleanup: configs using `provider: claude`, `fallbackModel`, or Claude OAuth env setup must be updated. Breaking cleanup note: remove `provider: claude`, remove `fallbackModel` / `defaultFallbackModel`, and remove Claude OAuth token setup before deploying this change.
+- [x] After merge to public repo, sync workspace via `git fetch upstream && git merge upstream/main` (skipped - not automatable before public merge).
+- [x] Restart bot with the canonical script only after operator confirmation (skipped - requires operator confirmation).
+- [x] After deployment, verify at least one live Pi session and one LLM cron execution (skipped - requires deployed environment).
 
 ## Acceptance Criteria
 
