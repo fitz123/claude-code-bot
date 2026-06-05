@@ -1,7 +1,6 @@
 /**
  * Echo watcher — polls /tmp/bot-echo/ for echo files written by deliver.sh,
- * parses them, and routes to the appropriate session's inject directory via
- * a platform-agnostic handler callback.
+ * parses them, and routes them through a platform-agnostic handler callback.
  *
  * No Telegram-specific imports — platform routing is done by the callback
  * registered in telegram-bot.ts (or any other platform adapter).
@@ -20,8 +19,7 @@ import { join } from "node:path";
 export const ECHO_DIR_BASE = "/tmp/bot-echo";
 
 /**
- * Shared prefix for echo framing text. Also checked in
- * .claude/hooks/inject-message.sh — keep in sync.
+ * Shared prefix for echo framing text.
  */
 export const ECHO_PREFIX = "[Bot echo";
 
@@ -46,10 +44,10 @@ export interface EchoMessage {
 /**
  * Callback invoked once per echo message during a poll cycle.
  *
- * The handler is responsible for resolving the target session and writing
- * the framed text to the session's inject directory. Platform-specific
- * routing (binding lookup, session key derivation) lives in the handler,
- * keeping EchoWatcher platform-agnostic.
+ * The handler is responsible for resolving the target session and delivering
+ * the framed text to the live agent path. Platform-specific routing (binding
+ * lookup, session key derivation) lives in the handler, keeping EchoWatcher
+ * platform-agnostic.
  *
  * @param chatId   - Telegram chat ID as a string
  * @param threadId - Topic/thread ID if present, otherwise `undefined`

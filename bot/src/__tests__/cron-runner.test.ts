@@ -828,19 +828,103 @@ bindings: []
       });
     });
 
-    it("ignores non-string systemPrompt and unsupported thinking values", () => {
+    it("ignores non-string systemPrompt", () => {
       writeFileSync(CONFIG_FILE, `agents:
   main:
     workspaceCwd: /tmp/main-workspace
     model: openai-codex/gpt-5.5
     systemPrompt: 42
-    thinking: turbo
 bindings: []
 `);
 
       const agent = buildPiCronAgentConfig("main", CONFIG_FILE);
       assert.strictEqual(agent.systemPrompt, undefined);
       assert.strictEqual(agent.thinking, undefined);
+    });
+
+    it("rejects unsupported thinking values through shared agent validation", () => {
+      writeFileSync(CONFIG_FILE, `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    thinking: turbo
+bindings: []
+`);
+
+      assert.throws(
+        () => buildPiCronAgentConfig("main", CONFIG_FILE),
+        /Agent "main" has invalid thinking "turbo"/,
+      );
+    });
+
+    it("rejects obsolete Claude-era fields through shared agent validation", () => {
+      const cases: Array<{ yaml: string; pattern: RegExp }> = [
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    provider: claude
+bindings: []
+`,
+          pattern: /Agent "main" uses provider "claude"/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    fallbackModel: gpt-5-mini
+bindings: []
+`,
+          pattern: /Agent "main" uses fallbackModel/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    effort: high
+bindings: []
+`,
+          pattern: /Agent "main" uses effort/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    maxTurns: 10
+bindings: []
+`,
+          pattern: /Agent "main" uses maxTurns/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    allowedTools: ["Read"]
+bindings: []
+`,
+          pattern: /Agent "main" uses allowedTools/,
+        },
+        {
+          yaml: `defaultFallbackModel: gpt-5-mini
+agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+bindings: []
+`,
+          pattern: /defaultFallbackModel was removed with the Claude runtime/,
+        },
+      ];
+
+      for (const { yaml, pattern } of cases) {
+        writeFileSync(CONFIG_FILE, yaml);
+        assert.throws(() => buildPiCronAgentConfig("main", CONFIG_FILE), pattern);
+      }
     });
 
     it("getAgentWorkspace uses the same raw config resolution", () => {
@@ -1434,6 +1518,40 @@ bindings: []
         deliveryChatId: 111111111,
       };
       assert.throws(() => runScript(cron), /no command/i);
+    });
+
+    it("scrubs legacy runtime environment for direct script execution", () => {
+      const legacyAnthropicEnv = "ANTHROPIC_" + "API_KEY";
+      const oldValues = {
+        token: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+        anthropic: process.env[legacyAnthropicEnv],
+        marker: process.env.CLAUDECODE,
+      };
+      try {
+        process.env.CLAUDE_CODE_OAUTH_TOKEN = "stale-token";
+        process.env[legacyAnthropicEnv] = "stale-anthropic-key";
+        process.env.CLAUDECODE = "nested-marker";
+        const cron: CronJob = {
+          name: "env-script",
+          schedule: "0 * * * *",
+          type: "script",
+          command: `printf 'token=%s\\nanthropic=%s\\nmarker=%s\\n' "\${CLAUDE_CODE_OAUTH_TOKEN-__unset__}" "\${ANTHROPIC_API_KEY-__unset__}" "\${CLAUDECODE-__unset__}"`,
+          agentId: "main",
+          deliveryChatId: 111111111,
+        };
+
+        assert.strictEqual(
+          runScript(cron),
+          "token=__unset__\nanthropic=__unset__\nmarker=__unset__",
+        );
+      } finally {
+        if (oldValues.token === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        else process.env.CLAUDE_CODE_OAUTH_TOKEN = oldValues.token;
+        if (oldValues.anthropic === undefined) delete process.env[legacyAnthropicEnv];
+        else process.env[legacyAnthropicEnv] = oldValues.anthropic;
+        if (oldValues.marker === undefined) delete process.env.CLAUDECODE;
+        else process.env.CLAUDECODE = oldValues.marker;
+      }
     });
   });
 });

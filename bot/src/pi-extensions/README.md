@@ -63,8 +63,9 @@ bundle. Pi reads context files as FLAT text — no `@`-import expansion, no
 `@`-imports and rule files silently vanish under Pi. The assembler reads the
 agent's LIVE workspace files (zero drift, always fresh) and hands the result to Pi
 via CLI args. It is wired into `buildPiSpawnArgs` in
-`bot/src/pi-rpc-protocol.ts` for `provider: "pi"` RPC sessions, and `cron-runner.ts`
-also calls it directly for `engine: pi` print-mode crons. For crons, the runner
+`bot/src/pi-rpc-protocol.ts` for all live Pi RPC sessions, and `cron-runner.ts`
+also calls it directly for LLM print-mode crons where `engine` may be omitted
+or set to `pi`. For crons, the runner
 builds a minimal Pi agent from `agentId`, `workspaceCwd`, optional
 `systemPrompt`, and `thinking`, then injects CLAUDE/MEMORY/rules context via files.
 

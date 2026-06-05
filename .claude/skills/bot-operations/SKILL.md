@@ -21,28 +21,29 @@ Bot injects shutdown message into active sessions, waits up to 60s for turns to 
 
 ## Config Changes
 
-- **Hot-reloaded (no restart):** Agent fields (`model`, `fallbackModel`, `maxTurns`, `systemPrompt`, `effort`, `workspaceCwd`) and session defaults (`idleTimeoutMs`, `maxConcurrentSessions`). Edit `config.yaml` or `config.local.yaml` — next new session picks it up.
+- **Hot-reloaded (no restart):** Agent fields (`model`, `systemPrompt`, `thinking`, `workspaceCwd`) and session defaults (`idleTimeoutMs`, `maxConcurrentSessions`). Edit `config.yaml` or `config.local.yaml` — next new session picks it up.
+- **Rejected migration fields:** `provider: claude`, `fallbackModel`, `defaultFallbackModel`, `effort`, `maxTurns`, and `allowedTools` fail validation. Use `thinking: off|minimal|low|medium|high|xhigh`; omit `provider` or set `provider: pi`.
 - **Boot-level (restart required):** `telegramToken`, `discord.token`, `bindings`, `metricsPort`, `sessionDefaults.maxMessageAgeMs`, `sessionDefaults.requireMention`. Validate before restart: `npx tsx bot/src/config.ts --validate`
 - `crons.yaml` (workspace root) — edit, then regenerate plists (see Cron System below)
 
 ## Cron System
 
-Crons are defined in YAML, rendered to launchd plists, executed as one-shot Claude CLI sessions.
+Crons are defined in YAML, rendered to launchd plists, and executed as one-shot Pi print-mode runs or shell scripts.
 
 ### Execution chain
 
 ```
-crons.yaml → generate-plists.ts → launchd plist → run-cron.sh → cron-runner.ts → claude -p → deliver.sh → Telegram
+crons.yaml → generate-plists.ts → launchd plist → run-cron.sh → cron-runner.ts → pi -p --no-session --no-extensions → deliver.sh → Telegram
 ```
 
 ### Key files
 
 | File | Purpose |
 |---|---|
-| `crons.yaml` | Cron definitions (schedule, prompt, agentId, deliveryChatId, timeout, maxBudget) |
+| `crons.yaml` | Cron definitions (schedule, prompt, agentId, deliveryChatId, timeout) |
 | `bot/scripts/generate-plists.ts` | Renders crons.yaml → `~/Library/LaunchAgents/ai.minime.cron.*.plist` |
-| `bot/scripts/run-cron.sh` | launchd entry point. Sets env, unsets CLAUDECODE, calls cron-runner.ts |
-| `bot/src/cron-runner.ts` | Loads cron def, spawns `claude -p "<prompt>"` one-shot session |
+| `bot/scripts/run-cron.sh` | launchd entry point. Sets HOME/PATH, scrubs legacy runtime env, calls cron-runner.ts |
+| `bot/src/cron-runner.ts` | Loads cron def, spawns Pi print mode for LLM crons or `/bin/bash` for script crons |
 | `bot/scripts/deliver.sh` | Sends result to Telegram (token from Keychain, splits >4096 chars) |
 
 ### Adding / updating a cron
@@ -58,21 +59,18 @@ crons.yaml → generate-plists.ts → launchd plist → run-cron.sh → cron-run
 ```yaml
 - name: example-cron
   schedule: "0 4 * * *"          # 5-field cron expression
-  prompt: >                       # Claude Code -p prompt
+  prompt: >                       # Pi print-mode prompt
     Do the thing...
   agentId: main                   # Agent from config.yaml (workspace binding)
   deliveryChatId: 123456789       # Telegram chat ID for delivery
   timeout: 300000                 # Execution timeout ms (optional)
-  maxBudget: 0.50                 # Max USD per run (optional)
 ```
 
-### Environment flags (set by run-cron.sh)
+For LLM crons, `engine` must be omitted or `pi`; `engine: claude` fails validation. `CRON_PI_DISABLED=1` is unsupported. `PI_EXTENSIONS_DISABLED=1` fails LLM crons because the A1 guard extension is required.
 
-- `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
-- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`
-- `CLAUDE_CODE_DISABLE_CRON=1`
-- `CLAUDE_CODE_SIMPLE=1`
-- `CLAUDECODE` unset (prevents nested CLI)
+### Environment handling
+
+`run-cron.sh` and `cron-runner.ts` scrub inherited `CLAUDE_CODE_*`, `ANTHROPIC_*`, and `CLAUDECODE` values before cron execution. Pi auth comes from `~/.pi/agent/auth.json`.
 
 ### Logs
 

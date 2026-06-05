@@ -14,6 +14,7 @@ export PATH="${PATH_PREFIX}${PATH:+:${PATH}}"
 for env_name in ${!CLAUDE_CODE_@} ${!ANTHROPIC_@}; do
   unset "$env_name"
 done
+unset CLAUDECODE
 
 TASK_NAME="${1:?Usage: run-cron.sh <task-name>}"
 export CRON_NAME="$TASK_NAME"

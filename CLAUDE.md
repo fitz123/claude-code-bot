@@ -21,7 +21,7 @@ To activate one, copy it into `.claude/rules/custom/`.
 ## Hooks
 
 Six hooks are wired in `.claude/settings.json`:
-- `inject-message.sh` — delivers mid-turn user messages and echo context updates (PreToolUse, all tools)
+- `inject-message.sh` — delivers pending inject-file context for hook-enabled sessions (PreToolUse, all tools)
 - `protect-files.sh` — immutable-core deny-overlay: blocks all sessions from writing the 10 upstream-owned paths, plus cron/autonomous agents from modifying skill files (PreToolUse, Edit|Write)
 - `guardian.sh` — schema-enforced deny-by-default write-guard: blocks new files whose path is not in `schema.md`'s `write-allowlist` block (PreToolUse, Edit|Write); `WRITE_GUARD_BYPASS=1` to bypass
 - `auto-stage.sh` — stages files after Edit/Write (PostToolUse)
@@ -35,6 +35,7 @@ Six hooks are wired in `.claude/settings.json`:
 - Live Pi sessions stay on `transport: auto`; only `bot/scripts/codex-quota-sampler.ts` creates an isolated sampler cwd with `transport: "sse"`.
 - `bot/.claude/extensions/codex-usage.ts` is sampler-only and must not be added to the normal Pi RPC extension list.
 - Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
+- Bot validation commands: `cd bot && npm test`, `npm run typecheck`, and `npm run validate-config`.
 - Sampler dry-run check: `cd bot && CODEX_QUOTA_TEXTFILE_DIR=/tmp/codex-quota-test CODEX_QUOTA_STATE_FILE=/tmp/codex-quota-test/state.json npx tsx scripts/codex-quota-sampler.ts --dry-run`.
 
 ## Skills

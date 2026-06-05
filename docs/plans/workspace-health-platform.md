@@ -102,7 +102,7 @@ SKILL.md uses absolute paths like `/Users/user/.minime/workspace/.claude/skills/
 .claude/
 ├── hooks/          (4 scripts: auto-stage, inject-message, session-end-commit, session-start-recovery)
 ├── rules/
-│   ├── platform/   (2 rules: safety, show-files)
+│   ├── platform/   (3 rules: safety, show-files, no-nested-cli)
 │   ├── custom/     (.gitkeep — user rules go here, gitignored)
 │   (no non-nested rule files)
 ├── optional-rules/ (4 opt-in rules)

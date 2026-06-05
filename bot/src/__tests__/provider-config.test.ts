@@ -115,13 +115,32 @@ describe("validateAgent provider field", () => {
     );
   });
 
+  it("rejects maxTurns because Pi sessions do not enforce it", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", maxTurns: 5 },
+        "main",
+      ),
+      /Agent "main" uses maxTurns, but Pi sessions do not support this setting; remove maxTurns/,
+    );
+  });
+
+  it("rejects allowedTools because Pi sessions do not enforce it", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", allowedTools: ["Read"] },
+        "main",
+      ),
+      /Agent "main" uses allowedTools, but Pi sessions do not support this setting; remove allowedTools/,
+    );
+  });
+
   it("preserves other supported fields when provider is set", () => {
     const agent = validateAgent(
       {
         workspaceCwd: "/tmp/x",
         model: "gpt-5.5",
         systemPrompt: "be helpful",
-        maxTurns: 5,
         thinking: "medium",
         provider: "pi",
       },
@@ -129,7 +148,6 @@ describe("validateAgent provider field", () => {
     );
     assert.strictEqual(agent.model, "gpt-5.5");
     assert.strictEqual(agent.systemPrompt, "be helpful");
-    assert.strictEqual(agent.maxTurns, 5);
     assert.strictEqual(agent.thinking, "medium");
     assert.strictEqual(agent.provider, "pi");
   });

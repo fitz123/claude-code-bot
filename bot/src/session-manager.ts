@@ -19,11 +19,21 @@ const RESPONSE_ACTIVITY_TIMEOUT_MS = 1_800_000; // 30 minutes with no events = h
 const CRASH_BACKOFF_BASE_MS = 5_000; // Base delay for crash backoff
 const MAX_CRASH_BACKOFF_MS = 60_000; // Maximum backoff delay (1 minute)
 export const MAX_CRASH_RESTARTS = 5; // Block session after this many consecutive crashes
+const OUTBOX_PROMPT_PREFIX = "To share a file with the user, write or copy it to this outbox directory:";
+const OUTBOX_PROMPT_SUFFIX = "Files placed there will be automatically sent to the user after your response completes.";
 
 /** Deterministic outbox directory path for a given chat. */
 export function outboxDir(chatId: string): string {
   const safeChatId = chatId.replace(/[^a-zA-Z0-9_-]/g, "_");
   return `${OUTBOX_BASE}/${safeChatId}`;
+}
+
+export function appendOutboxInstruction(text: string, outboxPath: string): string {
+  return [
+    text,
+    `${OUTBOX_PROMPT_PREFIX} ${outboxPath}`,
+    OUTBOX_PROMPT_SUFFIX,
+  ].join("\n\n");
 }
 
 /** Check whether a child process has exited (by exit code or signal). */
@@ -535,7 +545,7 @@ export class SessionManager {
         // from the child's real lifecycle, and a bare prompt sent into that
         // window would be rejected with "already processing" and the message
         // lost. followUp queues it behind the live turn instead.
-        sendPiPrompt(session.child, text, "followUp");
+        sendPiPrompt(session.child, appendOutboxInstruction(text, session.outboxPath), "followUp");
         session.lastActivity = Date.now();
         session.processingStartedAt = Date.now();
         this.resetIdleTimer(chatId);

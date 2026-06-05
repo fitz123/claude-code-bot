@@ -40,7 +40,6 @@ const testAgent: AgentConfig = {
   id: "main",
   workspaceCwd: "/tmp/test-workspace",
   model: "gpt-5.5",
-  maxTurns: 50,
 };
 
 // Existing base-arg tests assert spawn-arg SHAPING (model/prompt/session) in

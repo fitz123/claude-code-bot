@@ -1948,7 +1948,15 @@ describe("SessionManager Pi dispatch", () => {
     assert.ok(stdinWrites.length >= 1, "should have written to stdin");
     const sent = JSON.parse(stdinWrites[0]);
     assert.strictEqual(sent.type, "prompt", "pi path must write a Pi prompt command");
-    assert.strictEqual(sent.message, "hello pi");
+    assert.ok(sent.message.startsWith("hello pi\n\n"), "user prompt should be preserved at the start");
+    assert.ok(
+      sent.message.includes("To share a file with the user, write or copy it to this outbox directory:"),
+      "prompt should include the per-session outbox instruction",
+    );
+    assert.ok(
+      sent.message.includes(`${TEST_DIR}/outbox-pi-chat`),
+      "prompt should include the session outbox path",
+    );
     // Defect B: the queue-driven Pi send path must NEVER deliver a bare prompt —
     // it always carries streamingBehavior:"followUp" so a prompt sent into a
     // busy child (bot busy-tracking desynced from the child's real lifecycle) is

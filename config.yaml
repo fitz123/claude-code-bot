@@ -19,7 +19,6 @@ agents:
     id: main
     workspaceCwd: /tmp/minime-workspace   # override in config.local.yaml with your actual workspace path
     model: gpt-5.5
-    maxTurns: 250     # safety limit for agentic loops per message (omit for unlimited)
     thinking: high    # Pi/Codex thinking level: off|minimal|low|medium|high|xhigh.
     # provider: pi    # optional compatibility field; omit or set to "pi".
                       # Cron backend selection is separate: set crons*.yaml `engine: pi` per LLM cron.
@@ -30,7 +29,6 @@ agents:
   #   id: coder
   #   workspaceCwd: /tmp/minime-workspace-coder
   #   model: gpt-5.5
-  #   maxTurns: 250
 
 bindings:
   - chatId: 111111111           # override in config.local.yaml with your Telegram user ID (numeric)

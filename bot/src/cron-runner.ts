@@ -3,7 +3,7 @@
 // Loads cron definition from crons.yaml, runs a Pi print-mode one-shot, delivers output to Telegram
 
 import { readFileSync, appendFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
-import { loadRawMergedConfig } from "./config.js";
+import { loadRawMergedConfig, validateAgent } from "./config.js";
 import {
   execSync,
   spawnSync,
@@ -293,7 +293,15 @@ function isCronPiThinking(value: unknown): value is PiThinkingLevel {
 function resolveCronAgentData(agentId: string, configPath?: string): CronAgentData {
   const raw = loadRawMergedConfig(configPath) as {
     agents?: Record<string, unknown>;
+    defaultModel?: unknown;
+    defaultFallbackModel?: unknown;
   };
+  if (raw.defaultModel !== undefined && typeof raw.defaultModel !== "string") {
+    throw new Error(`Invalid defaultModel: must be a string`);
+  }
+  if (raw.defaultFallbackModel !== undefined) {
+    throw new Error(`defaultFallbackModel was removed with the Claude runtime; remove defaultFallbackModel`);
+  }
   if (
     typeof raw?.agents !== "object" ||
     raw.agents === null ||
@@ -306,8 +314,9 @@ function resolveCronAgentData(agentId: string, configPath?: string): CronAgentDa
     throw new Error(`Agent "${agentId}" missing workspaceCwd`);
   }
 
-  const agent = rawAgent as Record<string, unknown>;
-  if (typeof agent.workspaceCwd !== "string" || !agent.workspaceCwd.trim()) {
+  const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
+  const agent = validateAgent(rawAgent, agentId, defaultModel);
+  if (!agent.workspaceCwd.trim()) {
     throw new Error(`Agent "${agentId}" missing workspaceCwd`);
   }
 
@@ -315,10 +324,10 @@ function resolveCronAgentData(agentId: string, configPath?: string): CronAgentDa
     id: agentId,
     workspaceCwd: agent.workspaceCwd,
   };
-  if (typeof agent.systemPrompt === "string") {
+  if (agent.systemPrompt !== undefined) {
     result.systemPrompt = agent.systemPrompt;
   }
-  if (isCronPiThinking(agent.thinking)) {
+  if (agent.thinking !== undefined) {
     result.thinking = agent.thinking;
   }
   return result;
@@ -436,7 +445,7 @@ function runScript(cron: CronJob): string {
   }
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  const env = { ...process.env };
+  const env = scrubLegacyRuntimeEnv(process.env);
 
   const output = execSync(cron.command, {
     encoding: "utf8",
@@ -448,6 +457,17 @@ function runScript(cron: CronJob): string {
   });
 
   return output.trim();
+}
+
+function scrubLegacyRuntimeEnv(rawEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...rawEnv };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("CLAUDE_CODE_") || key.startsWith("ANTHROPIC_")) {
+      delete env[key];
+    }
+  }
+  delete env.CLAUDECODE;
+  return env;
 }
 
 function normalizeSpawnOutput(value: string | Buffer | null | undefined): string {

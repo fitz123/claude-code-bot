@@ -173,6 +173,16 @@ export function validateAgent(
       `Agent "${id}" uses effort, but effort was replaced by Pi thinking; use thinking: off|minimal|low|medium|high|xhigh`,
     );
   }
+  if (obj.maxTurns !== undefined) {
+    throw new Error(
+      `Agent "${id}" uses maxTurns, but Pi sessions do not support this setting; remove maxTurns`,
+    );
+  }
+  if (obj.allowedTools !== undefined) {
+    throw new Error(
+      `Agent "${id}" uses allowedTools, but Pi sessions do not support this setting; remove allowedTools`,
+    );
+  }
   if (
     obj.thinking !== undefined &&
     (typeof obj.thinking !== "string" || !PI_THINKING_LEVELS.includes(obj.thinking as typeof PI_THINKING_LEVELS[number]))
@@ -186,8 +196,6 @@ export function validateAgent(
     workspaceCwd: obj.workspaceCwd,
     model,
     systemPrompt: typeof obj.systemPrompt === "string" ? obj.systemPrompt : undefined,
-    allowedTools: Array.isArray(obj.allowedTools) ? obj.allowedTools.map(String) : undefined,
-    maxTurns: typeof obj.maxTurns === "number" ? obj.maxTurns : undefined,
     thinking: obj.thinking as AgentConfig["thinking"] | undefined,
     provider: "pi",
   };

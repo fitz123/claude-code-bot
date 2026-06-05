@@ -362,8 +362,7 @@ describe("EchoWatcher.onFlush", () => {
 // -------------------------------------------------------------------
 
 import { resolveBinding, sessionKey } from "../telegram-bot.js";
-import { injectDirForChat } from "../inject-file.js";
-import type { TelegramBinding } from "../types.js";
+import type { PlatformContext, TelegramBinding } from "../types.js";
 
 describe("Echo handler integration (simulated telegram-bot handler)", () => {
   const SESSION_DEFAULTS = { requireMention: true };
@@ -375,17 +374,20 @@ describe("Echo handler integration (simulated telegram-bot handler)", () => {
   ];
   const TEST_CHAT_NUMERIC = "12345";
   const TEST_CHAT_REQUIRE_MENTION = "67890";
-  const INJECT_DIRS_TO_CLEAN: string[] = [];
-
-  afterEach(() => {
-    for (const dir of INJECT_DIRS_TO_CLEAN) {
-      rmSync(dir, { recursive: true, force: true });
-    }
-    INJECT_DIRS_TO_CLEAN.length = 0;
-  });
 
   function createHandlerAndWatcher(bindings: TelegramBinding[]) {
-    const echoAccumulator = new Map<string, string[]>();
+    const enqueued: Array<{ chatId: string; agentId: string; text: string; platform: PlatformContext }> = [];
+    const platform: PlatformContext = {
+      maxMessageLength: 4096,
+      typingIntervalMs: 5000,
+      typingIndicator: false,
+      async sendMessage() { return "1"; },
+      async deleteMessage() {},
+      async sendTyping() {},
+      async sendDraft() {},
+      async sendFile() {},
+      async replyError() {},
+    };
 
     const watcher = new EchoWatcher({
       echoDir: TEST_ECHO_DIR,
@@ -403,114 +405,88 @@ describe("Echo handler integration (simulated telegram-bot handler)", () => {
         }
 
         const key = sessionKey(numericChatId, numericThreadId);
-        const injectDir = injectDirForChat(key);
-
         const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
-
-        const existing = echoAccumulator.get(injectDir);
-        if (existing) {
-          existing.push(framedText);
-        } else {
-          echoAccumulator.set(injectDir, [framedText]);
-        }
-      },
-      onFlush: () => {
-        for (const [dir, messages] of echoAccumulator) {
-          mkdirSync(dir, { recursive: true });
-          writeEchoInjectFile(dir, messages);
-          INJECT_DIRS_TO_CLEAN.push(dir);
-        }
-        echoAccumulator.clear();
+        enqueued.push({ chatId: key, agentId: binding.agentId, text: framedText, platform });
       },
     });
 
-    return watcher;
+    return { watcher, enqueued };
   }
 
-  it("writes framed echo to correct inject dir for requireMention:false binding", () => {
+  it("enqueues framed echo to correct session key for requireMention:false binding", () => {
     writeEchoFile(TEST_CHAT_NUMERIC, "Hello from deliver.sh");
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(12345);
-    const injectDir = injectDirForChat(key);
-    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
-    assert.ok(content.includes("[Bot echo"));
-    assert.ok(content.includes("Hello from deliver.sh"));
+    assert.strictEqual(enqueued.length, 1);
+    assert.strictEqual(enqueued[0].chatId, sessionKey(12345));
+    assert.strictEqual(enqueued[0].agentId, "main");
+    assert.ok(enqueued[0].text.includes("[Bot echo"));
+    assert.ok(enqueued[0].text.includes("Hello from deliver.sh"));
   });
 
   it("skips group bindings with requireMention: true", () => {
     writeEchoFile(TEST_CHAT_REQUIRE_MENTION, "Should be skipped");
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(67890);
-    const injectDir = injectDirForChat(key);
-    assert.ok(!existsSync(join(injectDir, "pending-echo")));
+    assert.strictEqual(enqueued.length, 0);
   });
 
   it("routes echo to DM binding without explicit requireMention", () => {
     writeEchoFile("11111", "DM echo test");
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(11111);
-    const injectDir = injectDirForChat(key);
-    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
-    assert.ok(content.includes("DM echo test"));
-    INJECT_DIRS_TO_CLEAN.push(injectDir);
+    assert.strictEqual(enqueued.length, 1);
+    assert.strictEqual(enqueued[0].chatId, sessionKey(11111));
+    assert.strictEqual(enqueued[0].agentId, "dm-default");
+    assert.ok(enqueued[0].text.includes("DM echo test"));
   });
 
   it("routes echo to group binding with requireMention: false", () => {
     writeEchoFile("22222", "Group no-mention echo");
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(22222);
-    const injectDir = injectDirForChat(key);
-    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
-    assert.ok(content.includes("Group no-mention echo"));
-    INJECT_DIRS_TO_CLEAN.push(injectDir);
+    assert.strictEqual(enqueued.length, 1);
+    assert.strictEqual(enqueued[0].chatId, sessionKey(22222));
+    assert.strictEqual(enqueued[0].agentId, "group-no-mention");
+    assert.ok(enqueued[0].text.includes("Group no-mention echo"));
   });
 
   it("skips unknown chat IDs", () => {
     const unknownChatId = "99999";
     writeEchoFile(unknownChatId, "Should be skipped");
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(99999);
-    const injectDir = injectDirForChat(key);
-    assert.ok(!existsSync(join(injectDir, "pending-echo")));
+    assert.strictEqual(enqueued.length, 0);
   });
 
-  it("accumulates split messages into single pending-echo write", () => {
+  it("enqueues split messages for queue debouncing", () => {
     writeEchoFile(TEST_CHAT_NUMERIC, "part 1", { filename: "1-1-1.json" });
     writeEchoFile(TEST_CHAT_NUMERIC, "part 2", { filename: "2-1-1.json" });
     writeEchoFile(TEST_CHAT_NUMERIC, "part 3", { filename: "3-1-1.json" });
 
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(12345);
-    const injectDir = injectDirForChat(key);
-    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
-    // Should have 3 messages in a single file
-    assert.strictEqual(content.split("\n")[0], "3");
-    assert.ok(content.includes("part 1"));
-    assert.ok(content.includes("part 2"));
-    assert.ok(content.includes("part 3"));
+    assert.strictEqual(enqueued.length, 3);
+    assert.deepStrictEqual(enqueued.map((entry) => entry.text.split("\n\n")[1]), [
+      "part 1",
+      "part 2",
+      "part 3",
+    ]);
   });
 
   it("frames text with ECHO_PREFIX", () => {
     writeEchoFile(TEST_CHAT_NUMERIC, "test message");
-    const watcher = createHandlerAndWatcher(TEST_BINDINGS);
+    const { watcher, enqueued } = createHandlerAndWatcher(TEST_BINDINGS);
     watcher.drain();
 
-    const key = sessionKey(12345);
-    const injectDir = injectDirForChat(key);
-    const content = readFileSync(join(injectDir, "pending-echo"), "utf-8");
-    assert.ok(content.includes("[Bot echo — context only, no reply needed]"));
-    assert.ok(content.includes("test message"));
+    assert.strictEqual(enqueued.length, 1);
+    assert.ok(enqueued[0].text.includes("[Bot echo — context only, no reply needed]"));
+    assert.ok(enqueued[0].text.includes("test message"));
   });
 });

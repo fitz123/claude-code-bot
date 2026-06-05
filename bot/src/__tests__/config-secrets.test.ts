@@ -32,7 +32,6 @@ agents:
   main:
     workspaceCwd: /tmp/foo
     model: gpt-5.5
-    maxTurns: 10
 `;
 
   it("reads telegramToken from env var when telegramTokenEnv set", () => {

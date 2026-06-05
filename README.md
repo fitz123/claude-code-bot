@@ -230,7 +230,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    Pi cron behavior:
 
    - LLM crons always run Pi print mode with `pi -p --no-session --no-extensions`, fixed model `openai-codex/gpt-5.5`, the agent `systemPrompt`/workspace context, and only the explicit A1 guard extension.
-   - Agent `thinking` maps to `--thinking`; absent or unsupported values default to `medium`.
+   - Agent `thinking` maps to `--thinking`; absent values default to `medium`, and invalid configured values fail validation.
    - The `pi` binary must be on the launchd cron `PATH`, and Pi auth must exist at `~/.pi/agent/auth.json` for the launchd user. Run `pi /login` as that user before enabling LLM crons.
    - Set `enabled: false`, convert the cron to `type: script`, or unload the cron plist to stop a problematic cron. Engine values other than `pi` are rejected.
 
@@ -636,6 +636,16 @@ git pull
 ```
 
 Your `config.local.yaml` is deep-merged over `config.yaml` at startup, so you only need to keep what differs from the defaults.
+
+## Upgrading to Pi-only Runtime
+
+Run `pi /login` as the launchd user and ensure `pi` is on the launchd `PATH`.
+
+For every agent, set an explicit `model` and replace `effort` with `thinking`. Remove `provider: claude`, `fallbackModel`, `defaultFallbackModel`, `maxTurns`, and `allowedTools`; those fields now fail validation instead of being treated as runtime controls.
+
+For LLM crons, remove `engine: claude`; omit `engine` or set `engine: pi`. `CRON_PI_DISABLED=1` no longer rolls back to Claude. Disable or unload the cron, or convert it to `type: script`.
+
+Remove Claude OAuth / Claude Code env setup. Pi auth is read from `~/.pi/agent/auth.json`, and bot wrappers scrub inherited `CLAUDE_CODE_*`, `ANTHROPIC_*`, and `CLAUDECODE` values.
 
 ## Similar Projects
 

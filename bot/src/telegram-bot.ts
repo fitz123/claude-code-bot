@@ -5,7 +5,7 @@ import { outboxDir, hasExited, type SessionManager } from "./session-manager.js"
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue, type SteerFn } from "./message-queue.js";
 import { sendPiSteer } from "./pi-rpc-protocol.js";
-import { createTelegramAdapter } from "./telegram-adapter.js";
+import { createTelegramAdapter, createTelegramApiAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { allocateMediaPath, enforceMediaCap, releaseMediaPath, discardMediaPath } from "./media-store.js";
 import { isImageMimeType, imageExtensionForMime } from "./mime.js";
@@ -16,7 +16,6 @@ import { recordMessage, lookupMessage } from "./message-content-index.js";
 import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
 import { EchoWatcher, ECHO_PREFIX } from "./echo-watcher.js";
-import { injectDirForChat, writeEchoInjectFile } from "./inject-file.js";
 import { readQuotaStatus } from "./quota-status.js";
 import { buildStatusReport } from "./status-report.js";
 
@@ -1169,11 +1168,9 @@ export function createTelegramBot(
     log.error("telegram-bot", `Update that caused the error: ${JSON.stringify(err.ctx.update)}`);
   });
 
-  // Echo watcher: routes deliver.sh echo files to the correct session's inject dir.
-  // Accumulation map: collects framed texts per inject dir within a single poll cycle,
-  // flushed once after all directories are processed to prevent pending-echo overwrites.
-  const echoAccumulator = new Map<string, string[]>();
-
+  // Echo watcher: routes deliver.sh echo files into the same Pi-visible queue
+  // used by platform messages. The framed text requests no reply, but if the
+  // agent does respond or writes files, the API-backed adapter can deliver them.
   const echoWatcher = new EchoWatcher({
     handler: (chatId, threadId, text) => {
       const numericChatId = parseInt(chatId, 10);
@@ -1191,31 +1188,13 @@ export function createTelegramBot(
       }
 
       const key = sessionKey(numericChatId, numericThreadId);
-      // injectDirForChat() accepts a session key string (output of sessionKey()),
-      // not a raw numeric chatId. The parameter name "chatId" is misleading.
-      const injectDir = injectDirForChat(key);
-
       const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
-
-      const existing = echoAccumulator.get(injectDir);
-      if (existing) {
-        existing.push(framedText);
-      } else {
-        echoAccumulator.set(injectDir, [framedText]);
-      }
-    },
-    onFlush: () => {
-      try {
-        for (const [dir, messages] of echoAccumulator) {
-          try {
-            writeEchoInjectFile(dir, messages);
-          } catch (error) {
-            log.error("telegram-bot", `Failed to write echo inject file for ${dir}:`, error);
-          }
-        }
-      } finally {
-        echoAccumulator.clear();
-      }
+      messageQueue.enqueue(
+        key,
+        binding.agentId,
+        framedText,
+        createTelegramApiAdapter(bot.api, numericChatId, binding, numericThreadId),
+      );
     },
   });
 

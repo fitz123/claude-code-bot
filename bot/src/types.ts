@@ -9,8 +9,6 @@ export interface AgentConfig {
   workspaceCwd: string;
   model: string;
   systemPrompt?: string;
-  allowedTools?: string[];
-  maxTurns?: number;
   thinking?: PiThinkingLevel;
   /**
    * Compatibility field for old provider-aware configs.

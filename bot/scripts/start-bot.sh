@@ -6,12 +6,14 @@ set -euo pipefail
 
 # Ensure HOME and PATH are set (launchd context may not have them)
 export HOME="${HOME:-$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{print $2}')}"
-export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+PATH_PREFIX="${MINIME_PATH_PREFIX:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
+export PATH="${PATH_PREFIX}${PATH:+:${PATH}}"
 
 # Drop inherited legacy AI runtime environment before boot
 for env_name in ${!CLAUDE_CODE_@} ${!ANTHROPIC_@}; do
   unset "$env_name"
 done
+unset CLAUDECODE
 
 # grammY debug logging — diagnose silent polling stops (bot-ac3)
 export DEBUG=grammy:error,grammy:bot
