@@ -1,7 +1,9 @@
 import {
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -98,11 +100,67 @@ function safeReadFile(path: string): string | null {
   }
 }
 
+function isResolvedPathContained(baseReal: string, targetReal: string): boolean {
+  const rel = relative(baseReal, targetReal);
+  return rel === "" || !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
+}
+
+function resolveContainedRealPath(targetPath: string, baseDir: string): { realPath: string | null; escaped: boolean } {
+  try {
+    const baseReal = realpathSync(baseDir);
+    const targetReal = realpathSync(targetPath);
+    if (!isResolvedPathContained(baseReal, targetReal)) {
+      return { realPath: targetReal, escaped: true };
+    }
+    return { realPath: targetReal, escaped: false };
+  } catch {
+    return { realPath: null, escaped: false };
+  }
+}
+
+/** Read a file only if its resolved target stays under the intended base dir. */
+function safeReadContainedFile(targetPath: string, baseDir: string): { content: string | null; escaped: boolean } {
+  const resolved = resolveContainedRealPath(targetPath, baseDir);
+  if (resolved.escaped || resolved.realPath === null) {
+    return { content: null, escaped: resolved.escaped };
+  }
+  return { content: safeReadFile(resolved.realPath), escaped: false };
+}
+
+function sourceSignature(path: string, baseDir: string): string {
+  const resolved = resolveContainedRealPath(path, baseDir);
+  if (resolved.escaped) {
+    try {
+      const st = lstatSync(path);
+      return `${path}:escaped:${st.mtimeMs}:${st.size}`;
+    } catch {
+      return `${path}:escaped`;
+    }
+  }
+  if (resolved.realPath === null) {
+    return `${path}:missing`;
+  }
+  try {
+    const st = statSync(resolved.realPath);
+    return `${path}->${resolved.realPath}:${st.mtimeMs}:${st.size}`;
+  } catch {
+    return `${path}:missing`;
+  }
+}
+
 /** List `*.md` files in a dir as absolute paths, sorted by name. Missing dir → []. */
-function listMarkdown(dir: string): string[] {
+function listMarkdown(dir: string, baseDir: string): string[] {
+  const resolved = resolveContainedRealPath(dir, baseDir);
+  if (resolved.escaped) {
+    log.warn("pi-context", `markdown directory resolves outside the workspace, skipping: ${dir}`);
+    return [];
+  }
+  if (resolved.realPath === null) {
+    return [];
+  }
   let names: string[];
   try {
-    names = readdirSync(dir);
+    names = readdirSync(resolved.realPath);
   } catch {
     return [];
   }
@@ -188,7 +246,14 @@ export function expandImports(
       continue;
     }
     const abs = resolve(baseDir, relpath);
-    const content = safeReadFile(abs);
+    const { content, escaped } = safeReadContainedFile(abs, baseDir);
+    if (escaped) {
+      log.warn(
+        "pi-context",
+        `@-import resolves outside the workspace, skipping: "${relpath}"`,
+      );
+      continue;
+    }
     if (content === null) {
       log.warn("pi-context", `@-import not readable, skipping: ${abs}`);
       continue;
@@ -224,8 +289,12 @@ export function collectRules(workspaceCwd: string): ContextSection[] {
   const out: ContextSection[] = [];
   for (const sub of ["platform", "custom"] as const) {
     const dir = join(workspaceCwd, ".claude", "rules", sub);
-    for (const abs of listMarkdown(dir)) {
-      const content = safeReadFile(abs);
+    for (const abs of listMarkdown(dir, workspaceCwd)) {
+      const { content, escaped } = safeReadContainedFile(abs, workspaceCwd);
+      if (escaped) {
+        log.warn("pi-context", `rule file resolves outside the workspace, skipping: ${abs}`);
+        continue;
+      }
       if (content === null) {
         log.warn("pi-context", `rule file not readable, skipping: ${abs}`);
         continue;
@@ -257,8 +326,11 @@ interface BundleResult {
 /** Assemble the deterministic context bundle (order 1-5 above) from live files. */
 function assembleBundle(workspaceCwd: string): BundleResult {
   const claudeMdPath = join(workspaceCwd, "CLAUDE.md");
-  const rawBody = safeReadFile(claudeMdPath);
-  if (rawBody === null) {
+  const { content: rawBody, escaped } = safeReadContainedFile(claudeMdPath, workspaceCwd);
+  if (escaped) {
+    log.warn("pi-context", `CLAUDE.md resolves outside the workspace, skipping: ${claudeMdPath}`);
+  }
+  if (rawBody === null && !escaped) {
     log.warn("pi-context", `CLAUDE.md not found at ${claudeMdPath} — bundling rules only`);
   }
 
@@ -329,7 +401,11 @@ function isSafeOutputStyleSlug(slug: string): boolean {
 /** Read the output-style markdown referenced by settings.local.json, or null. */
 function readOutputStyleContent(workspaceCwd: string): string | null {
   const settingsPath = join(workspaceCwd, ".claude", "settings.local.json");
-  const raw = safeReadFile(settingsPath);
+  const { content: raw, escaped: settingsEscaped } = safeReadContainedFile(settingsPath, workspaceCwd);
+  if (settingsEscaped) {
+    log.warn("pi-context", `settings.local.json resolves outside the workspace, skipping: ${settingsPath}`);
+    return null;
+  }
   if (raw === null) {
     return null;
   }
@@ -348,7 +424,11 @@ function readOutputStyleContent(workspaceCwd: string): string | null {
     return null;
   }
   const stylePath = join(workspaceCwd, ".claude", "output-styles", `${slug}.md`);
-  const content = safeReadFile(stylePath);
+  const { content, escaped: styleEscaped } = safeReadContainedFile(stylePath, workspaceCwd);
+  if (styleEscaped) {
+    log.warn("pi-context", `output-style "${slug}" resolves outside the workspace, skipping: ${stylePath}`);
+    return null;
+  }
   if (content === null) {
     log.warn("pi-context", `output-style "${slug}" not found at ${stylePath}`);
     return null;
@@ -413,11 +493,11 @@ const cache = new Map<string, CacheEntry>();
  */
 function computeManifestSignature(agent: AgentConfig): string {
   const workspaceCwd = agent.workspaceCwd;
-  const files: string[] = [];
+  const files: Array<{ path: string; baseDir: string }> = [];
 
   const claudeMdPath = join(workspaceCwd, "CLAUDE.md");
-  files.push(claudeMdPath);
-  const body = safeReadFile(claudeMdPath);
+  files.push({ path: claudeMdPath, baseDir: workspaceCwd });
+  const { content: body } = safeReadContainedFile(claudeMdPath, workspaceCwd);
   if (body !== null) {
     const baseDir = dirname(claudeMdPath);
     for (const relpath of partitionImports(body).importRelpaths) {
@@ -426,23 +506,33 @@ function computeManifestSignature(agent: AgentConfig): string {
       // otherwise the signature covers a path outside the workspace that is never
       // part of the bundle. Single containment rule, both sides.
       if (isContainedImport(baseDir, relpath)) {
-        files.push(resolve(baseDir, relpath));
+        files.push({ path: resolve(baseDir, relpath), baseDir });
       }
     }
   }
 
   for (const sub of ["platform", "custom"] as const) {
-    files.push(...listMarkdown(join(workspaceCwd, ".claude", "rules", sub)));
+    const dir = join(workspaceCwd, ".claude", "rules", sub);
+    files.push({ path: dir, baseDir: workspaceCwd });
+    files.push(
+      ...listMarkdown(dir, workspaceCwd).map((path) => ({
+        path,
+        baseDir: workspaceCwd,
+      })),
+    );
   }
 
   const settingsPath = join(workspaceCwd, ".claude", "settings.local.json");
-  files.push(settingsPath);
-  const settingsRaw = safeReadFile(settingsPath);
+  files.push({ path: settingsPath, baseDir: workspaceCwd });
+  const { content: settingsRaw } = safeReadContainedFile(settingsPath, workspaceCwd);
   if (settingsRaw !== null) {
     try {
       const slug = (JSON.parse(settingsRaw) as { outputStyle?: unknown }).outputStyle;
       if (typeof slug === "string" && slug.trim() !== "" && isSafeOutputStyleSlug(slug)) {
-        files.push(join(workspaceCwd, ".claude", "output-styles", `${slug}.md`));
+        files.push({
+          path: join(workspaceCwd, ".claude", "output-styles", `${slug}.md`),
+          baseDir: workspaceCwd,
+        });
       }
     } catch {
       // Non-JSON settings yield no persona path; the settings file's own stat
@@ -450,14 +540,9 @@ function computeManifestSignature(agent: AgentConfig): string {
     }
   }
 
-  const parts = files.sort().map((path) => {
-    try {
-      const st = statSync(path);
-      return `${path}:${st.mtimeMs}:${st.size}`;
-    } catch {
-      return `${path}:missing`;
-    }
-  });
+  const parts = files
+    .sort((a, b) => a.path.localeCompare(b.path) || a.baseDir.localeCompare(b.baseDir))
+    .map(({ path, baseDir }) => sourceSignature(path, baseDir));
   // The config systemPrompt is not a file — fold it in directly.
   parts.push(`systemPrompt:${agent.systemPrompt ?? ""}`);
   return parts.join("|");

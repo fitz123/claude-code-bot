@@ -6,6 +6,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -265,6 +266,21 @@ describe("expandImports", () => {
     );
     assert.strictEqual(result.bodyWithoutImports, "top\nbottom", "all @-lines stripped from body");
   });
+
+  it("skips @-imports whose symlink target resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret.md"), "SYMLINK_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    writeFileSync(join(ws, "ok.md"), "OK_TOKEN", "utf8");
+    symlinkSync(join(parent, "secret.md"), join(ws, "leak.md"));
+
+    const { value: result, warnings } = captureWarn(() => expandImports("@leak.md\n@ok.md", ws));
+
+    assert.deepStrictEqual(result.sections, [{ relpath: "ok.md", content: "OK_TOKEN" }]);
+    assert.ok(!result.sections.some((section) => section.content.includes("SYMLINK_SECRET_TOKEN")));
+    assert.ok(warnings.some((m) => m.includes("resolves outside the workspace")));
+  });
 });
 
 describe("collectRules", () => {
@@ -291,6 +307,25 @@ describe("collectRules", () => {
     const ws = makeWorkspace({ files: { ".claude/rules/platform/only.md": "ONLY" } });
     const rules = collectRules(ws);
     assert.deepStrictEqual(rules.map((r) => r.relpath), [".claude/rules/platform/only.md"]);
+  });
+
+  it("skips rule files whose symlink target resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-rule-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret-rule.md"), "RULE_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    const ruleDir = join(ws, ".claude", "rules", "platform");
+    mkdirSync(ruleDir, { recursive: true });
+    writeFileSync(join(ruleDir, "ok.md"), "RULE_OK_TOKEN", "utf8");
+    symlinkSync(join(parent, "secret-rule.md"), join(ruleDir, "leak.md"));
+
+    const { value: rules, warnings } = captureWarn(() => collectRules(ws));
+
+    assert.deepStrictEqual(rules, [
+      { relpath: ".claude/rules/platform/ok.md", content: "RULE_OK_TOKEN" },
+    ]);
+    assert.ok(!rules.some((rule) => rule.content.includes("RULE_SECRET_TOKEN")));
+    assert.ok(warnings.some((m) => m.includes("rule file resolves outside the workspace")));
   });
 });
 
@@ -336,6 +371,25 @@ describe("resolvePersona (D6)", () => {
     const { value: persona, warnings } = captureWarn(() => resolvePersona(agentFor(ws)));
     assert.strictEqual(persona, null, "a slug with path separators resolves to no persona");
     assert.ok(warnings.some((m) => m.includes("not a bare filename")), "warned about the slug");
+  });
+
+  it("ignores output-style files whose symlink target resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-style-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret-style.md"), "STYLE_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    mkdirSync(join(ws, ".claude", "output-styles"), { recursive: true });
+    writeFileSync(
+      join(ws, ".claude", "settings.local.json"),
+      JSON.stringify({ outputStyle: "leak" }),
+      "utf8",
+    );
+    symlinkSync(join(parent, "secret-style.md"), join(ws, ".claude", "output-styles", "leak.md"));
+
+    const { value: persona, warnings } = captureWarn(() => resolvePersona(agentFor(ws)));
+
+    assert.strictEqual(persona, null);
+    assert.ok(warnings.some((m) => m.includes("output-style") && m.includes("resolves outside")));
   });
 });
 
@@ -408,6 +462,21 @@ describe("assemblePiContext", () => {
     assert.ok(bundle.includes("LOCAL_IMPORT_TOKEN"), "the under-workspace import is inlined");
     assert.ok(!bundle.includes("HOST_SECRET_TOKEN"), "the escaping ../ import is NOT inlined");
     assert.ok(!/^[ \t]*@\.\.\/secret\.md[ \t]*$/m.test(bundle), "the escaping @-line is stripped");
+  });
+
+  it("does not read a CLAUDE.md symlink that resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-claude-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "CLAUDE.md"), "CLAUDE_SYMLINK_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    symlinkSync(join(parent, "CLAUDE.md"), join(ws, "CLAUDE.md"));
+
+    const { value: result, warnings } = captureWarn(() =>
+      assemblePiContext(agentFor(ws, { id: "claudesymlink" })),
+    );
+
+    assert.strictEqual(result, null);
+    assert.ok(warnings.some((m) => m.includes("CLAUDE.md resolves outside the workspace")));
   });
 
   it("fail-safe: a missing CLAUDE.md does not throw (rules-only bundle still assembles)", () => {
