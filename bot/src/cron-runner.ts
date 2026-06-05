@@ -38,13 +38,13 @@ const DEFAULT_CRON_HEALTH_TEXTFILE_DIR = "/opt/homebrew/var/node_exporter/textfi
 const PI_CRON_MODEL = "openai-codex/gpt-5.5";
 const PI_BIN = "pi";
 const PI_ERROR_EXCERPT_CHARS = 1000;
-type PiThinkingLevel = NonNullable<AgentConfig["effort"]>;
-const PI_THINKING_LEVELS = new Set<PiThinkingLevel>(["low", "medium", "high"]);
+type PiThinkingLevel = NonNullable<AgentConfig["thinking"]>;
+const PI_THINKING_LEVELS = new Set<PiThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 export interface CronAgentData {
   id: string;
   workspaceCwd: string;
   systemPrompt?: string;
-  effort?: AgentConfig["effort"];
+  thinking?: AgentConfig["thinking"];
 }
 
 export type PiRunResult =
@@ -283,7 +283,7 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   };
 }
 
-function isCronPiEffort(value: unknown): value is PiThinkingLevel {
+function isCronPiThinking(value: unknown): value is PiThinkingLevel {
   return typeof value === "string" && PI_THINKING_LEVELS.has(value as PiThinkingLevel);
 }
 
@@ -315,8 +315,8 @@ function resolveCronAgentData(agentId: string, configPath?: string): CronAgentDa
   if (typeof agent.systemPrompt === "string") {
     result.systemPrompt = agent.systemPrompt;
   }
-  if (isCronPiEffort(agent.effort)) {
-    result.effort = agent.effort;
+  if (isCronPiThinking(agent.thinking)) {
+    result.thinking = agent.thinking;
   }
   return result;
 }
@@ -335,8 +335,8 @@ function buildPiCronAgentConfigFromData(agent: CronAgentData): AgentConfig {
   if (agent.systemPrompt !== undefined) {
     result.systemPrompt = agent.systemPrompt;
   }
-  if (agent.effort !== undefined) {
-    result.effort = agent.effort;
+  if (agent.thinking !== undefined) {
+    result.thinking = agent.thinking;
   }
   return result;
 }
@@ -637,7 +637,7 @@ function runPi(
   }
 
   const agent = deps.buildAgentConfig(cron, workspaceCwd, agentData);
-  const thinking = isCronPiEffort(agent.effort) ? agent.effort : "medium";
+  const thinking = isCronPiThinking(agent.thinking) ? agent.thinking : "medium";
   const systemInstruction = buildCronSystemInstruction();
   const args: string[] = [
     "-p",

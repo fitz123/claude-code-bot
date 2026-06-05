@@ -166,10 +166,10 @@ describe("codex quota sampler command setup", () => {
     writeFileSync(
       join(workspace, "config.yaml"),
       `
-defaultModel: opus
 agents:
   main:
     workspaceCwd: ${agentWorkspace}
+    model: gpt-5.5
 telegramTokenService: fake-token
 bindings:
   - chatId: 111

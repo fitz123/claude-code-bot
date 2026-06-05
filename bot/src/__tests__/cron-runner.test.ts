@@ -835,7 +835,7 @@ describe("cron-runner", () => {
     workspaceCwd: /tmp/main-workspace
     model: claude-opus-4-6
     systemPrompt: "Use the main persona"
-    effort: high
+    thinking: high
 bindings: []
 `);
       writeFileSync(CRONS_FILE, `crons:
@@ -855,23 +855,23 @@ bindings: []
         provider: "pi",
         model: "openai-codex/gpt-5.5",
         systemPrompt: "Use the main persona",
-        effort: "high",
+        thinking: "high",
       });
     });
 
-    it("ignores non-string systemPrompt and unsupported effort values", () => {
+    it("ignores non-string systemPrompt and unsupported thinking values", () => {
       writeFileSync(CONFIG_FILE, `agents:
   main:
     workspaceCwd: /tmp/main-workspace
     model: claude-opus-4-6
     systemPrompt: 42
-    effort: xhigh
+    thinking: turbo
 bindings: []
 `);
 
       const agent = buildPiCronAgentConfig("main", CONFIG_FILE);
       assert.strictEqual(agent.systemPrompt, undefined);
-      assert.strictEqual(agent.effort, undefined);
+      assert.strictEqual(agent.thinking, undefined);
     });
 
     it("getAgentWorkspace uses the same raw config resolution", () => {
@@ -1121,7 +1121,7 @@ bindings: []
         },
         resolveCronAgentData: (agentId: string) => {
           calls.workspaces.push(agentId);
-          return { id: agentId, workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", effort: "high" };
+          return { id: agentId, workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", thinking: "high" };
         },
         runScript: (scriptCron: CronJob) => {
           calls.scripts.push(scriptCron.name);
@@ -1224,7 +1224,7 @@ bindings: []
           cronName: cron.name,
           workspaceCwd: "/tmp/main-workspace",
           engine: "pi",
-          agentData: { id: "main", workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", effort: "high" },
+          agentData: { id: "main", workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", thinking: "high" },
         },
       ]);
       assert.deepStrictEqual(calls.deliveries, [

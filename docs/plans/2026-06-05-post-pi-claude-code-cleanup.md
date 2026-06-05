@@ -100,12 +100,12 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 3: Simplify config model and validation
 
-- [ ] Change `AgentConfig.provider` to optional compatibility field that only accepts absent/`pi`; reject `claude` with a clear migration error.
-- [ ] Remove runtime default of absent provider → `claude`; absent provider means Pi.
-- [ ] Remove `fallbackModel` from active config semantics unless still needed by a non-runtime feature. If removed, validation should reject it with a migration error.
-- [ ] Replace Claude-only `effort` semantics with the Pi/Codex thinking field introduced by quota/status pipeline, or leave `effort` rejected if superseded.
-- [ ] Update validation tests: absent provider = Pi, `provider: pi` accepted, `provider: claude` rejected, Claude fallback fields rejected/ignored per final decision.
-- [ ] Update config error messages to avoid saying `defaultModel` is Claude-oriented.
+- [x] Change `AgentConfig.provider` to optional compatibility field that only accepts absent/`pi`; reject `claude` with a clear migration error.
+- [x] Remove runtime default of absent provider → `claude`; absent provider means Pi.
+- [x] Remove `fallbackModel` from active config semantics unless still needed by a non-runtime feature. If removed, validation should reject it with a migration error.
+- [x] Replace Claude-only `effort` semantics with the Pi/Codex thinking field introduced by quota/status pipeline, or leave `effort` rejected if superseded.
+- [x] Update validation tests: absent provider = Pi, `provider: pi` accepted, `provider: claude` rejected, Claude fallback fields rejected/ignored per final decision.
+- [x] Update config error messages to avoid saying `defaultModel` is Claude-oriented.
 
 ### Task 4: Remove Claude env setup from scripts
 

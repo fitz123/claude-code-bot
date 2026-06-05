@@ -3,25 +3,27 @@ import assert from "node:assert/strict";
 import { validateAgent } from "../config.js";
 
 describe("validateAgent provider field", () => {
-  it("defaults to \"claude\" when provider is absent", () => {
+  it("treats absent provider as Pi", () => {
     const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", model: "claude-opus-4-7" },
+      { workspaceCwd: "/tmp/x", model: "gpt-5.5" },
       "main",
     );
-    assert.strictEqual(agent.provider, "claude");
+    assert.strictEqual(agent.provider, "pi");
   });
 
-  it("accepts provider \"claude\" explicitly", () => {
-    const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", provider: "claude" },
-      "main",
+  it("rejects provider \"claude\" with a migration error", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "claude" },
+        "main",
+      ),
+      /Agent "main" uses provider "claude", but the Claude runtime has been removed; remove provider or set provider: "pi"/,
     );
-    assert.strictEqual(agent.provider, "claude");
   });
 
   it("accepts provider \"pi\"", () => {
     const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", provider: "pi" },
+      { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "pi" },
       "main",
     );
     assert.strictEqual(agent.provider, "pi");
@@ -30,39 +32,39 @@ describe("validateAgent provider field", () => {
   it("rejects an invalid provider value", () => {
     assert.throws(
       () => validateAgent(
-        { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", provider: "openai" },
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "openai" },
         "main",
       ),
-      /Agent "main" has invalid provider "openai" \(must be "claude" or "pi"\)/,
+      /Agent "main" has invalid provider "openai" \(must be "pi"; Claude runtime was removed\)/,
     );
   });
 
   it("rejects a non-string provider value", () => {
     assert.throws(
       () => validateAgent(
-        { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", provider: 42 },
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: 42 },
         "main",
       ),
       /Agent "main" has invalid provider/,
     );
   });
 
-  it("rejects a pi agent with no explicit model (must not inherit the Claude defaultModel)", () => {
+  it("rejects an absent-provider Pi agent with no explicit model", () => {
     assert.throws(
       () => validateAgent(
-        { workspaceCwd: "/tmp/x", provider: "pi" },
+        { workspaceCwd: "/tmp/x" },
         "coder",
-        "opus", // Claude-oriented top-level defaultModel
+        "gpt-5.5",
       ),
-      /Agent "coder" uses provider "pi" and must set an explicit model/,
+      /Agent "coder" missing model \(Pi agents must set an explicit model; top-level defaultModel is no longer inherited by Pi agents\)/,
     );
   });
 
-  it("accepts a pi agent with an explicit model and does not apply defaultModel", () => {
+  it("accepts a Pi agent with an explicit model and does not apply defaultModel", () => {
     const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "pi" },
+      { workspaceCwd: "/tmp/x", model: "gpt-5.5" },
       "coder",
-      "opus",
+      "gpt-4.2",
     );
     assert.strictEqual(agent.model, "gpt-5.5");
     assert.strictEqual(agent.provider, "pi");
@@ -93,34 +95,41 @@ describe("validateAgent provider field", () => {
     );
   });
 
-  it("a claude agent still inherits the top-level defaultModel (regression)", () => {
-    const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", provider: "claude" },
-      "main",
-      "claude-opus-4-7",
+  it("rejects fallbackModel with a migration error", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", fallbackModel: "gpt-5-mini" },
+        "main",
+      ),
+      /Agent "main" uses fallbackModel, but fallback models were removed with the Claude runtime; remove fallbackModel/,
     );
-    assert.strictEqual(agent.model, "claude-opus-4-7");
   });
 
-  it("does not change other field handling when provider is set", () => {
+  it("rejects effort with a migration error", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", effort: "high" },
+        "main",
+      ),
+      /Agent "main" uses effort, but effort was replaced by Pi thinking; use thinking: off\|minimal\|low\|medium\|high\|xhigh/,
+    );
+  });
+
+  it("preserves other supported fields when provider is set", () => {
     const agent = validateAgent(
       {
         workspaceCwd: "/tmp/x",
-        model: "claude-opus-4-7",
-        fallbackModel: "claude-sonnet-4-6",
+        model: "gpt-5.5",
         systemPrompt: "be helpful",
         maxTurns: 5,
-        effort: "high",
         thinking: "medium",
         provider: "pi",
       },
       "main",
     );
-    assert.strictEqual(agent.model, "claude-opus-4-7");
-    assert.strictEqual(agent.fallbackModel, "claude-sonnet-4-6");
+    assert.strictEqual(agent.model, "gpt-5.5");
     assert.strictEqual(agent.systemPrompt, "be helpful");
     assert.strictEqual(agent.maxTurns, 5);
-    assert.strictEqual(agent.effort, "high");
     assert.strictEqual(agent.thinking, "medium");
     assert.strictEqual(agent.provider, "pi");
   });

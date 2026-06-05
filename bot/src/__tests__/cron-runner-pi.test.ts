@@ -125,7 +125,7 @@ describe("cron-runner runPi", () => {
     const captures: SpawnCapture[] = [];
     let relpathsSeen: readonly string[] | undefined;
     const deps = makeDeps(captures, {
-      buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { effort: "high" }),
+      buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { thinking: "high" }),
       resolveExtensionArgs: (options) => {
         relpathsSeen = options?.relpaths;
         return ["--extension", "/fake/guardian-protect-files.ts"];
@@ -192,12 +192,12 @@ describe("cron-runner runPi", () => {
     }
   });
 
-  it("defaults --thinking to medium when effort is absent or unsupported", () => {
-    for (const effort of [undefined, "xhigh" as unknown as AgentConfig["effort"]]) {
+  it("defaults --thinking to medium when thinking is absent or unsupported", () => {
+    for (const thinking of [undefined, "turbo" as unknown as AgentConfig["thinking"]]) {
       const ws = makeWorkspace();
       const captures: SpawnCapture[] = [];
       const deps = makeDeps(captures, {
-        buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { effort }),
+        buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { thinking }),
       });
 
       runPi(makeCron(), ws, deps);
@@ -246,13 +246,13 @@ describe("cron-runner runPi", () => {
       id: "main",
       workspaceCwd: ws,
       systemPrompt: "PERSONA_TOKEN",
-      effort: "low" as const,
+      thinking: "low" as const,
     };
     let seenAgentData: typeof agentData | undefined;
     const deps = makeDeps(captures, {
       buildAgentConfig: (_cron, cwd, data) => {
         seenAgentData = data as typeof agentData;
-        return makeAgent(cwd, { systemPrompt: data?.systemPrompt, effort: data?.effort });
+        return makeAgent(cwd, { systemPrompt: data?.systemPrompt, thinking: data?.thinking });
       },
     });
 

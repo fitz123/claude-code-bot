@@ -28,10 +28,10 @@ describe("config secret resolution: env var + Keychain priority", () => {
   });
 
   const minimalAgentsYaml = `
-defaultModel: opus
 agents:
   main:
     workspaceCwd: /tmp/foo
+    model: gpt-5.5
     maxTurns: 10
 `;
 

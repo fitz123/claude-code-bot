@@ -202,7 +202,7 @@ describe("Discord slash command status wiring", () => {
           alive: true,
           agentId: "main",
           sessionId: "session-123",
-          provider: "claude",
+          provider: "pi",
           model: "claude-opus-4-6",
           idleMs: 120_000,
           processingMs: null,

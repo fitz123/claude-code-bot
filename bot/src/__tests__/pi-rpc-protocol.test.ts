@@ -40,9 +40,7 @@ const testAgent: AgentConfig = {
   id: "main",
   workspaceCwd: "/tmp/test-workspace",
   model: "gpt-5.5",
-  fallbackModel: "claude-sonnet-4-6",
   maxTurns: 50,
-  effort: "high",
 };
 
 // Existing base-arg tests assert spawn-arg SHAPING (model/prompt/session) in
@@ -168,28 +166,27 @@ describe("buildPiSpawnArgs", () => {
     assert.strictEqual(args[idx + 1], "xhigh");
   });
 
-  it("does not include thinking for a non-pi agent", () => {
+  it("includes thinking when configured on an absent-provider Pi agent", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       thinking: "xhigh",
     }, undefined, NO_EXTENSIONS);
 
-    assert.ok(!args.includes("--thinking"));
+    const idx = args.indexOf("--thinking");
+    assert.notStrictEqual(idx, -1, "should include --thinking");
+    assert.strictEqual(args[idx + 1], "xhigh");
   });
 
-  it("does NOT invoke the context assembler for a non-pi agent (no context args)", () => {
-    // testAgent carries no `provider` (semantically claude). The assembler is
-    // gated on provider:"pi", so none of its CLI layers may appear — and the
-    // legacy `agent.systemPrompt → --append-system-prompt` branch is gone, so a
-    // config systemPrompt must NOT leak into the args either.
+  it("assembles context for an absent-provider Pi agent", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "You are precise.",
     }, undefined, NO_EXTENSIONS);
 
-    assert.ok(!args.includes("--system-prompt"));
-    assert.ok(!args.includes("--append-system-prompt"));
-    assert.ok(!args.includes("--no-context-files"));
+    assert.ok(args.includes("--system-prompt"));
+    assert.notStrictEqual(args[args.indexOf("--system-prompt") + 1], "You are precise.");
+    assert.ok(args.includes("--append-system-prompt"));
+    assert.ok(args.includes("--no-context-files"));
   });
 
   it("omits Claude-only flags", () => {

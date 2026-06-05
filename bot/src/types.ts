@@ -8,18 +8,15 @@ export interface AgentConfig {
   id: string;
   workspaceCwd: string;
   model: string;
-  fallbackModel?: string;
   systemPrompt?: string;
   allowedTools?: string[];
   maxTurns?: number;
-  effort?: "low" | "medium" | "high";
   thinking?: PiThinkingLevel;
   /**
-   * Which coding-agent backend dispatches this agent's sessions.
-   * Optional; semantically defaults to "claude" (the existing `claude -p` path).
-   * "pi" selects the Pi RPC + OpenAI Codex path (wired by a later plan).
+   * Compatibility field for old provider-aware configs.
+   * Omit it or set "pi"; "claude" is rejected during config validation.
    */
-  provider?: "claude" | "pi";
+  provider?: "pi";
 }
 
 export interface TopicOverride {

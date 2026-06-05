@@ -283,13 +283,12 @@ export function buildPiSpawnArgs(
     "--model", normalizePiModel(agent.model),
   ];
 
-  if (agent.provider === "pi" && agent.thinking) {
+  if (agent.thinking) {
     args.push("--thinking", agent.thinking);
   }
 
-  // Spawn-time context assembly — provider: "pi" ONLY (the claude path never
-  // reaches here). The assembler (pi-context-assembler.ts) gives full Claude→Pi
-  // context parity from the agent's LIVE workspace files, delivered as three CLI
+  // Spawn-time context assembly. The assembler (pi-context-assembler.ts) gives
+  // full Claude→Pi context parity from the agent's LIVE workspace files, delivered as three CLI
   // layers, REPLACING the old `agent.systemPrompt → --append-system-prompt` branch:
   //   --system-prompt <persona>   REPLACES Pi's base prompt (omitted when no persona
   //                               resolves — the agent then rides Pi's base prompt).
@@ -301,22 +300,20 @@ export function buildPiSpawnArgs(
   // failure or empty workspace → null → bare spawn), but a write into an
   // unwritable `.tmp/` could still throw — wrap it so a throw degrades to a bare
   // spawn (log.error) and NEVER blocks the spawn.
-  if (agent.provider === "pi") {
-    try {
-      const context = assemblePiContext(agent);
-      if (context) {
-        if (context.systemPromptPath) {
-          args.push("--system-prompt", context.systemPromptPath);
-        }
-        args.push("--append-system-prompt", context.appendSystemPromptPath);
-        args.push("--no-context-files");
+  try {
+    const context = assemblePiContext(agent);
+    if (context) {
+      if (context.systemPromptPath) {
+        args.push("--system-prompt", context.systemPromptPath);
       }
-    } catch (err) {
-      log.error(
-        "pi-rpc",
-        `Pi context assembly threw for agent "${agent.id}", spawning bare: ${(err as Error).message}`,
-      );
+      args.push("--append-system-prompt", context.appendSystemPromptPath);
+      args.push("--no-context-files");
     }
+  } catch (err) {
+    log.error(
+      "pi-rpc",
+      `Pi context assembly threw for agent "${agent.id}", spawning bare: ${(err as Error).message}`,
+    );
   }
 
   // Load A1-A3 as repeatable `--extension <abs-path>` args (per-spawn is
