@@ -34,7 +34,7 @@ Six hooks are wired in `.claude/settings.json`:
 - `/status` is local-only: read quota data with `readQuotaStatus()` and never call Pi, Codex, the network, or Pi `get_state` from a status command.
 - Live Pi sessions stay on `transport: auto`; only `bot/scripts/codex-quota-sampler.ts` creates an isolated sampler cwd with `transport: "sse"`.
 - `bot/.claude/extensions/codex-usage.ts` is sampler-only and must not be added to the normal Pi RPC extension list.
-- Use `thinking` for `provider: pi`; use `effort` for Claude agents.
+- Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
 - Sampler dry-run check: `cd bot && CODEX_QUOTA_TEXTFILE_DIR=/tmp/codex-quota-test CODEX_QUOTA_STATE_FILE=/tmp/codex-quota-test/state.json npx tsx scripts/codex-quota-sampler.ts --dry-run`.
 
 ## Skills

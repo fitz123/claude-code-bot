@@ -61,9 +61,9 @@ describe("cron field documentation", () => {
     assert.ok(example.includes("900000 = 15 min"), "crons.yaml does not document the 15-minute cron timeout default");
   });
 
-  it("README documents Pi engine rollback and cron health metrics", () => {
+  it("README documents Pi engine behavior and cron health metrics", () => {
     assert.ok(readme.includes("engine: pi"), "README.md does not document engine: pi");
-    assert.ok(readme.includes("CRON_PI_DISABLED=1"), "README.md does not document CRON_PI_DISABLED=1");
+    assert.ok(readme.includes("LLM crons only run through Pi"), "README.md does not document Pi-only cron rollback");
     assert.ok(readme.includes("CRON_HEALTH_TEXTFILE_DIR"), "README.md does not document CRON_HEALTH_TEXTFILE_DIR");
     assert.ok(readme.includes("minime_cron_last_success_timestamp"), "README.md does not document cron success metric");
     assert.ok(readme.includes("900000 = 15 min"), "README.md does not document the 15-minute cron timeout default");

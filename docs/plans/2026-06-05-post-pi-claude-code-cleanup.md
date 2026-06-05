@@ -132,12 +132,12 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 7: Update public defaults and docs
 
-- [ ] Update `config.yaml` defaults from Claude-oriented examples to Pi/Codex examples.
-- [ ] Remove `defaultFallbackModel` from defaults if fallback models are removed from config semantics.
-- [ ] Update `crons.yaml` field reference: LLM crons no longer run `claude -p`.
-- [ ] Update README sections that describe Claude Max / Claude Code CLI subprocess as the runtime.
-- [ ] Keep historical `docs/plans/**` untouched unless they are current docs; do not rewrite old plans just to remove old terms.
-- [ ] Update any workspace template comments that tell users to store Claude OAuth tokens.
+- [x] Update `config.yaml` defaults from Claude-oriented examples to Pi/Codex examples.
+- [x] Remove `defaultFallbackModel` from defaults if fallback models are removed from config semantics.
+- [x] Update `crons.yaml` field reference: LLM crons no longer run `claude -p`.
+- [x] Update README sections that describe Claude Max / Claude Code CLI subprocess as the runtime.
+- [x] Keep historical `docs/plans/**` untouched unless they are current docs; do not rewrite old plans just to remove old terms.
+- [x] Update any workspace template comments that tell users to store Claude OAuth tokens.
 
 ### Task 8: Test cleanup and regression coverage
 
