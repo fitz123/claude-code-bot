@@ -96,6 +96,7 @@ function sanitizeCronMetricStem(cronName: string): string {
 function escapePrometheusLabelValue(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
+    .replace(/\r/g, "\\r")
     .replace(/\n/g, "\\n")
     .replace(/"/g, "\\\"");
 }

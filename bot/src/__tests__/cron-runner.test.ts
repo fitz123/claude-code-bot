@@ -1002,14 +1002,14 @@ bindings: []
       assert.match(content, /minime_cron_last_exit_code\{cron="a_b"\} 1/);
     });
 
-    it("escapes quotes, backslashes, and newlines in Prometheus labels", () => {
-      writeCronHealthMetric('quoted"slash\\newline\nname', 7, false);
+    it("escapes quotes, backslashes, newlines, and carriage returns in Prometheus labels", () => {
+      writeCronHealthMetric('quoted"slash\\newline\ncarriage\rname', 7, false);
 
       const file = readdirSync(METRIC_DIR).find((name) => name.endsWith(".exit.prom"));
       assert.ok(file);
       assert.strictEqual(
         readFileSync(join(METRIC_DIR, file), "utf8"),
-        'minime_cron_last_exit_code{cron="quoted\\"slash\\\\newline\\nname"} 7\n',
+        'minime_cron_last_exit_code{cron="quoted\\"slash\\\\newline\\ncarriage\\rname"} 7\n',
       );
     });
 
