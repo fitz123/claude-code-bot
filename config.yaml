@@ -34,6 +34,7 @@ agents:
                         # "pi" routes the agent through the Pi coding agent; "claude" uses `claude -p`.
                         # A "pi" agent MUST set an explicit model (e.g. model: gpt-5.5) — it does
                         # not inherit defaultModel (which is Claude-oriented).
+                        # Optional for "pi": thinking: off|minimal|low|medium|high|xhigh.
 
   # Add more agents as needed:
   # coder:

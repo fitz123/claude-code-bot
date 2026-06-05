@@ -333,6 +333,10 @@ agents:
 
 A `pi` agent must set an explicit, Pi-appropriate `model` (e.g. `model: gpt-5.5`). Unlike a `claude` agent it does **not** inherit the top-level `defaultModel` — that value is Claude-oriented (e.g. `opus`) and the Pi spawn path would otherwise prefix it into a nonsensical `openai-codex/opus` string. The bot refuses to start if a `pi` agent omits `model`.
 
+Pi agents may also set `thinking`, which is passed as Pi `--thinking`. Allowed
+values are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Claude agents
+continue to use `effort: low|medium|high`; `thinking` is only for `provider: pi`.
+
 Pi support is rolling out incrementally. The protocol layer is the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is now wired**: the [Session Manager](#architecture) branches on `agent.provider`, so a chat bound to a `pi` agent spawns via Pi RPC, streams to Telegram/Discord, persists and resumes its session across restarts, and is steerable mid-turn — while the `claude` path stays byte-identical. Specifically, this stage adds:
 
 - a multi-turn translator fix — only Pi's `agent_end` event terminates a turn (`turn_end` is a per-turn boundary), so a tool-using response delivers its final answer instead of truncating;
@@ -385,6 +389,175 @@ metricsPort: 9090
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
 
 The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`, same buckets as the Claude turn histogram for direct comparison), the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter), and `bot_pi_session_resume_discarded_total` (label `agent_id`, incremented once per graceful resume-recovery — a stored Pi session id Pi could not find, discarded for one fresh start). They read zero until an agent runs with `provider: pi`.
+
+#### Codex quota sampler
+
+Telegram and Discord `/status` use the same compact local renderer. The normal
+healthy output shows session count, uptime, agent/provider, model,
+thinking/effort, processing-or-idle state, and session id. It omits noisy
+diagnostics such as RSS memory, PID, restart count, and last success unless those
+values are actionable: dead process, non-zero restarts, or missing/stale last
+success.
+
+Codex quota in `/status` is also local-only. The command never calls Pi, Codex,
+or the network; it only reads the sampler cache from `CODEX_QUOTA_STATE_FILE` (or
+the default cache path). If the cache is fresh, `/status` shows 5-hour and weekly
+used/left percentages, reset ETA, plan/active-limit metadata when present, sample
+age, and last probe attempt. If the cache is stale, missing, or malformed, it says
+so explicitly instead of probing live.
+
+A separate low-frequency sampler runs a tiny Pi SSE probe, loads only
+`bot/.claude/extensions/codex-usage.ts`, and writes:
+
+- JSON cache: `CODEX_QUOTA_STATE_FILE`, defaulting to
+  `bot/.tmp/codex-quota-state.json` when run from `bot/`.
+- Prometheus usage textfile: `codex_usage.prom` in `CODEX_QUOTA_TEXTFILE_DIR`,
+  `NODE_EXPORTER_TEXTFILE_DIR`, or `/opt/homebrew/var/node_exporter/textfile`
+  when that directory is writable.
+- Prometheus probe textfile: `codex_usage_probe.prom` in the same textfile dir.
+
+The sampler fails loudly if no configured or writable Prometheus textfile
+directory is available, rather than writing metrics to an unsupervised fallback
+directory.
+
+A sampler attempt is considered successful only when the Pi child exits cleanly
+and the JSON cache is refreshed by quota headers from that attempt. Missing
+headers, write warnings, timeouts, and non-zero exits record a failed attempt,
+preserve the last successful quota values, and leave `codex_usage.prom` unchanged.
+The JSON cache is still updated with `lastAttempt`, `lastAttemptTimestamp`, and
+`probeSuccess` when the existing cache is valid, so `/status` can report the
+latest failed probe without probing live.
+
+Normal Pi conversations must stay on `transport: auto`. Do not set global
+`~/.pi/agent/settings.json` or the bot workspace `.pi/settings.json` to
+`transport: "sse"` for live sessions. Codex quota headers are available on Pi's
+Codex SSE path, but live Codex SSE can fail before any response body with
+`Codex SSE response headers timed out after 10000ms`
+(`DEFAULT_SSE_HEADER_TIMEOUT_MS = 10_000`). Forcing that path globally would make
+interactive Telegram or Discord conversations less reliable. The sampler creates
+its own isolated project cwd and writes `{ "transport": "sse" }` only there, so a
+slow or failed SSE header probe cannot degrade live sessions.
+
+Sampler command:
+
+```bash
+cd ~/.minime/bot
+CODEX_QUOTA_TEXTFILE_DIR=/opt/homebrew/var/node_exporter/textfile \
+CODEX_QUOTA_STATE_FILE=$PWD/.tmp/codex-quota-state.json \
+npx tsx scripts/codex-quota-sampler.ts
+```
+
+Supported CLI flags:
+
+| Flag | Description |
+|---|---|
+| `--model <model>` | Probe model; same normalization as `CODEX_QUOTA_MODEL`. |
+| `--textfile-dir <dir>` | Prometheus textfile directory. |
+| `--state-file <file>` | Codex quota JSON state file. |
+| `--sampler-cwd <dir>` | Isolated cwd that receives `.pi/settings.json`. |
+| `--timeout-ms <ms>` / `--timeout <ms>` | Wall-clock timeout for the Pi child. |
+| `--pi-bin <path>` | Pi binary path/name. |
+| `--prompt <text>` | Minimal prompt sent to Pi. |
+| `--dry-run` | Print resolved command/settings without launching Pi or writing attempt metrics. |
+| `--help` / `-h` | Print sampler help. |
+
+Supported environment variables:
+
+| Variable | Description |
+|---|---|
+| `CODEX_QUOTA_MODEL` | Probe model. Defaults to `openai-codex/gpt-5.5`; unqualified names are prefixed with `openai-codex/`. |
+| `CODEX_QUOTA_TEXTFILE_DIR` | Directory for `codex_usage.prom` and `codex_usage_probe.prom`; takes precedence over `NODE_EXPORTER_TEXTFILE_DIR`. |
+| `NODE_EXPORTER_TEXTFILE_DIR` | Fallback textfile directory used when `CODEX_QUOTA_TEXTFILE_DIR` is unset. |
+| `CODEX_QUOTA_STATE_FILE` | JSON cache read by `/status`. The bot and sampler must agree on this path. |
+| `CODEX_QUOTA_SAMPLER_CWD` | Isolated sampler project cwd. Defaults to the system temp dir. |
+| `CODEX_QUOTA_TIMEOUT_MS` | Wall-clock timeout for the Pi child. Defaults to 20000. |
+| `CODEX_QUOTA_DRY_RUN` | Boolean-like dry-run switch; prints the resolved command without launching Pi. |
+| `CODEX_QUOTA_PI_BIN` | Pi binary path/name. Defaults to `pi`. |
+| `CODEX_QUOTA_STALE_MS` | `/status` stale threshold for cached quota data. Defaults to 1800000 (30 minutes). |
+
+JSON cache shape:
+
+```json
+{
+  "provider": "codex",
+  "sampledAt": "2026-06-05T12:00:01.000Z",
+  "lastSuccess": "2026-06-05T12:00:01.000Z",
+  "lastSuccessTimestamp": 1001,
+  "lastAttempt": "2026-06-05T12:00:00.000Z",
+  "lastAttemptTimestamp": 1000,
+  "probeSuccess": true,
+  "planType": "Pro",
+  "activeLimit": "primary",
+  "windows": {
+    "5h": { "usedPercent": 12.5, "remainingPercent": 87.5, "resetTimestamp": 2800 },
+    "week": { "usedPercent": 88, "remainingPercent": 12, "resetTimestamp": 7200 }
+  }
+}
+```
+
+Prometheus textfiles:
+
+| Metric | File | Description |
+|---|---|---|
+| `codex_usage_5h_percent` | `codex_usage.prom` | Last successful 5-hour usage percent. |
+| `codex_usage_weekly_percent` | `codex_usage.prom` | Last successful weekly usage percent. |
+| `codex_usage_5h_reset_timestamp` | `codex_usage.prom` | Unix reset timestamp for the 5-hour window. |
+| `codex_usage_weekly_reset_timestamp` | `codex_usage.prom` | Unix reset timestamp for the weekly window. |
+| `codex_usage_last_success_timestamp` | `codex_usage.prom` | Unix timestamp of the last successful quota sample. |
+| `codex_usage_info` | `codex_usage.prom` | Low-cardinality `provider`, `plan_type`, and `active_limit` labels. |
+| `codex_usage_last_attempt_timestamp` | `codex_usage_probe.prom` | Unix timestamp of the last sampler attempt. |
+| `codex_usage_probe_success` | `codex_usage_probe.prom` | `1` only when the attempt refreshed the quota cache. |
+
+Run the sampler every 15-30 minutes. Keep `CODEX_QUOTA_STALE_MS` at least as
+large as the scheduled interval plus normal launch jitter; the default 30-minute
+threshold fits a 15-minute schedule, while a 30-minute schedule should set a
+larger value such as 2700000.
+
+Example private `crons.local.yaml` entry. Redirect stdout/stderr so the bot's
+script cron runner skips success delivery and only notifies the delivery chat on
+failure:
+
+```yaml
+crons:
+  - name: codex-quota-sampler
+    type: script
+    schedule: "*/15 * * * *"
+    command: >
+      cd /absolute/path/to/minime/bot &&
+      CODEX_QUOTA_TEXTFILE_DIR=/opt/homebrew/var/node_exporter/textfile
+      CODEX_QUOTA_STATE_FILE=/absolute/path/to/minime/bot/.tmp/codex-quota-state.json
+      npx tsx scripts/codex-quota-sampler.ts
+      >> /absolute/path/to/minime/logs/codex-quota-sampler.log 2>&1
+    agentId: main
+    deliveryChatId: 123456789
+    timeout: 60000
+```
+
+Equivalent cron-style invocation:
+
+```cron
+*/15 * * * * cd /absolute/path/to/minime/bot && CODEX_QUOTA_TEXTFILE_DIR=/opt/homebrew/var/node_exporter/textfile CODEX_QUOTA_STATE_FILE=/absolute/path/to/minime/bot/.tmp/codex-quota-state.json npx tsx scripts/codex-quota-sampler.ts >> /absolute/path/to/minime/logs/codex-quota-sampler.log 2>&1
+```
+
+Prometheus alert expression:
+
+```promql
+codex_usage_5h_percent > 85 OR codex_usage_weekly_percent > 90
+```
+
+Post-merge private rollout: add a script cron or launchd entry for
+`scripts/codex-quota-sampler.ts`, confirm the bot and sampler use the same
+`CODEX_QUOTA_STATE_FILE`, and add the optional monitoring rule above to the
+private Prometheus configuration.
+
+Rollback: disable the sampler cron/launchd job first. If the bot was configured
+with custom quota env vars, unset `CODEX_QUOTA_STATE_FILE`,
+`CODEX_QUOTA_TEXTFILE_DIR`, `NODE_EXPORTER_TEXTFILE_DIR`, and
+`CODEX_QUOTA_STALE_MS` from the bot/sampler environment as applicable, then
+restart the bot only if its launchd environment changed. Existing live sessions
+remain on `transport: auto`; disabling quota visibility does not touch active Pi
+conversations. Remove or silence the private Prometheus alert separately if it
+was enabled.
 
 #### Telegram API metrics
 

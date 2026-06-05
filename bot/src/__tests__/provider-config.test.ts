@@ -68,6 +68,31 @@ describe("validateAgent provider field", () => {
     assert.strictEqual(agent.provider, "pi");
   });
 
+  it("accepts Pi thinking levels", () => {
+    const agent = validateAgent(
+      { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "pi", thinking: "xhigh" },
+      "coder",
+    );
+    assert.strictEqual(agent.thinking, "xhigh");
+  });
+
+  it("rejects invalid thinking values", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "pi", thinking: "ultra" },
+        "coder",
+      ),
+      /Agent "coder" has invalid thinking "ultra" \(must be one of: off, minimal, low, medium, high, xhigh\)/,
+    );
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", provider: "pi", thinking: 42 },
+        "coder",
+      ),
+      /Agent "coder" has invalid thinking "42"/,
+    );
+  });
+
   it("a claude agent still inherits the top-level defaultModel (regression)", () => {
     const agent = validateAgent(
       { workspaceCwd: "/tmp/x", provider: "claude" },
@@ -86,6 +111,7 @@ describe("validateAgent provider field", () => {
         systemPrompt: "be helpful",
         maxTurns: 5,
         effort: "high",
+        thinking: "medium",
         provider: "pi",
       },
       "main",
@@ -95,6 +121,7 @@ describe("validateAgent provider field", () => {
     assert.strictEqual(agent.systemPrompt, "be helpful");
     assert.strictEqual(agent.maxTurns, 5);
     assert.strictEqual(agent.effort, "high");
+    assert.strictEqual(agent.thinking, "medium");
     assert.strictEqual(agent.provider, "pi");
   });
 });

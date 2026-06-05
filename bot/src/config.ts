@@ -9,6 +9,8 @@ import { DEFAULT_MAX_MEDIA_BYTES } from "./media-store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
+const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const CONFIGURED_SECRET_PLACEHOLDER = "[configured]";
 
 // Derive the .local counterpart path: config.yaml → config.local.yaml
 function deriveLocalConfigPath(configPath: string): string {
@@ -79,6 +81,10 @@ interface RawConfig {
   defaultDeliveryThreadId?: number;
   defaultModel?: unknown;
   defaultFallbackModel?: unknown;
+}
+
+interface LoadConfigOptions {
+  resolveSecrets?: boolean;
 }
 
 /**
@@ -162,6 +168,14 @@ export function validateAgent(
   if (obj.provider !== undefined && obj.provider !== "claude" && obj.provider !== "pi") {
     throw new Error(`Agent "${id}" has invalid provider "${String(obj.provider)}" (must be "claude" or "pi")`);
   }
+  if (
+    obj.thinking !== undefined &&
+    (typeof obj.thinking !== "string" || !PI_THINKING_LEVELS.includes(obj.thinking as typeof PI_THINKING_LEVELS[number]))
+  ) {
+    throw new Error(
+      `Agent "${id}" has invalid thinking "${String(obj.thinking)}" (must be one of: ${PI_THINKING_LEVELS.join(", ")})`,
+    );
+  }
   return {
     id: String(obj.id ?? id),
     workspaceCwd: obj.workspaceCwd,
@@ -173,6 +187,7 @@ export function validateAgent(
     effort: typeof obj.effort === "string" && ["low", "medium", "high"].includes(obj.effort)
       ? (obj.effort as AgentConfig["effort"])
       : undefined,
+    thinking: obj.thinking as AgentConfig["thinking"] | undefined,
     provider: obj.provider === "pi" ? "pi" : "claude",
   };
 }
@@ -290,7 +305,11 @@ export function validateDiscordBinding(raw: unknown, index: number): DiscordBind
   };
 }
 
-function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string, AgentConfig>): DiscordConfig | undefined {
+function validateDiscordConfig(
+  raw: RawConfig["discord"],
+  agents: Record<string, AgentConfig>,
+  options: LoadConfigOptions = {},
+): DiscordConfig | undefined {
   if (!raw) return undefined;
   // Accept either tokenService (Keychain — macOS) or tokenEnv (env var — Linux/NixOS).
   // At least one must be set.
@@ -303,11 +322,13 @@ function validateDiscordConfig(raw: RawConfig["discord"], agents: Record<string,
   if (!raw.tokenService && !raw.tokenEnv) {
     throw new Error("discord requires either tokenService (macOS Keychain) or tokenEnv (env var)");
   }
-  const token = resolveSecret({
-    service: raw.tokenService,
-    envVar: raw.tokenEnv,
-    fieldName: "discord.token",
-  });
+  const token = options.resolveSecrets === false
+    ? CONFIGURED_SECRET_PLACEHOLDER
+    : resolveSecret({
+      service: raw.tokenService,
+      envVar: raw.tokenEnv,
+      fieldName: "discord.token",
+    });
   if (!Array.isArray(raw.bindings) || raw.bindings.length === 0) {
     throw new Error("discord.bindings must be a non-empty array");
   }
@@ -377,8 +398,9 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
   return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, requireMention, maxMediaBytes };
 }
 
-export function loadConfig(configPath?: string): BotConfig {
+export function loadConfig(configPath?: string, options: LoadConfigOptions = {}): BotConfig {
   const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
+  const resolveSecrets = options.resolveSecrets !== false;
 
   if (!raw || typeof raw !== "object") {
     throw new Error("Config file is empty or invalid");
@@ -416,11 +438,13 @@ export function loadConfig(configPath?: string): BotConfig {
   }
   let telegramToken: string | undefined;
   if (raw.telegramTokenService || raw.telegramTokenEnv) {
-    telegramToken = resolveSecret({
-      service: raw.telegramTokenService,
-      envVar: raw.telegramTokenEnv,
-      fieldName: "telegramToken",
-    });
+    telegramToken = resolveSecrets
+      ? resolveSecret({
+        service: raw.telegramTokenService,
+        envVar: raw.telegramTokenEnv,
+        fieldName: "telegramToken",
+      })
+      : CONFIGURED_SECRET_PLACEHOLDER;
   }
 
   // Validate Telegram bindings (optional if Discord is configured)
@@ -446,7 +470,7 @@ export function loadConfig(configPath?: string): BotConfig {
   }
 
   // Validate Discord config (optional)
-  const discord = validateDiscordConfig(raw.discord, agents);
+  const discord = validateDiscordConfig(raw.discord, agents, { resolveSecrets });
 
   // At least one platform must be configured
   if (bindings.length === 0 && !discord) {
@@ -511,18 +535,19 @@ export function loadConfig(configPath?: string): BotConfig {
 }
 
 // CLI: validate config
-if (process.argv.includes("--validate")) {
+const validateWithoutSecrets = process.argv.includes("--validate-structure") || process.argv.includes("--no-resolve-secrets");
+if (process.argv.includes("--validate") || validateWithoutSecrets) {
   try {
-    const config = loadConfig();
+    const config = loadConfig(undefined, { resolveSecrets: !validateWithoutSecrets });
     log.info("config", "Config valid.");
     log.info("config", `  Agents: ${Object.keys(config.agents).join(", ")}`);
     log.info("config", `  Telegram bindings: ${config.bindings.length}`);
     if (config.telegramToken) {
-      log.info("config", `  Telegram token: ${config.telegramToken.slice(0, 4)}...`);
+      log.info("config", "  Telegram token: configured");
     }
     if (config.discord) {
       log.info("config", `  Discord bindings: ${config.discord.bindings.length}`);
-      log.info("config", `  Discord token: ${config.discord.token.slice(0, 4)}...`);
+      log.info("config", "  Discord token: configured");
     }
     log.info("config", `  Idle timeout: ${config.sessionDefaults.idleTimeoutMs}ms`);
     log.info("config", `  Max sessions: ${config.sessionDefaults.maxConcurrentSessions}`);

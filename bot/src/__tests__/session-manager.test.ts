@@ -314,6 +314,8 @@ describe("SessionManager", () => {
       sessionId: "race-sid",
       agentId: "main",
       provider: "claude",
+      model: "claude-opus-4-6",
+      effort: "high",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 100000,
@@ -1181,6 +1183,9 @@ describe("SessionManager.getSessionHealth", () => {
       child,
       sessionId: "health-test",
       agentId: "main",
+      provider: "claude",
+      model: "claude-opus-4-6",
+      effort: "high",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1199,6 +1204,10 @@ describe("SessionManager.getSessionHealth", () => {
     assert.strictEqual(health.pid, 42000);
     assert.strictEqual(health.alive, true);
     assert.strictEqual(health.agentId, "main");
+    assert.strictEqual(health.provider, "claude");
+    assert.strictEqual(health.model, "claude-opus-4-6");
+    assert.strictEqual(health.effort, "high");
+    assert.strictEqual(health.thinking, undefined);
     assert.ok(health.idleMs >= 5000, "idle should be at least 5s");
     assert.strictEqual(health.processingMs, null);
     assert.strictEqual(health.lastSuccessAt, now - 10000);
@@ -1226,6 +1235,8 @@ describe("SessionManager.getSessionHealth", () => {
       child,
       sessionId: "proc-test",
       agentId: "main",
+      provider: "claude",
+      model: "claude-opus-4-6",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1263,6 +1274,8 @@ describe("SessionManager.getSessionHealth", () => {
       child,
       sessionId: "dead-health-test",
       agentId: "main",
+      provider: "claude",
+      model: "claude-opus-4-6",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1299,6 +1312,8 @@ describe("SessionManager.getSessionHealth", () => {
       child,
       sessionId: "killed-test",
       agentId: "main",
+      provider: "claude",
+      model: "claude-opus-4-6",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1335,6 +1350,8 @@ describe("SessionManager.getSessionHealth", () => {
       child,
       sessionId: "no-pid-test",
       agentId: "agent-b",
+      provider: "claude",
+      model: "claude-opus-4-6",
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1688,6 +1705,7 @@ describe("SessionManager gracefulShutdown", () => {
       sessionId: "test-session-" + chatId,
       agentId: "main",
       provider: "claude",
+      model: "claude-opus-4-6",
       queue,
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1865,6 +1883,8 @@ describe("SessionManager gracefulShutdown", () => {
       sessionId: "sid-pi-busy",
       agentId: "main",
       provider: "pi",
+      model: "openai-codex/gpt-5.5",
+      thinking: "xhigh",
       queue,
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -1968,6 +1988,8 @@ describe("SessionManager provider dispatch", () => {
       sessionId: `sid-${chatId}`,
       agentId,
       provider,
+      model: provider === "pi" ? "openai-codex/gpt-5.5" : "claude-opus-4-6",
+      thinking: provider === "pi" ? "xhigh" : undefined,
       queue: new PQueue({ concurrency: 1 }),
       idleTimer: null,
       idleTimeoutMs: 60_000,
@@ -2295,4 +2317,3 @@ describe("SessionManager provider dispatch", () => {
     await manager.closeAll();
   });
 });
-

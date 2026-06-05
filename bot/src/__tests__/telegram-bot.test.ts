@@ -1331,10 +1331,26 @@ describe("command handler wiring", () => {
       calls,
       closeSession: async (_chatId: string) => { calls.push("closeSession"); },
       destroySession: async (_chatId: string) => { calls.push("destroySession"); },
-      sendSessionMessage: () => { throw new Error("unexpected"); },
-      getOrCreateSession: async () => { throw new Error("unexpected"); },
+      sendSessionMessage: () => { calls.push("sendSessionMessage"); throw new Error("unexpected"); },
+      getOrCreateSession: async () => { calls.push("getOrCreateSession"); throw new Error("unexpected"); },
       closeAll: async () => {},
       resolveStoredSession: () => ({ resume: false }),
+      getActiveCount: () => 1,
+      getSessionHealth: (key: string) => {
+        calls.push(`getSessionHealth:${key}`);
+        return {
+          pid: 123,
+          alive: true,
+          agentId: "main",
+          sessionId: "session-123",
+          provider: "claude",
+          model: "claude-opus-4-6",
+          idleMs: 120_000,
+          processingMs: null,
+          lastSuccessAt: Date.now(),
+          restartCount: 0,
+        };
+      },
       activeCount: () => 0,
       getActiveSession: () => undefined,
       isActive: () => false,
@@ -1356,10 +1372,13 @@ describe("command handler wiring", () => {
     };
   }
 
-  function initBot(mockSM: SessionManager) {
+  function initBot(mockSM: SessionManager, apiCalls: Array<{ method: string; payload: any }> = []) {
     const { bot } = createTelegramBot(handlerConfig, mockSM);
     // Intercept all API calls so nothing reaches Telegram
-    bot.api.config.use(async (_prev, _method, _payload) => ({ ok: true, result: true } as any));
+    bot.api.config.use(async (_prev, method, payload) => {
+      apiCalls.push({ method, payload });
+      return { ok: true, result: true } as any;
+    });
     // Provide bot info so handleUpdate works without calling getMe
     bot.botInfo = {
       id: 999,
@@ -1393,6 +1412,22 @@ describe("command handler wiring", () => {
     await bot.handleUpdate(makeCommandUpdate("clean", 2));
     assert.ok(mockSM.calls.includes("destroySession"), "/clean should call destroySession");
     assert.ok(!mockSM.calls.includes("closeSession"), "/clean handler calls destroySession, not closeSession directly");
+  });
+
+  it("/status replies from local health/cache without opening a session", async () => {
+    const mockSM = createMockSessionManager();
+    const apiCalls: Array<{ method: string; payload: any }> = [];
+    const bot = initBot(mockSM, apiCalls);
+
+    await bot.handleUpdate(makeCommandUpdate("status", 3));
+
+    const reply = apiCalls.find((call) => call.method === "sendMessage");
+    assert.ok(reply);
+    assert.match(String(reply.payload.text), /Sessions: 1\/2/);
+    assert.match(String(reply.payload.text), /Session ID: session-123/);
+    assert.ok(mockSM.calls.includes("getSessionHealth:111111111"));
+    assert.ok(!mockSM.calls.includes("sendSessionMessage"));
+    assert.ok(!mockSM.calls.includes("getOrCreateSession"));
   });
 });
 

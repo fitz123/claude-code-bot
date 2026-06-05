@@ -1,7 +1,13 @@
 # pi-extensions
 
-Pure, testable helpers for the Pi extensions (A1 guard, A2 web-tools, A3 subagent)
-loaded into every `pi --mode rpc` spawn. See `docs/plans/completed/2026-06-01-pi-phase2-extensions.md`.
+Pure, testable helpers for Pi extension wrappers.
+
+Most helpers here back the live Pi RPC extensions (A1 guard, A2 web-tools, A3
+subagent) loaded into every `pi --mode rpc` spawn. `codex-usage.ts` is different:
+it is used only by the out-of-band Codex quota sampler via
+`bot/.claude/extensions/codex-usage.ts`, and must not be added to the normal
+`PI_EXTENSION_WRAPPER_RELPATHS` list. See
+`docs/plans/completed/2026-06-01-pi-phase2-extensions.md` for A1-A3.
 
 ## Location lock (Task 0)
 
@@ -9,7 +15,8 @@ There are TWO kinds of files in this feature, deliberately split:
 
 1. **Pure helpers — `bot/src/pi-extensions/*.ts`** (this directory).
    All real logic lives here: path classification (A1), Tavily request/parse
-   (A2), subagent spawn-arg/result helpers (A3). These files are:
+   (A2), subagent spawn-arg/result helpers (A3), and the sampler-only Codex
+   quota cache/export helper. These files are:
    - **Type-checked by `tsc --noEmit`** (the `npm run lint` command) because the
      bot `tsconfig.json` `include` is `["src/**/*.ts"]`, which matches this path.
    - **Exercised by `npm test`** because the test glob is `src/__tests__/*.test.ts`

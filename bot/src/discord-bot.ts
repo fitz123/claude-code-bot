@@ -10,6 +10,8 @@ import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./
 import { log } from "./logger.js";
 import { messagesReceived } from "./metrics.js";
 import { isImageMimeType } from "./mime.js";
+import { readQuotaStatus } from "./quota-status.js";
+import { buildStatusReport } from "./status-report.js";
 /** Check if a message is too old to process (same logic as telegram-bot.ts). */
 function isStaleMessage(messageTimestampMs: number, maxAgeMs: number): boolean {
   return Date.now() - messageTimestampMs > maxAgeMs;
@@ -121,6 +123,79 @@ export function buildDiscordSourcePrefix(
 export interface DiscordBotResult {
   client: Client;
   messageQueue: MessageQueue;
+}
+
+interface DiscordCommandInteractionLike {
+  commandName: string;
+  channelId: string;
+  guildId: string | null;
+  channel?: {
+    isThread: () => boolean;
+    parentId?: string | null;
+  } | null;
+  reply: (response: string | { content: string; ephemeral?: boolean }) => Promise<unknown>;
+}
+
+interface DiscordCommandHandlerOptions {
+  config: BotConfig;
+  discordConfig: DiscordConfig;
+  sessionManager: SessionManager;
+  messageQueue: Pick<MessageQueue, "clear">;
+}
+
+export async function handleDiscordChatInputCommand(
+  interaction: DiscordCommandInteractionLike,
+  options: DiscordCommandHandlerOptions,
+): Promise<void> {
+  const { config, discordConfig, sessionManager, messageQueue } = options;
+  const isThread = interaction.channel?.isThread() ?? false;
+  const channelId = isThread && interaction.channel && "parentId" in interaction.channel
+    ? (interaction.channel.parentId ?? interaction.channelId)
+    : interaction.channelId;
+  const threadId = isThread ? interaction.channelId : undefined;
+
+  const binding = resolveDiscordBinding(channelId, discordConfig.bindings, interaction.guildId ?? undefined);
+  if (!binding) {
+    await interaction.reply({ content: "This channel is not configured.", ephemeral: true });
+    return;
+  }
+
+  const key = discordSessionKey(channelId, threadId);
+
+  switch (interaction.commandName) {
+    case "start": {
+      const agent = config.agents[binding.agentId];
+      await interaction.reply(
+        `Connected to agent "${binding.agentId}" (${agent?.model ?? "unknown"}). Send a message to start.`,
+      );
+      break;
+    }
+    case "reconnect": {
+      messageQueue.clear(key);
+      await sessionManager.closeSession(key);
+      await interaction.reply("Session restarted. Prior context may be partially retained.");
+      break;
+    }
+    case "clean": {
+      messageQueue.clear(key);
+      await sessionManager.destroySession(key);
+      await interaction.reply("Session cleaned. Fresh start.");
+      break;
+    }
+    case "status": {
+      await interaction.reply(buildStatusReport({
+        activeCount: sessionManager.getActiveCount(),
+        maxSessions: config.sessionDefaults.maxConcurrentSessions,
+        uptimeSeconds: Math.floor(process.uptime()),
+        sessionHealth: sessionManager.getSessionHealth(key),
+        quotaStatus: readQuotaStatus(),
+      }));
+      break;
+    }
+    default:
+      await interaction.reply({ content: "Unknown command.", ephemeral: true });
+      break;
+  }
 }
 
 /**
@@ -355,93 +430,12 @@ export async function createDiscordBot(
   client.on(Events.InteractionCreate, async (interaction) => {
     try {
       if (!interaction.isChatInputCommand()) return;
-
-      const isThread = interaction.channel?.isThread() ?? false;
-      const channelId = isThread && interaction.channel && "parentId" in interaction.channel
-        ? (interaction.channel.parentId ?? interaction.channelId)
-        : interaction.channelId;
-      const threadId = isThread ? interaction.channelId : undefined;
-
-      const binding = resolveDiscordBinding(channelId, discordConfig.bindings, interaction.guildId ?? undefined);
-      if (!binding) {
-        await interaction.reply({ content: "This channel is not configured.", ephemeral: true });
-        return;
-      }
-
-      const key = discordSessionKey(channelId, threadId);
-
-      switch (interaction.commandName) {
-        case "start": {
-          const agent = config.agents[binding.agentId];
-          await interaction.reply(
-            `Connected to agent "${binding.agentId}" (${agent?.model ?? "unknown"}). Send a message to start.`,
-          );
-          break;
-        }
-        // Session lifecycle: create → compact → reconnect → resume. Reconnect
-        // kills the Claude subprocess but the session file (with compacted
-        // conversation history) remains on disk. When the next message arrives,
-        // getOrCreateSession() finds the file and resumes with --resume, so
-        // prior context may be partially retained through the compaction summary.
-        case "reconnect": {
-          messageQueue.clear(key);
-          await sessionManager.closeSession(key);
-          await interaction.reply("Session restarted. Prior context may be partially retained.");
-          break;
-        }
-        // Clean destroys the session entirely — subprocess killed AND stored
-        // state deleted. Next message starts a brand new session with no history.
-        case "clean": {
-          messageQueue.clear(key);
-          await sessionManager.destroySession(key);
-          await interaction.reply("Session cleaned. Fresh start.");
-          break;
-        }
-        case "status": {
-          const activeCount = sessionManager.getActiveCount();
-          const memUsage = process.memoryUsage();
-          const uptimeSeconds = Math.floor(process.uptime());
-          const hours = Math.floor(uptimeSeconds / 3600);
-          const minutes = Math.floor((uptimeSeconds % 3600) / 60);
-
-          const lines = [
-            `Active sessions: ${activeCount}/${config.sessionDefaults.maxConcurrentSessions}`,
-            `Memory: ${Math.round(memUsage.rss / 1024 / 1024)}MB RSS`,
-            `Uptime: ${hours}h ${minutes}m`,
-          ];
-
-          const health = sessionManager.getSessionHealth(key);
-          if (health) {
-            const status = health.alive ? "alive" : "dead";
-            const pidStr = health.pid !== null ? String(health.pid) : "n/a";
-            const idleMins = Math.floor(health.idleMs / 60000);
-
-            lines.push(`This session: agent "${health.agentId}", PID ${pidStr} (${status})`);
-            lines.push(`  Session ID: ${health.sessionId}`);
-
-            if (health.processingMs !== null) {
-              lines.push(`  Processing: ${Math.floor(health.processingMs / 1000)}s`);
-            } else {
-              lines.push(`  Idle: ${idleMins}m`);
-            }
-
-            if (health.lastSuccessAt !== null) {
-              const agoMins = Math.floor((Date.now() - health.lastSuccessAt) / 60000);
-              lines.push(`  Last success: ${agoMins}m ago`);
-            } else {
-              lines.push(`  Last success: none`);
-            }
-
-            lines.push(`  Restarts: ${health.restartCount}`);
-          }
-
-          await interaction.reply(lines.join("\n"));
-          break;
-        }
-        default:
-          await interaction.reply({ content: "Unknown command.", ephemeral: true });
-          break;
-      }
+      await handleDiscordChatInputCommand(interaction, {
+        config,
+        discordConfig,
+        sessionManager,
+        messageQueue,
+      });
     } catch (err) {
       log.error("discord-bot", `Interaction handler error:`, err);
       if (interaction.isChatInputCommand() && !interaction.replied && !interaction.deferred) {
