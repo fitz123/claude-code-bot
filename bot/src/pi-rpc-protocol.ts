@@ -358,9 +358,11 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   // parent guard — only the subagent child spawn sets it (see the constant doc).
   delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
 
-  if (!env.PATH?.includes("/opt/homebrew/bin")) {
-    env.PATH = `/opt/homebrew/bin:${env.PATH ?? ""}`;
+  const pathParts = (env.PATH ?? "").split(":").filter(Boolean);
+  if (!pathParts.includes("/opt/homebrew/bin")) {
+    pathParts.unshift("/opt/homebrew/bin");
   }
+  env.PATH = pathParts.join(":");
 
   return env;
 }

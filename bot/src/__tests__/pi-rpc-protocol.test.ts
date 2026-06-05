@@ -626,6 +626,24 @@ describe("buildPiSpawnEnv", () => {
     }
   });
 
+  it("builds PATH without empty elements when inherited PATH is blank or has separators", () => {
+    const oldPath = process.env.PATH;
+
+    try {
+      process.env.PATH = "";
+      assert.strictEqual(buildPiSpawnEnv(testAgent).PATH, "/opt/homebrew/bin");
+
+      process.env.PATH = ":/usr/bin::/bin:";
+      assert.strictEqual(buildPiSpawnEnv(testAgent).PATH, "/opt/homebrew/bin:/usr/bin:/bin");
+    } finally {
+      if (oldPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = oldPath;
+      }
+    }
+  });
+
   it("scrubs the CLAUDECODE session marker (parity with the Claude path)", () => {
     const oldMarker = process.env.CLAUDECODE;
 
