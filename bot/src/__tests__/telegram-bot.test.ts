@@ -184,11 +184,11 @@ describe("isImageMimeType", () => {
     assert.strictEqual(isImageMimeType("video/mp4"), false);
   });
 
-  it("returns false for image/svg+xml (unsupported by Claude vision)", () => {
+  it("returns false for image/svg+xml (unsupported image relay type)", () => {
     assert.strictEqual(isImageMimeType("image/svg+xml"), false);
   });
 
-  it("returns false for image/tiff (unsupported by Claude vision)", () => {
+  it("returns false for image/tiff (unsupported image relay type)", () => {
     assert.strictEqual(isImageMimeType("image/tiff"), false);
   });
 });
@@ -1311,7 +1311,7 @@ describe("command handler wiring", () => {
   const handlerConfig: BotConfig = {
     telegramToken: "test:fake-token-for-handler-tests",
     agents: {
-      main: { id: "main", workspaceCwd: "/tmp/test", model: "claude-opus-4-6" },
+      main: { id: "main", workspaceCwd: "/tmp/test", model: "gpt-5.5" },
     },
     bindings: [
       { chatId: testChatId, agentId: "main", kind: "dm" as const },
@@ -1344,7 +1344,7 @@ describe("command handler wiring", () => {
           agentId: "main",
           sessionId: "session-123",
           provider: "pi",
-          model: "claude-opus-4-6",
+          model: "gpt-5.5",
           idleMs: 120_000,
           processingMs: null,
           lastSuccessAt: Date.now(),

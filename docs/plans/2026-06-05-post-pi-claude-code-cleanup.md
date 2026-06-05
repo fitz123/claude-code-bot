@@ -141,8 +141,8 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 8: Test cleanup and regression coverage
 
-- [ ] Remove Claude-only tests: `cli-protocol.test.ts`, `cli-capabilities` tests if present, Claude-branch-only cases in `session-manager*.test.ts`.
-- [ ] Add/keep Pi-only tests for:
+- [x] Remove Claude-only tests: `cli-protocol.test.ts`, `cli-capabilities` tests if present, Claude-branch-only cases in `session-manager*.test.ts`.
+- [x] Add/keep Pi-only tests for:
   - absent provider config spawns Pi,
   - explicit `provider: pi` spawns Pi,
   - explicit `provider: claude` is rejected,
@@ -151,7 +151,7 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
   - prompt sends `streamingBehavior: "followUp"`,
   - graceful shutdown uses Pi steer,
   - cron LLM path uses Pi print mode.
-- [ ] Keep context assembler tests proving `CLAUDE.md`, `MEMORY.md`, `.claude/rules`, and skills context still work.
+- [x] Keep context assembler tests proving `CLAUDE.md`, `MEMORY.md`, `.claude/rules`, and skills context still work.
 
 ### Task 9: Residual reference audit
 

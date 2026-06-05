@@ -265,7 +265,7 @@ defaultFallbackModel:
 agents:
   main:
     workspaceCwd: /tmp/x
-    model: claude-opus-4-7
+    model: gpt-5.5
 `,
     );
     assert.throws(() => loadConfig(configPath), /defaultFallbackModel was removed with the Claude runtime; remove defaultFallbackModel/);

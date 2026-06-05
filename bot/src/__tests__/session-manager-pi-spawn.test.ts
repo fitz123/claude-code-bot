@@ -232,7 +232,7 @@ function makeConfig(): BotConfig {
       main: {
         id: "main",
         workspaceCwd: "/tmp/test-workspace",
-        model: "claude-opus-4-6",
+        model: "gpt-5.5",
       },
       pi: {
         id: "pi",
@@ -387,7 +387,7 @@ describe("SessionManager Pi session-id capture + resume", () => {
     assert.strictEqual(piSpawnCaptures[0].resumeSessionId, undefined);
     assert.strictEqual(session.sessionId, "main-pi-id");
     assert.strictEqual(session.provider, "pi");
-    assert.strictEqual(session.model, "openai-codex/claude-opus-4-6");
+    assert.strictEqual(session.model, "openai-codex/gpt-5.5");
     assert.strictEqual(session.thinking, undefined);
 
     await manager.closeAll();

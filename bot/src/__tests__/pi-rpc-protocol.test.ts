@@ -431,7 +431,7 @@ describe("Pi extension loading (--extension)", () => {
     assert.ok(args.indexOf("--model") < args.indexOf("--extension"));
   });
 
-  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits all --extension args (bare claude-parity spawn)", () => {
+  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits all --extension args (bare Pi spawn)", () => {
     const args = buildPiSpawnArgs(testAgent, undefined, {
       extensionsDir: FAKE_DIR,
       exists: () => true,
@@ -630,7 +630,7 @@ describe("buildPiSpawnEnv", () => {
     }
   });
 
-  it("scrubs the CLAUDECODE session marker (parity with the Claude path)", () => {
+  it("scrubs the legacy CLAUDECODE session marker", () => {
     const oldMarker = process.env.CLAUDECODE;
 
     try {

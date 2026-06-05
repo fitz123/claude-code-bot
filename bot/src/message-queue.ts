@@ -6,7 +6,7 @@ export const DEFAULT_DEBOUNCE_MS = 3000;
 export const DEFAULT_QUEUE_CAP = 20;
 
 /**
- * Callback that sends combined text to Claude and relays the response.
+ * Callback that sends combined text to the active agent and relays the response.
  * Called by the queue when debounce expires or collect buffer drains.
  *
  * `onAgentOwnership` MUST be invoked once the agent has accepted the prompt
@@ -34,9 +34,9 @@ export type CleanupFn = () => void;
  * hook and no ack mechanism — buffering would re-deliver the message as a
  * followup when the turn drains.
  *
- * Returns `false` for the claude path (or when no live Pi child is available):
- * the queue falls back to the inject-file mechanism (PreToolUse hook). Omitting
- * the hook entirely ⇒ always the inject-file path (claude behavior unchanged).
+ * Returns `false` when no live Pi child is available for steer delivery: the
+ * queue falls back to the inject-file mechanism (PreToolUse hook). Omitting the
+ * hook entirely keeps the inject-file path.
  */
 export type SteerFn = (chatId: string, agentId: string, text: string) => boolean;
 
@@ -71,8 +71,8 @@ interface ChatQueueState {
    * Number of mid-turn messages steered live to the provider during the
    * current turn (Pi path). Reset to 0 at each turn start. Bounds live steers
    * by `queueCap` so an authorized-chat flood cannot push unbounded messages
-   * into the Pi child's stdin / work queue — the same protection the claude
-   * collect buffer provides. Overflow falls through to the (also capped)
+   * into the Pi child's stdin / work queue — the same protection the collect
+   * buffer provides. Overflow falls through to the (also capped)
    * collect-buffer path and is delivered as a followup or dropped.
    */
   steerCount: number;
@@ -109,9 +109,9 @@ export function buildCollectPrompt(texts: string[]): string {
  * Per-chat message queue with pre-send debounce and mid-turn collect.
  *
  * Pre-send debounce: messages arriving within debounceMs are concatenated
- * into a single prompt before sending to Claude.
+ * into a single prompt before sending to the agent.
  *
- * Mid-turn collect: messages arriving while Claude is processing are buffered
+ * Mid-turn collect: messages arriving while the agent is processing are buffered
  * and delivered as a combined followup when the current turn completes.
  */
 export class MessageQueue {
@@ -201,15 +201,15 @@ export class MessageQueue {
       // Provider-aware mid-turn delivery. For Pi, deliver the message live via
       // `steer` and do NOT buffer it: Pi has no inject hook + no ack, so a
       // buffered message would be re-delivered as a followup on drain. For the
-      // claude path (or when no live Pi child is available) steerFn returns
+      // hook path (or when no live Pi child is available) steerFn returns
       // false and we fall through to the inject-file mechanism below.
       //
       // Cap live steers per turn at `queueCap`: an unbounded steer path would
-      // remove the flood protection the claude collect buffer provides (each
+      // remove the flood protection the collect buffer provides (each
       // steer writes to the Pi child's stdin / work queue). Past the cap we do
       // NOT consult steerFn — we fall through to the (also capped) collect
       // buffer, which delivers the overflow as a followup or drops it. The
-      // claude path never increments steerCount (steerFn returns false), so it
+      // legacy hook path never increments steerCount (steerFn returns false), so it
       // is unaffected by this guard.
       if (
         this.steerFn &&

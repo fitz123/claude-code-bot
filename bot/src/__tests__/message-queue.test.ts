@@ -398,7 +398,7 @@ describe("MessageQueue error handling", () => {
     };
 
     const failProcess = async () => {
-      throw new Error("Claude exploded");
+      throw new Error("agent exploded");
     };
 
     const queue = new MessageQueue(failProcess, { debounceMs: 30 });
@@ -999,12 +999,12 @@ describe("MessageQueue provider-aware steer", () => {
     queue.clearAll();
   });
 
-  it("falls back to the inject-file path when steerFn declines (claude regression)", async () => {
+  it("falls back to the inject-file path when steerFn declines", async () => {
     const mock = createMockProcess();
     let steerCallCount = 0;
     const steerFn = () => {
       steerCallCount++;
-      return false; // claude provider → not handled by steer
+      return false; // no live Pi child available for steer
     };
     const queue = new MessageQueue(mock.processFn, { debounceMs: 30, steerFn });
     const platform = mockPlatform();
@@ -1018,9 +1018,9 @@ describe("MessageQueue provider-aware steer", () => {
     // steerFn was consulted but declined
     assert.strictEqual(steerCallCount, 1);
 
-    // Inject file written (claude path preserved)
+    // Inject file written for the legacy hook path.
     const dir = injectDirForChat(INJECT_CHAT);
-    assert.ok(existsSync(join(dir, "pending")), "claude path should still write the inject file");
+    assert.ok(existsSync(join(dir, "pending")), "declined steer should still write the inject file");
     const content = readFileSync(join(dir, "pending"), "utf-8");
     assert.ok(content.includes("mid-turn msg"));
 

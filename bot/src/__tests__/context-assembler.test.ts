@@ -60,7 +60,7 @@ function makeWorkspace(spec: WorkspaceSpec): string {
   return ws;
 }
 
-/** A realistic fixture: CLAUDE.md with an import + a MEMORY.md import, two rules,
+/** A realistic fixture: CLAUDE.md with imports, two rules,
  *  a settings.local.json + an output-style file. */
 function fullFixture(): string {
   return makeWorkspace({
@@ -71,6 +71,7 @@ function fullFixture(): string {
       "",
       "@import.md",
       "@MEMORY.md",
+      "@.claude/skills/workspace-health/SKILL.md",
       "",
       "## Trailing",
       "",
@@ -79,6 +80,7 @@ function fullFixture(): string {
     files: {
       "import.md": "IMPORTED_BODY_TOKEN",
       "MEMORY.md": "MEMORY_INDEX_TOKEN",
+      ".claude/skills/workspace-health/SKILL.md": "SKILL_CONTEXT_TOKEN",
       ".claude/rules/platform/x.md": "PLATFORM_RULE_TOKEN",
       ".claude/rules/custom/y.md": "CUSTOM_RULE_TOKEN",
       ".claude/settings.local.json": JSON.stringify({ outputStyle: "persona-style" }),
@@ -133,16 +135,18 @@ describe("buildBundle — deterministic order (D7)", () => {
     const iBody = bundle.indexOf("INTRO_BODY_TOKEN");
     const iImport = bundle.indexOf("## import.md");
     const iMemorySection = bundle.indexOf("## MEMORY.md");
+    const iSkill = bundle.indexOf("## .claude/skills/workspace-health/SKILL.md");
     const iPlatform = bundle.indexOf("## .claude/rules/platform/x.md");
     const iCustom = bundle.indexOf("## .claude/rules/custom/y.md");
     const iMemAccess = bundle.indexOf("## Memory access");
 
-    for (const [name, idx] of Object.entries({ iBody, iImport, iMemorySection, iPlatform, iCustom, iMemAccess })) {
+    for (const [name, idx] of Object.entries({ iBody, iImport, iMemorySection, iSkill, iPlatform, iCustom, iMemAccess })) {
       assert.ok(idx >= 0, `${name} should be present in the bundle`);
     }
     assert.ok(iBody < iImport, "body precedes the first import section");
     assert.ok(iImport < iMemorySection, "imports keep their CLAUDE.md order (import.md before MEMORY.md)");
-    assert.ok(iMemorySection < iPlatform, "imports precede platform rules");
+    assert.ok(iMemorySection < iSkill, "MEMORY.md precedes later skill imports");
+    assert.ok(iSkill < iPlatform, "skill imports precede platform rules");
     assert.ok(iPlatform < iCustom, "platform rules precede custom rules");
     assert.ok(iCustom < iMemAccess, "custom rules precede the memory directive");
   });
@@ -153,6 +157,7 @@ describe("buildBundle — deterministic order (D7)", () => {
 
     assert.ok(bundle.includes("IMPORTED_BODY_TOKEN"), "import.md content is inlined");
     assert.ok(bundle.includes("MEMORY_INDEX_TOKEN"), "MEMORY.md content is inlined");
+    assert.ok(bundle.includes("SKILL_CONTEXT_TOKEN"), "skill context imported from .claude/skills is inlined");
     assert.ok(bundle.includes("PLATFORM_RULE_TOKEN"));
     assert.ok(bundle.includes("CUSTOM_RULE_TOKEN"));
     assert.ok(bundle.includes("TRAILING_BODY_TOKEN"), "body after the @-lines is preserved");
@@ -161,6 +166,7 @@ describe("buildBundle — deterministic order (D7)", () => {
     // `## <relpath>` section headers carry the path).
     assert.ok(!/^[ \t]*@import\.md[ \t]*$/m.test(bundle), "@import.md line removed");
     assert.ok(!/^[ \t]*@MEMORY\.md[ \t]*$/m.test(bundle), "@MEMORY.md line removed");
+    assert.ok(!/^[ \t]*@\.claude\/skills\/workspace-health\/SKILL\.md[ \t]*$/m.test(bundle), "skill @-import line removed");
   });
 
   it("includes the fixed memory-access directive verbatim", () => {

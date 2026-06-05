@@ -24,12 +24,12 @@ const testConfig: BotConfig = {
     main: {
       id: "main",
       workspaceCwd: "/tmp/test-workspace",
-      model: "claude-opus-4-6",
+      model: "gpt-5.5",
     },
     "agent-b": {
       id: "agent-b",
       workspaceCwd: "/tmp/test-workspace-b",
-      model: "claude-opus-4-6",
+      model: "gpt-5.5",
     },
   },
   bindings: [
@@ -846,14 +846,14 @@ describe("waitForSpawn", () => {
     Object.assign(child, { pid: undefined, exitCode: null, killed: false });
 
     setTimeout(() => {
-      const err = new Error("spawn claude ENOENT") as NodeJS.ErrnoException;
+      const err = new Error("spawn pi ENOENT") as NodeJS.ErrnoException;
       err.code = "ENOENT";
       child.emit("error", err);
     }, 10);
 
     await assert.rejects(
       () => waitForSpawn(child, 1000),
-      /Pi subprocess failed to start: spawn claude ENOENT/
+      /Pi subprocess failed to start: spawn pi ENOENT/
     );
   });
 

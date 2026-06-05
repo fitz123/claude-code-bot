@@ -22,25 +22,25 @@ const AGENTS: Record<string, AgentConfig> = {
   main: {
     id: "main",
     workspaceCwd: join(TEST_BASE, "workspace"),
-    model: "claude-opus-4-6",
+    model: "gpt-5.5",
     maxTurns: 50,
   },
   "agent-b": {
     id: "agent-b",
     workspaceCwd: join(TEST_BASE, "workspace-b"),
-    model: "claude-opus-4-6",
+    model: "gpt-5.5",
     maxTurns: 50,
   },
   "agent-c": {
     id: "agent-c",
     workspaceCwd: join(TEST_BASE, "workspace-c"),
-    model: "claude-opus-4-6",
+    model: "gpt-5.5",
     maxTurns: 50,
   },
   "cyber-architect": {
     id: "cyber-architect",
     workspaceCwd: join(TEST_BASE, "workspace-cyber-architect"),
-    model: "claude-opus-4-6",
+    model: "gpt-5.5",
     maxTurns: 50,
   },
 };

@@ -176,7 +176,7 @@ describe("Discord slash command status wiring", () => {
     const replies: Array<string | { content: string; ephemeral?: boolean }> = [];
     const config: BotConfig = {
       agents: {
-        main: { id: "main", workspaceCwd: "/tmp/test", model: "claude-opus-4-6" },
+        main: { id: "main", workspaceCwd: "/tmp/test", model: "gpt-5.5" },
       },
       bindings: [],
       sessionDefaults: {
@@ -203,7 +203,7 @@ describe("Discord slash command status wiring", () => {
           agentId: "main",
           sessionId: "session-123",
           provider: "pi",
-          model: "claude-opus-4-6",
+          model: "gpt-5.5",
           idleMs: 120_000,
           processingMs: null,
           lastSuccessAt: Date.now(),

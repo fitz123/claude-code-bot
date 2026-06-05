@@ -37,7 +37,7 @@ describe("subagent: normalizeSubagentModel", () => {
   });
 
   it("passes an already-qualified provider/model through untouched", () => {
-    assert.equal(normalizeSubagentModel("anthropic/claude-sonnet-4-5"), "anthropic/claude-sonnet-4-5");
+    assert.equal(normalizeSubagentModel("custom-provider/custom-model"), "custom-provider/custom-model");
     assert.equal(normalizeSubagentModel("openai-codex/gpt-5.5"), "openai-codex/gpt-5.5");
   });
 });

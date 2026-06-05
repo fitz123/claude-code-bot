@@ -67,15 +67,14 @@ describe("mergeDeep", () => {
 agents:
   main:
     workspaceCwd: /tmp/minime-workspace
-    model: claude-opus-4-6
-    fallbackModel: claude-sonnet-4-6
+    model: gpt-5.5
     maxTurns: 250
 `) as Record<string, unknown>;
     const local = { agents: { main: { workspaceCwd: "/real/workspace" } } };
     const merged = mergeDeep(base, local as Record<string, unknown>);
     const agents = merged.agents as Record<string, Record<string, unknown>>;
     assert.strictEqual(agents.main.workspaceCwd, "/real/workspace");  // overridden
-    assert.strictEqual(agents.main.model, "claude-opus-4-6");         // preserved
+    assert.strictEqual(agents.main.model, "gpt-5.5");                 // preserved
     assert.strictEqual(agents.main.maxTurns, 250);                    // preserved
   });
 
@@ -203,7 +202,7 @@ describe("loadRawMergedConfig", () => {
 agents:
   main:
     workspaceCwd: /tmp/default
-    model: claude-opus-4-6
+    model: gpt-5.5
     maxTurns: 250
 `);
     writeFileSync(localPath, `
@@ -214,7 +213,7 @@ agents:
     const result = loadRawMergedConfig(configPath);
     const agents = result.agents as Record<string, Record<string, unknown>>;
     assert.strictEqual(agents.main.workspaceCwd, "/real/workspace");  // overridden
-    assert.strictEqual(agents.main.model, "claude-opus-4-6");         // preserved
+    assert.strictEqual(agents.main.model, "gpt-5.5");                 // preserved
     assert.strictEqual(agents.main.maxTurns, 250);                    // preserved
   });
 });

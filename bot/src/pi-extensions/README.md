@@ -66,8 +66,7 @@ via CLI args. It is wired into `buildPiSpawnArgs` in
 `bot/src/pi-rpc-protocol.ts` for `provider: "pi"` RPC sessions, and `cron-runner.ts`
 also calls it directly for `engine: pi` print-mode crons. For crons, the runner
 builds a minimal Pi agent from `agentId`, `workspaceCwd`, optional
-`systemPrompt`, and `effort`, then injects CLAUDE/MEMORY/rules context via files.
-The `claude -p` path is untouched.
+`systemPrompt`, and `thinking`, then injects CLAUDE/MEMORY/rules context via files.
 
 ### Layer mapping
 
