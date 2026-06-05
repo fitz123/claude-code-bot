@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,16 +8,35 @@ import { spawnSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const runCronScript = resolve(__dirname, "../../scripts/run-cron.sh");
+const startBotScript = resolve(__dirname, "../../scripts/start-bot.sh");
+
+describe("start-bot.sh", () => {
+  it("does not read Claude OAuth credentials or export Claude runtime flags", () => {
+    const script = readFileSync(startBotScript, "utf8");
+
+    assert.doesNotMatch(script, /security find-generic-password/);
+    assert.doesNotMatch(script, /claude-code-oauth-token/);
+    assert.doesNotMatch(script, /CLAUDE_CODE_OAUTH_TOKEN/);
+    assert.doesNotMatch(script, /ANTHROPIC_API_KEY/);
+    assert.doesNotMatch(script, /CLAUDECODE/);
+    assert.doesNotMatch(script, /^export CLAUDE_CODE_/m);
+  });
+});
 
 describe("run-cron.sh", () => {
-  it("continues without CLAUDE_CODE_OAUTH_TOKEN when the Keychain lookup fails", () => {
+  it("does not read Keychain credentials and scrubs inherited legacy runtime env", () => {
     const fixture = mkdtempSync(join(tmpdir(), "run-cron-wrapper-"));
     const binDir = join(fixture, "bin");
     const captureFile = join(fixture, "capture.txt");
+    const securityCallsFile = join(fixture, "security-calls.txt");
 
     try {
       mkdirSync(binDir, { recursive: true });
-      writeFileSync(join(binDir, "security"), "#!/bin/bash\nexit 44\n", "utf8");
+      writeFileSync(
+        join(binDir, "security"),
+        "#!/bin/bash\nprintf 'security-called\\n' >> \"$SECURITY_CALLS_FILE\"\nexit 44\n",
+        "utf8",
+      );
       writeFileSync(
         join(binDir, "npx"),
         `#!/bin/bash
@@ -25,7 +44,11 @@ describe("run-cron.sh", () => {
   printf 'args=%s\\n' "$*"
   printf 'token=%s\\n' "\${CLAUDE_CODE_OAUTH_TOKEN-__unset__}"
   printf 'anthropic=%s\\n' "\${ANTHROPIC_API_KEY-__unset__}"
-  printf 'claudecode=%s\\n' "\${CLAUDECODE-__unset__}"
+  printf 'auto_memory=%s\\n' "\${CLAUDE_CODE_DISABLE_AUTO_MEMORY-__unset__}"
+  printf 'background_tasks=%s\\n' "\${CLAUDE_CODE_DISABLE_BACKGROUND_TASKS-__unset__}"
+  printf 'cron=%s\\n' "\${CLAUDE_CODE_DISABLE_CRON-__unset__}"
+  printf 'exit_delay=%s\\n' "\${CLAUDE_CODE_EXIT_AFTER_STOP_DELAY-__unset__}"
+  printf 'telemetry=%s\\n' "\${CLAUDE_CODE_ENABLE_TELEMETRY-__unset__}"
   printf 'path=%s\\n' "$PATH"
 } > "$CAPTURE_FILE"
 `,
@@ -42,18 +65,28 @@ describe("run-cron.sh", () => {
           PATH: "",
           MINIME_PATH_PREFIX: `${binDir}:/usr/bin:/bin:/usr/sbin:/sbin`,
           CAPTURE_FILE: captureFile,
+          SECURITY_CALLS_FILE: securityCallsFile,
           CLAUDE_CODE_OAUTH_TOKEN: "stale-token",
           ANTHROPIC_API_KEY: "stale-anthropic-key",
-          CLAUDECODE: "stale-claudecode",
+          CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+          CLAUDE_CODE_DISABLE_CRON: "1",
+          CLAUDE_CODE_EXIT_AFTER_STOP_DELAY: "900000",
+          CLAUDE_CODE_ENABLE_TELEMETRY: "1",
         },
       });
 
       assert.strictEqual(result.status, 0, result.stderr || result.stdout || "run-cron.sh failed");
+      assert.strictEqual(existsSync(securityCallsFile), false);
       const capture = readFileSync(captureFile, "utf8");
       assert.match(capture, /^args=tsx src\/cron-runner\.ts --task pi-task$/m);
       assert.match(capture, /^token=__unset__$/m);
       assert.match(capture, /^anthropic=__unset__$/m);
-      assert.match(capture, /^claudecode=__unset__$/m);
+      assert.match(capture, /^auto_memory=__unset__$/m);
+      assert.match(capture, /^background_tasks=__unset__$/m);
+      assert.match(capture, /^cron=__unset__$/m);
+      assert.match(capture, /^exit_delay=__unset__$/m);
+      assert.match(capture, /^telemetry=__unset__$/m);
       const pathLine = capture.split("\n").find((line) => line.startsWith("path="));
       assert.strictEqual(pathLine, `path=${binDir}:/usr/bin:/bin:/usr/sbin:/sbin`);
     } finally {

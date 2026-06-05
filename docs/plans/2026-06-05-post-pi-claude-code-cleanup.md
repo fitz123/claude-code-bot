@@ -109,11 +109,11 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 4: Remove Claude env setup from scripts
 
-- [ ] In `bot/scripts/start-bot.sh`, remove Keychain read for `claude-code-oauth-token`.
-- [ ] Remove exports of Claude-only env vars: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_DISABLE_CRON`, `CLAUDE_CODE_EXIT_AFTER_STOP_DELAY`, `CLAUDE_CODE_ENABLE_TELEMETRY` unless independently required by non-Claude tooling.
-- [ ] Keep generic `PATH`, `HOME`, and bot debug setup.
-- [ ] In `bot/scripts/run-cron.sh`, remove Claude OAuth/env setup after Plan C makes LLM crons Pi-based.
-- [ ] Keep secret-scrubbing for script-mode crons only if it is generic safety; update comments away from Claude-specific phrasing.
+- [x] In `bot/scripts/start-bot.sh`, remove Keychain read for `claude-code-oauth-token`.
+- [x] Remove exports of Claude-only env vars: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_DISABLE_CRON`, `CLAUDE_CODE_EXIT_AFTER_STOP_DELAY`, `CLAUDE_CODE_ENABLE_TELEMETRY` unless independently required by non-Claude tooling.
+- [x] Keep generic `PATH`, `HOME`, and bot debug setup.
+- [x] In `bot/scripts/run-cron.sh`, remove Claude OAuth/env setup after Plan C makes LLM crons Pi-based.
+- [x] Keep secret-scrubbing for script-mode crons only if it is generic safety; update comments away from Claude-specific phrasing.
 
 ### Task 5: Clean cron-runner after Plan C
 
