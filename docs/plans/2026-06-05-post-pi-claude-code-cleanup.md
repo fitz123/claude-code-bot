@@ -1,0 +1,181 @@
+# Plan: Post-Pi Claude Code Runtime Cleanup
+
+GitHub issue: #140
+
+## Goal
+
+After the Pi/Codex migration is fully functional, remove the obsolete Claude Code CLI runtime path from the bot codebase and make Pi the single supported execution backend for interactive sessions and LLM crons.
+
+This is the final cleanup phase after:
+
+1. all production agents are switched to `provider: pi`,
+2. Plan C (`cron-runner` → Pi print mode) is merged and deployed,
+3. Codex quota/status monitoring is merged and deployed.
+
+The outcome should be a smaller, less ambiguous codebase with no live dependency on `claude -p`, Anthropic OAuth env vars, Claude fallback models, or Claude-specific runtime branching.
+
+## Context / Evidence
+
+Current Claude-runtime remnants verified in `fitz123/claude-code-bot`:
+
+- `bot/src/cli-protocol.ts` is a dedicated Claude CLI protocol module:
+  - spawns binary `claude`,
+  - builds `claude -p --input-format stream-json --output-format stream-json`,
+  - sends Claude stream-json user messages,
+  - parses Claude stream-json events.
+- `bot/src/session-manager.ts` still imports both `spawnClaudeSession/sendMessage/readStream` and Pi RPC, then dispatches on `agent.provider === "pi"`.
+- `bot/src/types.ts` still models `provider?: "claude" | "pi"`, `fallbackModel`, and Claude-only `effort?: "low" | "medium" | "high"`.
+- `bot/src/config.ts` still defaults absent provider to `"claude"`, validates Claude fallback behavior, and has error text that treats `defaultModel` as Claude-oriented.
+- `bot/src/cron-runner.ts` still has `runClaude()` with hard-coded `claude-opus-4-6` / `claude-sonnet-4-6`; Plan C will replace this, so this cleanup must run after Plan C.
+- `bot/scripts/start-bot.sh` and `bot/scripts/run-cron.sh` still export Claude Code env vars and read `claude-code-oauth-token` from Keychain.
+- `bot/src/cli-capabilities.ts` probes `claude --version`, `claude --help`, and `claude auth status`.
+- Tests contain substantial Claude-path coverage (`provider-config`, `cli-protocol`, Claude branches in `session-manager`, config defaults, cron-runner).
+- Public defaults still present Claude-oriented examples (`config.yaml` `defaultModel: opus`, fallback model, `provider: claude` comments; `crons.yaml` says LLM crons run `claude -p`).
+
+Important non-goal: do **not** delete or rename workspace context files just because they contain `CLAUDE` in the name. `CLAUDE.md`, `.claude/rules`, and `.claude/skills` are still the current workspace/context convention and are consumed by the Pi context assembler. Removing runtime Claude CLI support is not the same as renaming the context substrate.
+
+## Decisions
+
+- Pi/Codex is the only runtime backend after this cleanup.
+- Remove the `provider` switch from runtime code. If a config still declares `provider: claude`, fail config validation with a clear migration error.
+- Keep a compatibility grace only where cheap and safe:
+  - Accept `provider: pi` as optional/no-op for existing configs.
+  - Reject `provider: claude` explicitly.
+  - Do not preserve a hidden Claude fallback path.
+- Keep `model` explicit for Pi agents until a later config-default cleanup; do not redesign fleet model defaults in this phase.
+- Rename metrics only if it can be done without losing dashboard continuity; otherwise keep metric names but update help text/comments to say legacy names include Pi data. Prefer low-risk cleanup over Prometheus time-series churn.
+- Do not touch browser/Notion/memory-RAG parity here; those are separate fast-follows.
+
+## Risk Register
+
+| Risk | Mitigation |
+|---|---|
+| Accidentally removing `CLAUDE.md`/rules/skills context support | Explicit non-goal; add tests that Pi context assembler still loads `CLAUDE.md` + `.claude/rules`. |
+| Breaking public users who still configure `provider: claude` | Make config error explicit: Claude runtime removed, set/remove provider for Pi. Mention in README/CHANGELOG if applicable. |
+| Removing Claude code before Plan C lands | Task 0 gate: fail if `cron-runner` still calls `runClaude`/`claude`. |
+| Metrics/dashboard break from renaming `bot_claude_*` | Either keep metric names with updated help, or add new names in a separate monitoring migration. No silent rename in this plan. |
+| Tests only assert deletion, not behavior | Keep end-to-end Pi session-manager tests and cron Pi print-mode tests as acceptance gates. |
+
+## Validation Commands
+
+Run from the public repo root (`claude-code-bot`):
+
+```bash
+npm test
+npm run typecheck
+npx tsx bot/src/config.ts --validate
+rg -n "spawnClaudeSession|cli-protocol|runClaude\(|claude -p|CLAUDE_CODE_OAUTH_TOKEN|CLAUDECODE|ANTHROPIC_API_KEY|fallbackModel|defaultFallbackModel|provider: claude|provider \"claude\"|claude-opus|claude-sonnet" bot/src bot/scripts config.yaml crons.yaml README.md docs --glob '!docs/plans/**'
+```
+
+Expected grep result after cleanup: no live-runtime references. Allowed residuals must be documented in an allowlist section of the PR description, e.g. `CLAUDE.md` context naming, historical docs under `docs/plans/**`, and comments that intentionally explain legacy metric names.
+
+## Tasks
+
+### Task 0: Pre-flight gates
+
+- [ ] Confirm Plan C is merged: `bot/src/cron-runner.ts` no longer spawns `claude` and no longer exports `runClaude`.
+- [ ] Confirm Codex quota/status pipeline is merged or explicitly declared out-of-scope for this cleanup PR.
+- [ ] Confirm production config no longer contains any active `provider: claude` agents.
+- [ ] Confirm the branch starts from current `main` and does not include untracked unrelated plan files.
+
+### Task 1: Make Pi the only interactive runtime
+
+- [ ] Remove the Claude branch from `bot/src/session-manager.ts`.
+- [ ] Remove imports of `spawnClaudeSession`, `sendMessage`, and `readStream`.
+- [ ] Spawn sessions only via `spawnPiRpcSession(agent, resume ? sessionId : undefined)`.
+- [ ] Send prompts only via `sendPiPrompt(session.child, text, "followUp")`.
+- [ ] Read streams only via `readPiStream(session.child)`.
+- [ ] Simplify `ActiveSession.provider` away, or pin it to a literal Pi-only type if needed temporarily.
+- [ ] Update shutdown injection to always use `sendPiSteer`; remove the Claude inject-file branch for live subprocesses.
+- [ ] Keep inject directory cleanup only if still needed elsewhere; otherwise remove inject-dir creation from session lifecycle.
+- [ ] Update error text from `Claude subprocess ...` to provider-neutral or Pi-specific wording.
+- [ ] Preserve Pi resume-recovery, session id capture, crash backoff, media/outbox cleanup, queue semantics, and activity timeout behavior.
+
+### Task 2: Delete obsolete Claude protocol/capability modules
+
+- [ ] Delete `bot/src/cli-protocol.ts`.
+- [ ] Delete `bot/src/cli-capabilities.ts` if no remaining imports exist.
+- [ ] Delete or rewrite tests whose only purpose is Claude CLI protocol/capability behavior.
+- [ ] Ensure no import path references those modules.
+
+### Task 3: Simplify config model and validation
+
+- [ ] Change `AgentConfig.provider` to optional compatibility field that only accepts absent/`pi`; reject `claude` with a clear migration error.
+- [ ] Remove runtime default of absent provider → `claude`; absent provider means Pi.
+- [ ] Remove `fallbackModel` from active config semantics unless still needed by a non-runtime feature. If removed, validation should reject it with a migration error.
+- [ ] Replace Claude-only `effort` semantics with the Pi/Codex thinking field introduced by quota/status pipeline, or leave `effort` rejected if superseded.
+- [ ] Update validation tests: absent provider = Pi, `provider: pi` accepted, `provider: claude` rejected, Claude fallback fields rejected/ignored per final decision.
+- [ ] Update config error messages to avoid saying `defaultModel` is Claude-oriented.
+
+### Task 4: Remove Claude env setup from scripts
+
+- [ ] In `bot/scripts/start-bot.sh`, remove Keychain read for `claude-code-oauth-token`.
+- [ ] Remove exports of Claude-only env vars: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_DISABLE_CRON`, `CLAUDE_CODE_EXIT_AFTER_STOP_DELAY`, `CLAUDE_CODE_ENABLE_TELEMETRY` unless independently required by non-Claude tooling.
+- [ ] Keep generic `PATH`, `HOME`, and bot debug setup.
+- [ ] In `bot/scripts/run-cron.sh`, remove Claude OAuth/env setup after Plan C makes LLM crons Pi-based.
+- [ ] Keep secret-scrubbing for script-mode crons only if it is generic safety; update comments away from Claude-specific phrasing.
+
+### Task 5: Clean cron-runner after Plan C
+
+- [ ] Ensure no `runClaude` export remains.
+- [ ] Ensure LLM cron execution uses the Pi print-mode runner from Plan C.
+- [ ] Update log strings from `Claude returned ...` to `LLM returned ...` or `Pi returned ...`.
+- [ ] Update tests to cover Pi cron execution and failure notification paths.
+- [ ] Remove hard-coded Claude models and fallback models.
+
+### Task 6: Update metrics names/help carefully
+
+- [ ] Audit `bot/src/metrics.ts` for `bot_claude_*` names and help strings.
+- [ ] Prefer keeping metric names for continuity but update help text/comments to say legacy metric names record agent-token usage from the active runtime.
+- [ ] If the implementation chooses to rename metrics, add a compatibility note and update monitoring config in the same PR or explicitly split to a separate PR.
+- [ ] Ensure Pi-specific metrics (`bot_pi_*`, Codex quota metrics) remain intact.
+
+### Task 7: Update public defaults and docs
+
+- [ ] Update `config.yaml` defaults from Claude-oriented examples to Pi/Codex examples.
+- [ ] Remove `defaultFallbackModel` from defaults if fallback models are removed from config semantics.
+- [ ] Update `crons.yaml` field reference: LLM crons no longer run `claude -p`.
+- [ ] Update README sections that describe Claude Max / Claude Code CLI subprocess as the runtime.
+- [ ] Keep historical `docs/plans/**` untouched unless they are current docs; do not rewrite old plans just to remove old terms.
+- [ ] Update any workspace template comments that tell users to store Claude OAuth tokens.
+
+### Task 8: Test cleanup and regression coverage
+
+- [ ] Remove Claude-only tests: `cli-protocol.test.ts`, `cli-capabilities` tests if present, Claude-branch-only cases in `session-manager*.test.ts`.
+- [ ] Add/keep Pi-only tests for:
+  - absent provider config spawns Pi,
+  - explicit `provider: pi` spawns Pi,
+  - explicit `provider: claude` is rejected,
+  - session startup captures Pi session id,
+  - resume-not-found recovery still works,
+  - prompt sends `streamingBehavior: "followUp"`,
+  - graceful shutdown uses Pi steer,
+  - cron LLM path uses Pi print mode.
+- [ ] Keep context assembler tests proving `CLAUDE.md`, `MEMORY.md`, `.claude/rules`, and skills context still work.
+
+### Task 9: Residual reference audit
+
+- [ ] Run the grep from Validation Commands.
+- [ ] Categorize every remaining `Claude`/`CLAUDE`/`Anthropic` hit:
+  - allowed context-convention names (`CLAUDE.md`, `.claude/rules`, `.claude/skills`),
+  - historical docs under `docs/plans/**`,
+  - legacy metric names intentionally kept,
+  - obsolete runtime references that must be removed.
+- [ ] Add a short PR comment/description section documenting allowed residual references so reviewers do not chase intentional leftovers.
+
+### Task 10: Deployment / migration notes
+
+- [ ] State that this is a post-migration breaking cleanup: configs using `provider: claude`, `fallbackModel`, or Claude OAuth env setup must be updated.
+- [ ] After merge to public repo, sync workspace via `git fetch upstream && git merge upstream/main`.
+- [ ] Restart bot with the canonical script only after operator confirmation.
+- [ ] After deployment, verify at least one live Pi session and one LLM cron execution.
+
+## Acceptance Criteria
+
+- No live code path spawns `claude`.
+- No launch script reads `claude-code-oauth-token` or exports Claude Code runtime env vars.
+- `provider: claude` fails fast with a clear migration error, or provider is removed entirely from schema.
+- Interactive sessions and LLM crons both use Pi/Codex.
+- Tests and typecheck pass.
+- Public defaults and docs describe Pi/Codex as the runtime.
+- `CLAUDE.md` context loading remains intact through the Pi context assembler.
