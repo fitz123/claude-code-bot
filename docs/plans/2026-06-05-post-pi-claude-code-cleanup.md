@@ -73,10 +73,10 @@ Expected grep result after cleanup: no live-runtime references. Allowed residual
 
 ### Task 0: Pre-flight gates
 
-- [ ] Confirm Plan C is merged: `bot/src/cron-runner.ts` has the Pi cron execution path (`runPi`, `resolveCronEngine`, Pi print-mode classification/tests). Remaining `runClaude` cleanup is Task 5, not a pre-flight blocker.
-- [ ] Confirm Codex quota/status pipeline is merged or explicitly declared out-of-scope for this cleanup PR.
-- [ ] Confirm production config no longer contains any active `provider: claude` agents.
-- [ ] Confirm the branch starts from current `main` and does not include untracked unrelated plan files.
+- [x] Confirm Plan C is merged: `bot/src/cron-runner.ts` has the Pi cron execution path (`runPi`, `resolveCronEngine`, Pi print-mode classification/tests). Remaining `runClaude` cleanup is Task 5, not a pre-flight blocker. Verified `runPi`, `resolveCronEngine`, `classifyPiResult`, and `bot/src/__tests__/cron-runner-pi.test.ts`.
+- [x] Confirm Codex quota/status pipeline is merged or explicitly declared out-of-scope for this cleanup PR. Verified `bot/src/codex-quota-sampler.ts`, `bot/src/quota-status.ts`, status rendering, tests, and sampler dry-run.
+- [x] Confirm production config no longer contains any active `provider: claude` agents. Parsed `config.yaml` and `crons.yaml`; no active `provider: claude` entries.
+- [x] Confirm the branch starts from current `main` and does not include untracked unrelated plan files. After `git fetch origin main`, `origin/main` is the merge-base of `HEAD`; no untracked plan/progress files.
 
 ### Task 1: Make Pi the only interactive runtime
 
