@@ -25,6 +25,7 @@ memory/diary/*
 reference/*
 !reference/governance/
 reference/governance/*
+!reference/governance/decisions.md
 !reference/governance/decisions.md.example
 orphan-allowlist.local.txt
 
