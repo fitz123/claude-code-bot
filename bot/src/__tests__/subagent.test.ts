@@ -107,7 +107,6 @@ describe("subagent: buildSubagentSpawnArgs", () => {
 
   it("injects the child's --extension args before the task", () => {
     const extensionArgs = [
-      "--extension", "/abs/guardian-protect-files.ts",
       "--extension", "/abs/web-tools.ts",
     ];
     const args = buildSubagentSpawnArgs({}, "delegate", { extensionArgs });
@@ -145,7 +144,7 @@ describe("subagent: wrapper spawn environment", () => {
   it("uses the scrubbed subagent-child env helper instead of copying process.env", () => {
     const wrapper = readFileSync(resolve(BOT_DIR, ".claude", "extensions", "subagent", "index.ts"), "utf8");
 
-    assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(guardWorkspaceRoot\)/);
+    assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(\)/);
     assert.doesNotMatch(wrapper, /env:\s*\{\s*\.{3}process\.env/);
   });
 });

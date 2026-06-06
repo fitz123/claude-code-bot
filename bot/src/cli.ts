@@ -107,7 +107,6 @@ function formatEffectivePaths(contract: ResolvedWorkspaceContract): string[] {
     `  package root: ${diagnostics.packageRoot.path} (${diagnostics.packageRoot.source})`,
     `  config path: ${diagnostics.configPath.path} (${diagnostics.configPath.source})`,
     `  crons path: ${diagnostics.cronsPath.path} (${diagnostics.cronsPath.source})`,
-    `  schema path: ${diagnostics.schemaPath.path} (${diagnostics.schemaPath.source})`,
     `  Pi extension dir: ${diagnostics.piExtensionDir.path} (${diagnostics.piExtensionDir.source})`,
   ];
 }
@@ -145,9 +144,6 @@ function writeWorkspaceValidationReport(
     }
   }
   writeLine(stdout, `Crons: ${result.crons === undefined ? "not present" : result.crons.length}`);
-  if (result.schema) {
-    writeLine(stdout, `Schema allow-list entries: ${result.schema.entries.length}`);
-  }
   if (errors.length > 0) {
     writeLine(stdout, "Hard failures:");
     for (const error of errors) {

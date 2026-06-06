@@ -4,16 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { classifyToolCall } from "../pi-extensions/guard.js";
-import {
-  readWriteAllowlistEntriesForGuard,
-  resolveWriteAllowlistSchemaPath,
-} from "../pi-extensions/write-allowlist-schema.js";
 import { validateWorkspaceContract, workspaceValidationErrors } from "../workspace-validator.js";
-import {
-  MINIME_SCHEMA_PATH_ENV,
-  resolveWorkspaceContract,
-} from "../workspace-contract.js";
+import { resolveWorkspaceContract } from "../workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_ROOT = resolve(__dirname, "..", "..");
@@ -28,7 +20,6 @@ after(() => {
 });
 
 function createWorkspace(options: {
-  schema?: string | null;
   extraFiles?: Record<string, string>;
   workspaceCwd?: string;
 } = {}): string {
@@ -63,10 +54,6 @@ function createWorkspace(options: {
     ].join("\n"),
   );
 
-  if (options.schema !== null) {
-    writeFileSync(join(workspace, "schema.md"), options.schema ?? validSchema(["agent-workspace/", "*.md", "schema.md"]));
-  }
-
   for (const [rel, content] of Object.entries(options.extraFiles ?? {})) {
     const path = join(workspace, rel);
     mkdirSync(dirname(path), { recursive: true });
@@ -74,17 +61,6 @@ function createWorkspace(options: {
   }
 
   return workspace;
-}
-
-function validSchema(entries: readonly string[]): string {
-  return [
-    "# Workspace schema",
-    "",
-    "```write-allowlist",
-    ...entries,
-    "```",
-    "",
-  ].join("\n");
 }
 
 function validate(workspace: string, env: NodeJS.ProcessEnv = {}) {
@@ -139,19 +115,10 @@ function createSiblingWorkspaceFixture(): {
       "",
     ].join("\n"),
   );
-  writeFileSync(join(controlWorkspace, "schema.md"), validSchema(["*.md", "schema.md"]));
   return { root, controlWorkspace, agentMain, agentReviewer };
 }
 
-function guardBlocks(workspaceRoot: string, schemaPath: string, relPath: string): boolean {
-  const entries = readWriteAllowlistEntriesForGuard(schemaPath);
-  return classifyToolCall(
-    { toolName: "write", input: { path: relPath } },
-    { workspaceRoot, writeAllowlist: entries },
-  ).block;
-}
-
-describe("workspace validator schema parity with the live guard parser", () => {
+describe("workspace validator", () => {
   it("validates the tracked fixture from a package-installed-like layout", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "minime-validator-installed-"));
     fixtures.push(projectDir);
@@ -171,19 +138,14 @@ describe("workspace validator schema parity with the live guard parser", () => {
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
     assert.strictEqual(result.contract.effectivePaths.workspaceRoot.source, "cli");
     assert.strictEqual(result.contract.paths.piExtensionDir, artifactExtensionDir);
-    assert.deepStrictEqual(result.schema?.entries, ["agent-workspace/", "*.md", "schema.md"]);
     assert.strictEqual(result.crons?.length, 1);
   });
 
-  it("valid schema: validator entries match guard entries and guard verdicts", () => {
+  it("does not require schema.md in the control workspace", () => {
     const workspace = createWorkspace();
     const result = validate(workspace);
-    const guardEntries = readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath);
 
-    assert.deepStrictEqual(result.schema?.entries, guardEntries);
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), false);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "unregistered/file.txt"), true);
   });
 
   it("accepts an absolute agent workspaceCwd outside the control workspace root", () => {
@@ -242,62 +204,4 @@ describe("workspace validator schema parity with the live guard parser", () => {
     );
   });
 
-  it("missing schema: validator fails hard and the guard parser fails closed", () => {
-    const workspace = createWorkspace({ schema: null });
-    const result = validate(workspace);
-
-    assert.match(workspaceValidationErrors(result).map((item) => item.message).join("\n"), /schema file does not exist/);
-    assert.deepStrictEqual(result.schema?.entries, []);
-    assert.deepStrictEqual(readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), true);
-  });
-
-  it("empty schema block: validator fails hard and guard parser fails closed", () => {
-    const workspace = createWorkspace({ schema: validSchema(["# only a comment"]) });
-    const result = validate(workspace);
-
-    assert.match(workspaceValidationErrors(result).map((item) => item.message).join("\n"), /empty/);
-    assert.deepStrictEqual(result.schema?.entries, []);
-    assert.deepStrictEqual(readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), true);
-  });
-
-  it("malformed schema block: validator fails hard and guard parser fails closed", () => {
-    const workspace = createWorkspace({
-      schema: [
-        "# Workspace schema",
-        "",
-        "```write-allowlist",
-        "agent-workspace/",
-        "",
-      ].join("\n"),
-    });
-    const result = validate(workspace);
-
-    assert.match(workspaceValidationErrors(result).map((item) => item.message).join("\n"), /closing fence/);
-    assert.deepStrictEqual(result.schema?.entries, []);
-    assert.deepStrictEqual(readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), true);
-  });
-
-  it("schema override: validator and guard use the same MINIME_SCHEMA_PATH", () => {
-    const workspace = createWorkspace({
-      schema: validSchema(["default-only/"]),
-      extraFiles: {
-        "schemas/override.md": validSchema(["agent-workspace/", "schema.md"]),
-      },
-    });
-    const env = { [MINIME_SCHEMA_PATH_ENV]: "schemas/override.md" };
-    const result = validate(workspace, env);
-    const guardSchemaPath = resolveWriteAllowlistSchemaPath(workspace, env);
-
-    assert.equal(result.contract.paths.schemaPath, guardSchemaPath);
-    assert.deepStrictEqual(workspaceValidationErrors(result), []);
-    assert.deepStrictEqual(
-      result.schema?.entries,
-      readWriteAllowlistEntriesForGuard(guardSchemaPath),
-    );
-    assert.equal(guardBlocks(workspace, guardSchemaPath, "agent-workspace/note.md"), false);
-    assert.equal(guardBlocks(workspace, guardSchemaPath, "default-only/file.txt"), true);
-  });
 });

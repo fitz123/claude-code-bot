@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -18,11 +17,9 @@ import { assemblePiContext } from "../pi-context-assembler.js";
 import {
   buildPiSpawnEnv,
   PI_CRON_WRAPPER_RELPATHS,
-  PI_EXTENSIONS_DISABLED_ENV,
-  PI_GUARD_WORKSPACE_ROOT_ENV,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, CronJob } from "../types.js";
-import { MINIME_SCHEMA_PATH_ENV, MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 interface SpawnCapture {
   command: string;
@@ -31,7 +28,7 @@ interface SpawnCapture {
 }
 
 const fixtures: string[] = [];
-const GUARD_EXTENSION_ARGS = ["--extension", "/fake/guardian-protect-files.ts"];
+const CRON_EXTENSION_ARGS: string[] = [];
 
 after(() => {
   for (const dir of fixtures) {
@@ -99,7 +96,7 @@ function makeDeps(
     buildAgentConfig: (_cron, cwd) => makeAgent(cwd),
     buildEnv: () => ({}),
     assembleContext: () => null,
-    resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
+    resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     ...overrides,
   };
 }
@@ -131,7 +128,7 @@ describe("cron-runner runPi", () => {
       buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { thinking: "high" }),
       resolveExtensionArgs: (options) => {
         relpathsSeen = options?.relpaths;
-        return ["--extension", "/fake/guardian-protect-files.ts"];
+        return [];
       },
     });
 
@@ -152,10 +149,7 @@ describe("cron-runner runPi", () => {
       "high",
     ]);
     assertCronSystemInstruction(flagValue(capture.args, "--append-system-prompt"));
-    assert.deepStrictEqual(capture.args.slice(-2), [
-      "--extension",
-      "/fake/guardian-protect-files.ts",
-    ]);
+    assert.ok(!capture.args.includes("--extension"));
     assert.strictEqual(capture.options.input, undefined);
     assert.deepStrictEqual([...(relpathsSeen ?? [])], [...PI_CRON_WRAPPER_RELPATHS]);
     assert.strictEqual(capture.options.cwd, ws);
@@ -209,7 +203,7 @@ describe("cron-runner runPi", () => {
     }
   });
 
-  it("passes context artifact args before A1 extension args", () => {
+  it("passes context artifact args before the fixed cron instruction", () => {
     const ws = makeWorkspace();
     const captures: SpawnCapture[] = [];
     const deps = makeDeps(captures, {
@@ -217,7 +211,7 @@ describe("cron-runner runPi", () => {
         systemPromptPath: "/tmp/pi-persona.md",
         appendSystemPromptPath: "/tmp/pi-bundle.md",
       }),
-      resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
+      resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     });
 
     runPi(makeCron(), ws, deps);
@@ -234,12 +228,11 @@ describe("cron-runner runPi", () => {
     const appendIdx = args.indexOf("--append-system-prompt");
     const noContextIdx = args.indexOf("--no-context-files");
     const cronInstructionIdx = args.indexOf("--append-system-prompt", appendIdx + 2);
-    const extensionIdx = args.indexOf("--extension");
     assert.ok(thinkingIdx < systemIdx);
     assert.ok(systemIdx < appendIdx);
     assert.ok(appendIdx < noContextIdx);
     assert.ok(noContextIdx < cronInstructionIdx);
-    assert.ok(cronInstructionIdx < extensionIdx);
+    assert.ok(!args.includes("--extension"));
   });
 
   it("suppresses flat context loading when context assembly throws", () => {
@@ -249,7 +242,7 @@ describe("cron-runner runPi", () => {
       assembleContext: () => {
         throw new Error("artifact write failed");
       },
-      resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
+      resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     });
 
     runPi(makeCron(), ws, deps);
@@ -295,7 +288,7 @@ describe("cron-runner runPi", () => {
     const deps = makeDeps(captures, {
       buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { systemPrompt: "PERSONA_TOKEN" }),
       assembleContext: assemblePiContext,
-      resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
+      resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     });
 
     runPi(makeCron(), ws, deps);
@@ -459,16 +452,14 @@ describe("cron-runner runPi", () => {
     }
   });
 
-  it("keeps the resolved guard workspace root and schema path in the hardened cron env", () => {
+  it("keeps only allowed Pi runtime keys in the hardened cron env", () => {
     const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
-    const oldSchema = process.env[MINIME_SCHEMA_PATH_ENV];
     const workspace = makeWorkspace();
     const agentWorkspace = join(workspace, "agent-workspace");
     mkdirSync(agentWorkspace, { recursive: true });
 
     try {
       process.env[MINIME_WORKSPACE_ROOT_ENV] = workspace;
-      process.env[MINIME_SCHEMA_PATH_ENV] = "schemas/override.md";
       const captures: SpawnCapture[] = [];
       const deps = makeDeps(captures, {
         buildEnv: buildPiSpawnEnv,
@@ -478,8 +469,7 @@ describe("cron-runner runPi", () => {
       runPi(makeCron(), agentWorkspace, deps);
 
       const env = captures[0].options.env ?? {};
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspace));
-      assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], join(workspace, "schemas", "override.md"));
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
       assert.strictEqual(captures[0].options.cwd, agentWorkspace);
     } finally {
       if (oldWorkspace === undefined) {
@@ -487,62 +477,20 @@ describe("cron-runner runPi", () => {
       } else {
         process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
       }
-      if (oldSchema === undefined) {
-        delete process.env[MINIME_SCHEMA_PATH_ENV];
-      } else {
-        process.env[MINIME_SCHEMA_PATH_ENV] = oldSchema;
-      }
     }
   });
 
-  it("fails closed before spawn when the ambient Pi extension kill-switch would remove A1", () => {
-    const oldDisabled = process.env[PI_EXTENSIONS_DISABLED_ENV];
+  it("allows Pi cron spawns with no explicit first-party wrappers", () => {
+    const ws = makeWorkspace();
+    const captures: SpawnCapture[] = [];
+    const deps = makeDeps(captures, {
+      resolveExtensionArgs: () => [],
+    });
 
-    try {
-      process.env[PI_EXTENSIONS_DISABLED_ENV] = "1";
-      const ws = makeWorkspace();
-      const captures: SpawnCapture[] = [];
-      const deps = makeDeps(captures, {
-        resolveExtensionArgs: () => [],
-      });
+    runPi(makeCron(), ws, deps);
 
-      assert.throws(
-        () => runPi(makeCron(), ws, deps),
-        /PI_EXTENSIONS_DISABLED=1 cannot disable the required Pi cron guard extension/,
-      );
-      assert.strictEqual(captures.length, 0);
-    } finally {
-      if (oldDisabled === undefined) {
-        delete process.env[PI_EXTENSIONS_DISABLED_ENV];
-      } else {
-        process.env[PI_EXTENSIONS_DISABLED_ENV] = oldDisabled;
-      }
-    }
-  });
-
-  it("fails closed before spawn when the Pi cron guard resolver returns no extension", () => {
-    const oldDisabled = process.env[PI_EXTENSIONS_DISABLED_ENV];
-
-    try {
-      delete process.env[PI_EXTENSIONS_DISABLED_ENV];
-      const ws = makeWorkspace();
-      const captures: SpawnCapture[] = [];
-      const deps = makeDeps(captures, {
-        resolveExtensionArgs: () => [],
-      });
-
-      assert.throws(
-        () => runPi(makeCron(), ws, deps),
-        /Pi cron extension resolver returned no guard extension/,
-      );
-      assert.strictEqual(captures.length, 0);
-    } finally {
-      if (oldDisabled === undefined) {
-        delete process.env[PI_EXTENSIONS_DISABLED_ENV];
-      } else {
-        process.env[PI_EXTENSIONS_DISABLED_ENV] = oldDisabled;
-      }
-    }
+    assert.strictEqual(captures.length, 1);
+    assert.ok(!captures[0].args.includes("--extension"));
   });
 
   it("throws classified Pi errors with bounded private diagnostics so main can use the FAIL path", () => {

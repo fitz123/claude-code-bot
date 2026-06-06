@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { existsSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, normalize, resolve } from "node:path";
+import { existsSync, statSync } from "node:fs";
+import { normalize, resolve } from "node:path";
 import type {
   AgentConfig,
   StreamLine,
@@ -13,7 +13,6 @@ import type {
 import { log } from "./logger.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
 import {
-  MINIME_SCHEMA_PATH_ENV,
   resolveAgentWorkspaceCwd,
   resolveWorkspaceContract,
   type ResolvedWorkspaceContract,
@@ -25,43 +24,36 @@ const DEFAULT_PI_MODEL = "openai-codex/gpt-5.5";
 
 /**
  * Wrapper entrypoints loaded into EVERY Pi spawn, in load order:
- *   A1 guardian+protect-files write guard,
- *   A2 web-tools (Tavily web_search/web_fetch),
- *   A3 subagent (isolated `pi -p` child spawn).
- * Paths are relative to {@link DEFAULT_PI_EXTENSIONS_DIR}. A3 is a multi-file
+ *   web-tools (Tavily web_search/web_fetch),
+ *   subagent (isolated `pi -p` child spawn).
+ * Paths are relative to {@link DEFAULT_PI_EXTENSIONS_DIR}. subagent is a multi-file
  * DIRECTORY whose entrypoint is `index.ts`.
  */
 export const PI_EXTENSION_WRAPPER_RELPATHS = [
-  "guardian-protect-files.ts",
   "web-tools.ts",
   "subagent/index.ts",
 ] as const;
 
 export const PI_EXTENSION_ARTIFACT_WRAPPER_RELPATHS = [
-  "guardian-protect-files.js",
   "web-tools.js",
   "subagent/index.js",
 ] as const;
 
 /**
  * Wrappers a subagent CHILD `pi` spawn must load. The subagent tool spawns an
- * isolated `pi -p` child to run a delegated task; without the A1 write guard a
- * parent could delegate a protected write (e.g. into `bot/`) to a child and
- * bypass A1 entirely. Children load the guard plus A2 web tools so delegated
- * research can use web_search/web_fetch, but they do NOT load A3 subagent: the
- * recursive spawn tool stays disabled in child sessions. Honors the same
- * kill-switch + fail-closed resolution as the parent (via
- * {@link resolvePiExtensionArgs}).
+ * isolated `pi -p` child to run a delegated task. Children load web tools so
+ * delegated research can use web_search/web_fetch, but they do NOT load the
+ * subagent wrapper: recursive spawning stays disabled in child sessions.
  */
-export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts", "web-tools.ts"] as const;
+export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["web-tools.ts"] as const;
 
 /**
- * Wrappers a Pi print-mode cron must load. Crons require only the A1 write
- * guard; they intentionally do not get A2 web tools or A3 subagent parity.
+ * Wrappers a Pi print-mode cron must load. Crons intentionally do not get
+ * interactive web-tools or subagent parity.
  */
-export const PI_CRON_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
+export const PI_CRON_WRAPPER_RELPATHS = [] as const;
 
-export const PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS = ["guardian-protect-files.js", "web-tools.js"] as const;
+export const PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS = ["web-tools.js"] as const;
 
 /**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
@@ -69,20 +61,6 @@ export const PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS = ["guardian-protect-fi
  * extension discovery remains disabled.
  */
 export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
-
-/**
- * Env var carrying the IMMUTABLE parent workspace root to a subagent CHILD's A1
- * guard. A child is spawned with a caller-controlled `cwd` (the subagent tool's
- * `cwd` param), so its guard must NOT anchor the protected-prefix check on its own
- * `ctx.cwd`: a parent could delegate `cwd:"/tmp"` + an absolute write back into a
- * protected dir (`<ws>/bot/x`), which resolves OUTSIDE `/tmp` and would be allowed
- * — bypassing A1 entirely. The subagent spawn sets this to the parent workspace
- * root; the guard wrapper prefers it over `ctx.cwd` for protection while still
- * resolving RELATIVE paths against the child's real cwd. Top-level parent spawns
- * also set this from the workspace contract because an agent's cwd may be a child
- * directory inside the workspace.
- */
-export const PI_GUARD_WORKSPACE_ROOT_ENV = "PI_GUARD_WORKSPACE_ROOT";
 
 export interface PiExtensionResolveOptions {
   /** Override the wrapper base dir (default: resolved workspace/package contract). */
@@ -92,10 +70,10 @@ export interface PiExtensionResolveOptions {
   /** Override the existence check (default: `fs.existsSync`). */
   exists?: (path: string) => boolean;
   /**
-   * Which wrapper relpaths to resolve (default: the full A1-A3
+   * Which wrapper relpaths to resolve (default: the full interactive
    * {@link PI_EXTENSION_WRAPPER_RELPATHS}). A subagent child passes
-   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load only A1 guard + A2 web
-   * tools, leaving recursive A3 subagent spawning disabled.
+   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load web tools while leaving
+   * recursive subagent spawning disabled.
    */
   relpaths?: readonly string[];
 }
@@ -152,10 +130,9 @@ export function shouldIncludePiChildEnvKey(key: string): boolean {
  * first-party wrappers; callers still pass `--no-extensions` to keep ambient
  * discovery disabled.
  *
- * FAIL-CLOSED: a configured wrapper missing on disk THROWS loudly instead of
- * silently dropping it — A1 is the write guard, so a silent skip would spawn an
- * UNGUARDED Pi session able to edit upstream-owned paths. The thrown message
- * names the missing path and points at the kill-switch as the deliberate bypass.
+ * A configured wrapper missing on disk throws loudly instead of silently
+ * dropping part of the first-party extension contract. The thrown message names
+ * the missing path and points at the kill-switch as the deliberate bypass.
  */
 export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): string[] {
   const env = options?.env ?? process.env;
@@ -172,8 +149,8 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
     const abs = resolve(baseDir, piExtensionRelpathForDir(baseDir, rel));
     if (!fileExists(abs)) {
       throw new Error(
-        `Pi extension wrapper not found: ${abs}. Refusing to spawn an unguarded ` +
-          `Pi session. Restore the wrapper, or set ${PI_EXTENSIONS_DISABLED_ENV}=1 ` +
+        `Pi extension wrapper not found: ${abs}. Refusing to spawn without the ` +
+          `expected first-party extensions. Restore the wrapper, or set ${PI_EXTENSIONS_DISABLED_ENV}=1 ` +
           `to spawn without explicit first-party extensions.`,
       );
     }
@@ -367,8 +344,8 @@ export function buildPiSpawnArgs(
   }
 
   // Keep `--no-extensions` on every spawn to suppress Pi's ambient extension
-  // discovery; load A1-A3 only as explicit repeatable `--extension <abs-path>`
-  // args. The kill-switch and the fail-closed missing-wrapper check live in
+  // discovery; load first-party wrappers only as explicit repeatable
+  // `--extension <abs-path>` args. The kill-switch and missing-wrapper check live in
   // resolvePiExtensionArgs.
   args.push(...resolvePiExtensionArgs(extensionOptions));
 
@@ -387,37 +364,11 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   const contract = resolveWorkspaceContract();
   validateAgentWorkspaceCwd(agent, contract);
 
-  const env = buildAllowedPiChildEnv();
-  env[PI_GUARD_WORKSPACE_ROOT_ENV] = realpathSync(contract.paths.workspaceRoot);
-  env[MINIME_SCHEMA_PATH_ENV] = contract.paths.schemaPath;
-  return env;
+  return buildAllowedPiChildEnv();
 }
 
-function resolveOptionalChildSchemaPath(
-  guardWorkspaceRoot: string,
-  schemaPath: string | undefined,
-): string | undefined {
-  const trimmed = schemaPath?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  return normalize(isAbsolute(trimmed) ? trimmed : resolve(guardWorkspaceRoot, trimmed));
-}
-
-export function buildPiSubagentChildSpawnEnv(
-  guardWorkspaceRoot: string,
-  schemaPath = process.env[MINIME_SCHEMA_PATH_ENV],
-): Record<string, string> {
-  const realGuardWorkspaceRoot = realpathSync(guardWorkspaceRoot);
-  const env = buildAllowedPiChildEnv();
-  env[PI_GUARD_WORKSPACE_ROOT_ENV] = realGuardWorkspaceRoot;
-
-  const resolvedSchemaPath = resolveOptionalChildSchemaPath(realGuardWorkspaceRoot, schemaPath);
-  if (resolvedSchemaPath) {
-    env[MINIME_SCHEMA_PATH_ENV] = resolvedSchemaPath;
-  }
-
-  return env;
+export function buildPiSubagentChildSpawnEnv(): Record<string, string> {
+  return buildAllowedPiChildEnv();
 }
 
 function buildAllowedPiChildEnv(): Record<string, string> {

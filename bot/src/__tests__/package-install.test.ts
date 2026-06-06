@@ -55,7 +55,6 @@ function runNpmPack(args: readonly string[], cwd = BOT_ROOT): PackResult {
 function createWorkspace(root: string): string {
   const workspace = join(root, "workspace");
   mkdirSync(join(workspace, "agent-workspace"), { recursive: true });
-  mkdirSync(join(workspace, "schemas"), { recursive: true });
   writeFileSync(
     join(workspace, "config.yaml"),
     [
@@ -85,32 +84,6 @@ function createWorkspace(root: string): string {
       "",
     ].join("\n"),
   );
-  writeFileSync(
-    join(workspace, "schema.md"),
-    [
-      "# Default schema",
-      "",
-      "```write-allowlist",
-      "agent-workspace/",
-      "*.md",
-      "schema.md",
-      "```",
-      "",
-    ].join("\n"),
-  );
-  writeFileSync(
-    join(workspace, "schemas", "override.md"),
-    [
-      "# Override schema",
-      "",
-      "```write-allowlist",
-      "agent-workspace/",
-      "override-only/",
-      "schema.md",
-      "```",
-      "",
-    ].join("\n"),
-  );
   return workspace;
 }
 
@@ -132,12 +105,9 @@ function assertPackFiles(files: readonly string[]): void {
     "dist/pi-rpc-protocol.js",
     "dist/workspace-contract.js",
     "dist/workspace-validator.js",
-    "dist/pi-extensions/guard.js",
     "dist/pi-extensions/subagent-args.js",
     "dist/pi-extensions/tavily.js",
     "dist/pi-extensions/tavily-secret.js",
-    "dist/pi-extensions/write-allowlist-schema.js",
-    "dist/extensions/pi/guardian-protect-files.js",
     "dist/extensions/pi/web-tools.js",
     "dist/extensions/pi/subagent/agents.js",
     "dist/extensions/pi/subagent/index.js",
@@ -240,7 +210,7 @@ describe("package artifact install", () => {
 
 const INSTALLED_ARTIFACT_CHECK = String.raw`
 import assert from "node:assert/strict";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -261,7 +231,7 @@ const extensionArgs = piRpc.resolvePiExtensionArgs({ env: {} });
 const extensionPaths = extensionArgs.filter((arg) => arg !== "--extension");
 assert.deepEqual(
   extensionPaths.map((path) => relative(artifactDir, path)),
-  ["guardian-protect-files.js", "web-tools.js", "subagent/index.js"],
+  ["web-tools.js", "subagent/index.js"],
 );
 
 for (const extensionPath of extensionPaths) {
@@ -276,11 +246,10 @@ const loadedConfig = configMod.loadConfig(join(workspace, "config.yaml"), {
 });
 assert.equal(loadedConfig.agents.main.workspaceCwd, agentWorkspace);
 const childEnv = piRpc.buildPiSpawnEnv(loadedConfig.agents.main);
-assert.equal(childEnv.PI_GUARD_WORKSPACE_ROOT, realpathSync(workspace));
+assert.equal(childEnv.MINIME_WORKSPACE_ROOT, undefined);
 
 const workspaceContract = await importPackageFile("dist/workspace-contract.js");
 const validator = await importPackageFile("dist/workspace-validator.js");
-const schema = await importPackageFile("dist/pi-extensions/write-allowlist-schema.js");
 
 const defaultContract = workspaceContract.resolveWorkspaceContract({
   workspace,
@@ -289,55 +258,6 @@ const defaultContract = workspaceContract.resolveWorkspaceContract({
 });
 const defaultResult = validator.validateWorkspaceContract(defaultContract, { env: {} });
 assert.equal(validator.workspaceValidationErrors(defaultResult).length, 0);
-assert.equal(defaultResult.schema.entries.includes("override-only/"), false);
-
-const overrideSchemaPath = join(workspace, "schemas", "override.md");
-const overrideEnv = { [workspaceContract.MINIME_SCHEMA_PATH_ENV]: overrideSchemaPath };
-const overrideContract = workspaceContract.resolveWorkspaceContract({
-  workspace,
-  cwd: projectDir,
-  env: overrideEnv,
-});
-const overrideResult = validator.validateWorkspaceContract(overrideContract, { env: overrideEnv });
-assert.equal(validator.workspaceValidationErrors(overrideResult).length, 0);
-assert.deepEqual(
-  overrideResult.schema.entries,
-  schema.readWriteAllowlistEntriesForGuard(overrideContract.paths.schemaPath),
-);
-assert.equal(overrideResult.schema.entries.includes("override-only/"), true);
-
-const guardian = await importFile(join(artifactDir, "guardian-protect-files.js"));
-let toolCallHandler;
-const guardianPi = {
-  on(event, handler) {
-    if (event === "tool_call") {
-      toolCallHandler = handler;
-    }
-  },
-};
-guardian.default(guardianPi);
-assert.equal(typeof toolCallHandler, "function");
-
-delete process.env.MINIME_SCHEMA_PATH;
-process.env.PI_GUARD_WORKSPACE_ROOT = workspace;
-const defaultVerdict = await toolCallHandler(
-  { toolName: "write", input: { path: "note.txt" } },
-  { cwd: agentWorkspace, hasUI: false, ui: { notify() {} } },
-);
-assert.equal(defaultVerdict, undefined);
-
-const protectedVerdict = await toolCallHandler(
-  { toolName: "write", input: { path: join(workspace, "README.md") } },
-  { cwd: agentWorkspace, hasUI: false, ui: { notify() {} } },
-);
-assert.equal(protectedVerdict.block, true);
-
-process.env.MINIME_SCHEMA_PATH = overrideSchemaPath;
-const overrideVerdict = await toolCallHandler(
-  { toolName: "write", input: { path: join(workspace, "override-only", "file.txt") } },
-  { cwd: agentWorkspace, hasUI: false, ui: { notify() {} } },
-);
-assert.equal(overrideVerdict, undefined);
 
 const registeredTools = [];
 const resourceHandlers = [];

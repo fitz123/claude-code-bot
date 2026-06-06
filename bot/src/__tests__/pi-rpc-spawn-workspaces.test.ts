@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -14,10 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { loadConfig } from "../config.js";
-import {
-  MINIME_SCHEMA_PATH_ENV,
-  MINIME_WORKSPACE_ROOT_ENV,
-} from "../workspace-contract.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 import type { ExecFileSyncLike } from "../secrets.js";
 
 interface SpawnCapture {
@@ -40,7 +36,6 @@ mock.module("node:child_process", {
 
 const {
   PI_EXTENSIONS_DISABLED_ENV,
-  PI_GUARD_WORKSPACE_ROOT_ENV,
   spawnPiRpcSession,
 } = await import("../pi-rpc-protocol.js");
 
@@ -90,7 +85,6 @@ describe("Pi spawn workspace contract", () => {
     mkdirSync(mainWorkspace, { recursive: true });
     mkdirSync(reviewerWorkspace, { recursive: true });
     writeFileSync(controlSecretsFile, "telegram:\n  bot_token: ENC[AES256_GCM,data:test]\n", "utf8");
-    writeFileSync(join(controlWorkspace, "schema.md"), "# Schema\n\n```write-allowlist\n*.md\n```\n", "utf8");
     writeFileSync(join(mainWorkspace, "CLAUDE.md"), "# Main\n\nMAIN_CONTEXT_TOKEN", "utf8");
     writeFileSync(join(reviewerWorkspace, "CLAUDE.md"), "# Reviewer\n\nREVIEWER_CONTEXT_TOKEN", "utf8");
     writeFileSync(
@@ -147,8 +141,7 @@ describe("Pi spawn workspace contract", () => {
       assert.equal(spawnCaptures[1].options.cwd, reviewerWorkspace);
       for (const capture of spawnCaptures) {
         const env = capture.options.env as NodeJS.ProcessEnv;
-        assert.equal(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(controlWorkspace));
-        assert.equal(env[MINIME_SCHEMA_PATH_ENV], join(controlWorkspace, "schema.md"));
+        assert.equal(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
       }
 
       const mainBundle = readFileSync(flagValue(spawnCaptures[0].args, "--append-system-prompt"), "utf8");

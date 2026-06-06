@@ -11,7 +11,7 @@ You are running as a **coding-agent backend** spawned by the Telegram/Discord bo
 
 ## What this means
 
-- Your exact tools depend on the Pi spawn mode. Interactive Pi RPC sessions load the bot's Pi extensions. Pi print-mode crons load only the A1 guard extension and do not have A2/A3/browser/MCP/subagent parity.
+- Your exact tools depend on the Pi spawn mode. Interactive Pi RPC sessions load the bot's Pi extensions. Pi print-mode crons do not have web-tools/subagent/browser/MCP parity.
 - You are NOT running in a terminal. Messages come from Telegram users, not a keyboard
 - Your responses are sent back to Telegram via the bot's stream relay
 - Your workspace is your current working directory. Other agents live in sibling directories alongside it; check the bot's `config.yaml` (in the main workspace) for the full agent roster and which Telegram chats route to which agent

@@ -164,18 +164,18 @@ Safety baseline after retirement:
 
 ### Task 2: Remove schema/write-guard from package contract
 
-- [ ] Remove `MINIME_SCHEMA_PATH` from resolver constants, CLI docs, validator output, env allowlists, tests, README, and active docs introduced by #151/#148.
-- [ ] Remove `schemaPath` from active workspace contract paths unless a final code path still needs it for explicitly legacy-only diagnostics.
-- [ ] Remove schema validation from `workspace validate`.
-- [ ] Remove validator-vs-guard parser parity requirements/tests from active test suites.
-- [ ] Remove/default-disable the Pi `guardian-protect-files` extension from default first-party extension loading.
-- [ ] Remove or rewrite Pi cron guard hard-requirements that currently throw when guard extension args are empty/disabled.
-- [ ] Remove or rewrite subagent child wrapper constants/lists that currently load only `guardian-protect-files`.
-- [ ] Remove `PI_GUARD_WORKSPACE_ROOT` and protected-prefix guard comments/tests unless retained only in explicitly legacy code.
-- [ ] Remove/update public-repo Claude-path guard artifacts if still current: `.claude/hooks/guardian.sh`, `.claude/hooks/protect-files.sh`, `.claude/settings.json` PreToolUse wiring, and operator prose in `CLAUDE.md`, README, and `.claude/rules/**` that says schema/write-guard/immutable-core is enforced.
-- [ ] If any Claude-path guard artifact is intentionally deferred to private cleanup, document that explicitly and ensure the deterministic removal gate treats it as legacy/deferred rather than current guidance.
-- [ ] Ensure package-installed Pi extension tests no longer expect guard extension loading.
-- [ ] Leave historical docs/plans alone unless they are current operator guidance.
+- [x] Remove `MINIME_SCHEMA_PATH` from resolver constants, CLI docs, validator output, env allowlists, tests, README, and active docs introduced by #151/#148.
+- [x] Remove `schemaPath` from active workspace contract paths unless a final code path still needs it for explicitly legacy-only diagnostics.
+- [x] Remove schema validation from `workspace validate`.
+- [x] Remove validator-vs-guard parser parity requirements/tests from active test suites.
+- [x] Remove/default-disable the Pi `guardian-protect-files` extension from default first-party extension loading.
+- [x] Remove or rewrite Pi cron guard hard-requirements that currently throw when guard extension args are empty/disabled.
+- [x] Remove or rewrite subagent child wrapper constants/lists that currently load only `guardian-protect-files`.
+- [x] Remove `PI_GUARD_WORKSPACE_ROOT` and protected-prefix guard comments/tests unless retained only in explicitly legacy code.
+- [x] Remove/update public-repo Claude-path guard artifacts if still current: `.claude/hooks/guardian.sh`, `.claude/hooks/protect-files.sh`, `.claude/settings.json` PreToolUse wiring, and operator prose in `CLAUDE.md`, README, and `.claude/rules/**` that says schema/write-guard/immutable-core is enforced.
+- [x] If any Claude-path guard artifact is intentionally deferred to private cleanup, document that explicitly and ensure the deterministic removal gate treats it as legacy/deferred rather than current guidance.
+- [x] Ensure package-installed Pi extension tests no longer expect guard extension loading.
+- [x] Leave historical docs/plans alone unless they are current operator guidance.
 
 ### Task 3: Pass non-secret control contract to Pi children
 
