@@ -469,6 +469,10 @@ describe("Pi extension loading (--extension)", () => {
       piExtensionRelpathForDir(artifactDir, "subagent/index.ts"),
       "subagent/index.js",
     );
+    assert.equal(
+      piExtensionRelpathForDir(`${artifactDir}/`, "web-tools.ts"),
+      "web-tools.js",
+    );
     assert.equal(piExtensionRelpathForDir(FAKE_DIR, "subagent/index.ts"), "subagent/index.ts");
   });
 

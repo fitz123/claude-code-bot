@@ -184,7 +184,7 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
 }
 
 export function piExtensionRelpathForDir(baseDir: string, relpath: string): string {
-  const normalizedBase = normalize(baseDir);
+  const normalizedBase = normalize(baseDir).replace(/[\\/]+$/, "");
   if (!normalizedBase.endsWith(`${normalize("dist/extensions/pi")}`)) {
     return relpath;
   }
