@@ -238,13 +238,13 @@ Safety baseline after retirement:
 
 Public code must not edit private production files in this run, but the run must leave an operator artifact for private deployment:
 
-- [ ] Create/update a task note listing private cleanup required before deploying the guard-retired package:
+- [x] Create/update a task note listing private cleanup required before deploying the guard-retired package (`docs/plans/2026-06-06-private-production-guard-retirement-cleanup.md`):
   - remove obsolete schema/guard hooks or extension references from private settings;
   - remove or explicitly retire private `guardian.sh` / `protect-files.sh` hook wiring and prose if still present;
   - remove obsolete `@schema.md` imports if any agent workspaces have them;
   - decide whether to archive or delete inert `schema.md` files;
   - confirm deploy wrapper/operator sign-off before production restart.
-- [ ] The artifact must not contain secrets or decrypted SOPS values.
+- [x] The artifact must not contain secrets or decrypted SOPS values.
 
 ## Validation commands
 
