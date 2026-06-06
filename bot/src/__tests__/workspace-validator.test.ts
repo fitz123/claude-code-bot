@@ -1,6 +1,6 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -146,6 +146,48 @@ describe("workspace validator", () => {
     const result = validate(workspace);
 
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
+  });
+
+  it("validates configured SOPS references without invoking sops", () => {
+    const workspace = createWorkspace();
+    const fakeBin = mkdtempSync(join(tmpdir(), "minime-validator-fake-sops-"));
+    fixtures.push(fakeBin);
+    const marker = join(fakeBin, "sops-was-called");
+    mkdirSync(join(workspace, "config"), { recursive: true });
+    writeFileSync(join(workspace, "config", "secrets.sops.yaml"), "placeholder: true\n", "utf8");
+    writeFileSync(
+      join(workspace, "config.yaml"),
+      [
+        "agents:",
+        "  main:",
+        "    workspaceCwd: ./agent-workspace",
+        "    model: gpt-5.5",
+        "secrets:",
+        "  sopsFile: config/secrets.sops.yaml",
+        "telegramTokenSopsKey: telegram.bot_token",
+        "bindings:",
+        "  - chatId: 111",
+        "    agentId: main",
+        "    kind: dm",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(fakeBin, "sops"),
+      [
+        "#!/bin/bash",
+        `touch ${JSON.stringify(marker)}`,
+        "printf 'should-not-resolve\\n'",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(join(fakeBin, "sops"), 0o755);
+
+    const result = validate(workspace, { PATH: `${fakeBin}:${process.env.PATH ?? ""}` });
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(existsSync(marker), false);
   });
 
   it("accepts an absolute agent workspaceCwd outside the control workspace root", () => {

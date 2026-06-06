@@ -188,15 +188,15 @@ Safety baseline after retirement:
 
 ### Task 4: Make Tavily a global control-workspace secret
 
-- [ ] Replace Tavily `process.cwd()` / agent-workspace SOPS resolution with control-workspace contract resolution through the named child env contract in Task 3.
-- [ ] Preserve the current Tavily secret contract by default: `config/secrets.sops.yaml` under the control workspace plus key `tavily.api_key`. Do not silently reroute Tavily onto config `secrets.sopsFile` unless the plan also adds an explicit no-decrypt production key-presence gate for that configured file.
-- [ ] Do not pass Tavily plaintext in env/argv.
-- [ ] Add tests proving an agent workspace without `config/secrets.sops.yaml` can still use Tavily via the control workspace SOPS pointer.
-- [ ] Add tests proving two different agent workspaces use the same control-workspace Tavily secret reference.
-- [ ] Add installed-wrapper tests with `process.cwd()` set to an agent workspace lacking config/secrets; fake SOPS must be invoked with the control-workspace Tavily relpath/key.
-- [ ] Add subagent-child tests proving `buildPiSubagentChildSpawnEnv` (or final equivalent) propagates control `MINIME_WORKSPACE_ROOT` while child `cwd` is caller-controlled.
-- [ ] Add tests proving a subagent child's loaded `web-tools` wrapper resolves Tavily from the control workspace even when `cwd` is an arbitrary caller directory without config/secrets files.
-- [ ] Add negative tests with fake secret resolver/exec proving validators do not invoke SOPS and web-tools secret resolution never prints values.
+- [x] Replace Tavily `process.cwd()` / agent-workspace SOPS resolution with control-workspace contract resolution through the named child env contract in Task 3.
+- [x] Preserve the current Tavily secret contract by default: `config/secrets.sops.yaml` under the control workspace plus key `tavily.api_key`. Do not silently reroute Tavily onto config `secrets.sopsFile` unless the plan also adds an explicit no-decrypt production key-presence gate for that configured file.
+- [x] Do not pass Tavily plaintext in env/argv.
+- [x] Add tests proving an agent workspace without `config/secrets.sops.yaml` can still use Tavily via the control workspace SOPS pointer.
+- [x] Add tests proving two different agent workspaces use the same control-workspace Tavily secret reference.
+- [x] Add installed-wrapper tests with `process.cwd()` set to an agent workspace lacking config/secrets; fake SOPS must be invoked with the control-workspace Tavily relpath/key.
+- [x] Add subagent-child tests proving `buildPiSubagentChildSpawnEnv` (or final equivalent) propagates control `MINIME_WORKSPACE_ROOT` while child `cwd` is caller-controlled.
+- [x] Add tests proving a subagent child's loaded `web-tools` wrapper resolves Tavily from the control workspace even when `cwd` is an arbitrary caller directory without config/secrets files.
+- [x] Add negative tests with fake secret resolver/exec proving validators do not invoke SOPS and web-tools secret resolution never prints values.
 
 ### Task 5: Keep extension/runtime package compatibility after guard removal
 

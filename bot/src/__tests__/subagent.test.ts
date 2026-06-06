@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { buildPiSubagentChildSpawnEnv } from "../pi-rpc-protocol.js";
 import {
   accumulateAssistantUsage,
   buildSubagentSpawnArgs,
@@ -24,6 +25,7 @@ import {
   type SubagentReadableLike,
   type SubagentSpawn,
 } from "../pi-extensions/subagent-args.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..", "..");
@@ -147,6 +149,36 @@ describe("subagent: wrapper spawn environment", () => {
     assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(\)/);
     assert.match(wrapper, /cwd:\s*opts\.cwd/);
     assert.doesNotMatch(wrapper, /env:\s*\{\s*\.{3}process\.env/);
+  });
+
+  it("keeps caller-selected child cwd separate from the control workspace env", async () => {
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    const controlWorkspace = "/control/workspace";
+    const callerCwd = "/caller/selected/subagent-cwd";
+
+    try {
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = controlWorkspace;
+      const env = buildPiSubagentChildSpawnEnv();
+      const { child, calls, spawn } = setupRunner();
+      const promise = runSubagentChild({
+        spawn,
+        command: "pi",
+        args: ["-p", "delegate"],
+        cwd: callerCwd,
+        agentName: "worker",
+      });
+      child.emitClose(0);
+      await promise;
+
+      assert.equal(env[MINIME_WORKSPACE_ROOT_ENV], controlWorkspace);
+      assert.deepEqual(calls, [{ command: "pi", args: ["-p", "delegate"], cwd: callerCwd }]);
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+    }
   });
 
   it("does not inject ambient bot or Tavily secrets into subagent child argv", () => {

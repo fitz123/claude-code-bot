@@ -596,7 +596,7 @@ function errResult(text: string): WebToolResult {
 function missingKeyText(tool: "web_search" | "web_fetch"): string {
   return `${tool} is unavailable: Tavily API key not configured (SOPS key ` +
     `${TAVILY_SOPS_KEY} in ${TAVILY_SOPS_FILE_RELPATH}). Add the private ` +
-    "Tavily-only workspace SOPS file and restart the bot.";
+    "control-workspace Tavily SOPS file and restart the bot.";
 }
 
 /**

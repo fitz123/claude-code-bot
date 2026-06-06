@@ -55,6 +55,8 @@ function runNpmPack(args: readonly string[], cwd = BOT_ROOT): PackResult {
 function createWorkspace(root: string): string {
   const workspace = join(root, "workspace");
   mkdirSync(join(workspace, "agent-workspace"), { recursive: true });
+  mkdirSync(join(workspace, "config"), { recursive: true });
+  writeFileSync(join(workspace, "config", "secrets.sops.yaml"), "placeholder: true\n", "utf8");
   writeFileSync(
     join(workspace, "config.yaml"),
     [
@@ -210,7 +212,7 @@ describe("package artifact install", () => {
 
 const INSTALLED_ARTIFACT_CHECK = String.raw`
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -223,6 +225,7 @@ const projectDir = process.cwd();
 const packageDir = join(projectDir, "node_modules", "minime");
 const artifactDir = join(packageDir, "dist", "extensions", "pi");
 const agentWorkspace = join(workspace, "agent-workspace");
+const controlTavilySopsFile = join(workspace, "config", "secrets.sops.yaml");
 const importFile = (path) => import(pathToFileURL(path).href);
 const importPackageFile = (relpath) => importFile(join(packageDir, relpath));
 
@@ -263,6 +266,7 @@ const defaultResult = validator.validateWorkspaceContract(defaultContract, { env
 assert.equal(validator.workspaceValidationErrors(defaultResult).length, 0);
 
 const registeredTools = [];
+const registeredToolDefs = [];
 const resourceHandlers = [];
 const fakePi = {
   on(event, handler) {
@@ -272,7 +276,38 @@ const fakePi = {
   },
   registerTool(tool) {
     registeredTools.push(tool.name);
+    registeredToolDefs.push(tool);
   },
+};
+
+const fakeBinDir = join(projectDir, "fake-bin");
+const sopsArgvFile = join(projectDir, "sops-argv.txt");
+mkdirSync(fakeBinDir, { recursive: true });
+writeFileSync(
+  join(fakeBinDir, "sops"),
+  [
+    "#!/bin/bash",
+    "printf '%s\\n' \"$@\" > \"$SOPS_ARGV_FILE\"",
+    "printf 'tvly-installed-wrapper-key\\n'",
+    "",
+  ].join("\n"),
+  "utf8",
+);
+chmodSync(join(fakeBinDir, "sops"), 0o755);
+process.env.PATH = fakeBinDir + ":" + process.env.PATH;
+process.env.SOPS_ARGV_FILE = sopsArgvFile;
+process.chdir(agentWorkspace);
+
+const fetchCalls = [];
+const oldFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  fetchCalls.push({ url: String(url), init });
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ results: [] }),
+    text: async () => "{\"results\":[]}",
+  };
 };
 
 const webTools = await importFile(join(artifactDir, "web-tools.js"));
@@ -283,6 +318,23 @@ assert.deepEqual(
   registeredTools.filter((name) => ["web_search", "web_fetch", "subagent"].includes(name)).sort(),
   ["subagent", "web_fetch", "web_search"],
 );
+
+try {
+  const searchTool = registeredToolDefs.find((tool) => tool.name === "web_search");
+  assert.ok(searchTool, "web_search should be registered");
+  const searchResult = await searchTool.execute("call-1", { query: "installed wrapper" });
+  assert.equal(searchResult.details.ok, true);
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0].init.headers.Authorization, "Bearer tvly-installed-wrapper-key");
+  assert.deepEqual(readFileSync(sopsArgvFile, "utf8").trim().split("\n"), [
+    "-d",
+    "--extract",
+    "[\"tavily\"][\"api_key\"]",
+    controlTavilySopsFile,
+  ]);
+} finally {
+  globalThis.fetch = oldFetch;
+}
 
 const agentsMod = await importFile(join(artifactDir, "subagent", "agents.js"));
 const discovery = agentsMod.discoverAgents(workspace, "project");
