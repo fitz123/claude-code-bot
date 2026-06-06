@@ -24,14 +24,12 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
-# Normalize path: prevent bypass via non-canonical paths
-# Collapse multiple slashes: // → /
-while [[ "$FILE_PATH" == *//* ]]; do
-  FILE_PATH="${FILE_PATH//\/\///}"
-done
-# Collapse /./ → /
+# Normalize path: prevent bypass via non-canonical paths.
+# Use sed rather than Bash replacement syntax so the replacement stays literal
+# and cannot accidentally introduce backslashes while collapsing `//` or `/./`.
+FILE_PATH=$(printf '%s' "$FILE_PATH" | sed -E 's#/+#/#g')
 while [[ "$FILE_PATH" == *"/./"* ]]; do
-  FILE_PATH="${FILE_PATH//\/.\///}"
+  FILE_PATH=$(printf '%s' "$FILE_PATH" | sed 's#/\./#/#g')
 done
 # Resolve /component/.. sequences
 while [[ "$FILE_PATH" == *"/.."* ]]; do
