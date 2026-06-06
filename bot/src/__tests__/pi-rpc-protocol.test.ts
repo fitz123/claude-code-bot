@@ -11,6 +11,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -703,7 +704,7 @@ describe("buildPiSpawnEnv", () => {
       assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
       assert.strictEqual(env.MINIME_SESSION_SECRET, undefined);
       assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], "/tmp");
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync("/tmp"));
       assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], "/tmp/schema.md");
       assert.strictEqual(env.ANTHROPIC_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.AWS_ACCESS_KEY_ID, undefined);
@@ -818,7 +819,7 @@ describe("buildPiSpawnEnv", () => {
       process.env.PI_GUARD_WORKSPACE_ROOT = "/somewhere/else";
       const env = buildPiSpawnEnv(testAgent);
 
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, "/tmp");
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync("/tmp"));
     } finally {
       if (oldRoot === undefined) {
         delete process.env.PI_GUARD_WORKSPACE_ROOT;
@@ -833,6 +834,46 @@ describe("buildPiSpawnEnv", () => {
     }
   });
 
+  it("canonicalizes PI_GUARD_WORKSPACE_ROOT to the workspace realpath", () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-spawn-env-root-"));
+    const parentDir = mkdtempSync(join(tmpdir(), "pi-spawn-env-link-parent-"));
+    const workspaceLink = join(parentDir, "workspace-link");
+    symlinkSync(workspaceRoot, workspaceLink, "dir");
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+
+    try {
+      mkdirSync(join(workspaceRoot, "agent-workspace"), { recursive: true });
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceLink;
+      const env = buildPiSpawnEnv({ ...testAgent, workspaceCwd: "./agent-workspace" });
+
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspaceRoot));
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(parentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("canonicalizes subagent child guard roots to realpaths", () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-subagent-env-root-"));
+    const parentDir = mkdtempSync(join(tmpdir(), "pi-subagent-env-link-parent-"));
+    const workspaceLink = join(parentDir, "workspace-link");
+    symlinkSync(workspaceRoot, workspaceLink, "dir");
+
+    try {
+      const env = buildPiSubagentChildSpawnEnv(workspaceLink);
+
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspaceRoot));
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+      rmSync(parentDir, { recursive: true, force: true });
+    }
+  });
+
   it("propagates an absolute MINIME_SCHEMA_PATH override to Pi guard processes", () => {
     const oldWorkspace = process.env.MINIME_WORKSPACE_ROOT;
     const oldSchema = process.env.MINIME_SCHEMA_PATH;
@@ -843,7 +884,7 @@ describe("buildPiSpawnEnv", () => {
       const env = buildPiSpawnEnv(testAgent);
 
       assert.strictEqual(env.MINIME_SCHEMA_PATH, "/tmp/override-schema.md");
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, "/tmp");
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync("/tmp"));
     } finally {
       if (oldWorkspace === undefined) {
         delete process.env.MINIME_WORKSPACE_ROOT;
@@ -868,7 +909,7 @@ describe("buildPiSpawnEnv", () => {
       const env = buildPiSpawnEnv(testAgent);
 
       assert.strictEqual(env.MINIME_SCHEMA_PATH, "/tmp/schemas/override.md");
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, "/tmp");
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync("/tmp"));
     } finally {
       if (oldWorkspace === undefined) {
         delete process.env.MINIME_WORKSPACE_ROOT;
@@ -938,19 +979,24 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
       process.env.TAVILY_API_KEY = "fixture";
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
+      const guardRoot = mkdtempSync(join(tmpdir(), "pi-subagent-guard-root-"));
 
-      const env = buildPiSubagentChildSpawnEnv("/workspace/root");
+      try {
+        const env = buildPiSubagentChildSpawnEnv(guardRoot);
 
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, "/workspace/root");
-      assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
-      assert.strictEqual(env.LC_CTYPE, "UTF-8");
-      assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
-      assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
-      assert.strictEqual(env.GITHUB_TOKEN, undefined);
-      assert.strictEqual(env.OPENAI_API_KEY, undefined);
-      assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
-      assert.strictEqual(env.TAVILY_API_KEY, undefined);
-      assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
+        assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync(guardRoot));
+        assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
+        assert.strictEqual(env.LC_CTYPE, "UTF-8");
+        assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+        assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
+        assert.strictEqual(env.GITHUB_TOKEN, undefined);
+        assert.strictEqual(env.OPENAI_API_KEY, undefined);
+        assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
+        assert.strictEqual(env.TAVILY_API_KEY, undefined);
+        assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
+      } finally {
+        rmSync(guardRoot, { recursive: true, force: true });
+      }
     } finally {
       for (const key of envKeys) {
         const oldValue = oldValues.get(key);

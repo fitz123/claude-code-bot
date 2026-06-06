@@ -72,7 +72,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 ### Prerequisites
 
 - macOS (launchd required for bot service management)
-- Node.js 20+ and npm
+- Node.js 22.19+ and npm (Pi package dependencies require Node >=22.19.0)
 - `jq` — required by hook scripts (`brew install jq`)
 - `sops` and `age`, with an age identity available to the launchd user unless you configure only explicit token environment variables
 - The `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
@@ -375,7 +375,7 @@ The bot maintains persistent context across sessions through a memory system roo
 
 ### CLI validation
 
-The package exposes a built CLI as `minime-bot` after `npm run build`, `npm pack`, or package installation. From a source checkout, the same workspace validator is available through npm scripts:
+The package exposes a built CLI as `minime-bot` after `npm run build`, `npm pack`, or package installation. Package-installed Pi dependencies require Node >=22.19.0, matching `bot/package.json` `engines.node`. From a source checkout, the same workspace validator is available through npm scripts:
 
 ```bash
 cd bot

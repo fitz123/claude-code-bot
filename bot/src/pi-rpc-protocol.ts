@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { normalize, resolve } from "node:path";
 import type {
   AgentConfig,
@@ -396,7 +396,7 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   validateAgentWorkspaceCwd(agent, contract);
 
   const env = buildAllowedPiChildEnv();
-  env[PI_GUARD_WORKSPACE_ROOT_ENV] = contract.paths.workspaceRoot;
+  env[PI_GUARD_WORKSPACE_ROOT_ENV] = realpathSync(contract.paths.workspaceRoot);
   env[MINIME_SCHEMA_PATH_ENV] = contract.paths.schemaPath;
   return env;
 }
@@ -404,7 +404,7 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
 export function buildPiSubagentChildSpawnEnv(guardWorkspaceRoot: string): Record<string, string> {
   return {
     ...buildAllowedPiChildEnv(),
-    [PI_GUARD_WORKSPACE_ROOT_ENV]: guardWorkspaceRoot,
+    [PI_GUARD_WORKSPACE_ROOT_ENV]: realpathSync(guardWorkspaceRoot),
   };
 }
 
