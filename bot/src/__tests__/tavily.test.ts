@@ -256,6 +256,31 @@ describe("tavily: executeWebSearch", () => {
     assert.equal(warns[0].reason, "bad-args");
   });
 
+  it("blocks local path text in a search query before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebSearch({ query: "debug ../private/config.local.yaml" }, deps);
+    assert.equal(res.ok, false);
+    assert.match(res.text, /blocked/);
+    assert.doesNotMatch(res.text, /\.\.\/private/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, [
+      { tool: "web_search", reason: "blocked-egress", detail: "query contains local path text" },
+    ]);
+  });
+
+  it("blocks multiline search content before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebSearch({ query: "line one\nline two" }, deps);
+    assert.equal(res.ok, false);
+    assert.match(res.text, /multiline/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, [
+      { tool: "web_search", reason: "blocked-egress", detail: "query contains multiline content" },
+    ]);
+  });
+
   it("maps a non-2xx response to a graceful http-error result", async () => {
     const mock = mockFetch(async () => jsonResponse("rate limited", 429));
     const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
@@ -308,6 +333,29 @@ describe("tavily: executeWebFetch", () => {
     assert.equal(res.ok, false);
     assert.match(res.text, /non-empty 'url'/);
     assert.equal(warns[0].reason, "bad-args");
+  });
+
+  it("blocks URLs with credential-bearing query params before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebFetch({ url: "https://example.com/docs?session=example" }, deps);
+    assert.equal(res.ok, false);
+    assert.match(res.text, /blocked/);
+    assert.doesNotMatch(res.text, /session=example/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, [
+      { tool: "web_fetch", reason: "blocked-egress", detail: "url contains a sensitive query parameter" },
+    ]);
+  });
+
+  it("allows public source-file URLs that are not local path egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [{ url: "https://example.com/src/file.ts", raw_content: "body" }] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebFetch({ url: "https://example.com/src/file.ts" }, deps);
+    assert.equal(res.ok, true);
+    assert.match(res.text, /body/);
+    assert.equal(mock.calls.length, 1);
+    assert.equal(warns.length, 0);
   });
 
   it("maps a non-2xx response to a graceful http-error result", async () => {

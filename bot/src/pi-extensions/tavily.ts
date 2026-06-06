@@ -32,6 +32,10 @@ export const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
 export const DEFAULT_SEARCH_MAX_RESULTS = 5;
 /** Clamp so a model can never request a runaway page of results. */
 export const MAX_SEARCH_MAX_RESULTS = 20;
+/** Keep model-supplied search text small enough to avoid pasted local data. */
+export const MAX_SEARCH_QUERY_CHARS = 300;
+/** Hard cap for fetch URLs before they are sent to Tavily. */
+export const MAX_FETCH_URL_CHARS = 2048;
 
 /** A fully-described HTTP request (so tests can assert shape without a network). */
 export interface TavilyHttpRequest {
@@ -86,7 +90,7 @@ export interface WebToolResult {
 
 export interface TavilyWarn {
   tool: "web_search" | "web_fetch";
-  reason: "missing-key" | "bad-args" | "http-error" | "request-failed";
+  reason: "missing-key" | "bad-args" | "blocked-egress" | "http-error" | "request-failed";
   detail?: string;
 }
 
@@ -117,6 +121,145 @@ function coerceMaxResults(raw: unknown): number {
     return DEFAULT_SEARCH_MAX_RESULTS;
   }
   return Math.min(Math.floor(n), MAX_SEARCH_MAX_RESULTS);
+}
+
+const SENSITIVE_ASSIGNMENT_PATTERN =
+  /\b(?:api[_-]?key|authorization|cookie|credential|passwd|password|secret|session|token)\b\s*[:=]\s*\S{4,}/i;
+const AUTH_HEADER_PATTERN = /\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]{12,}\b/i;
+const COMMON_SECRET_TOKEN_PATTERN =
+  /\b(?:gh[pousr]_|sk-|tvly-|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i;
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}\b/;
+const PRIVATE_KEY_MARKER_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+const LOCAL_PATH_PATTERN =
+  /(?:^|[\s"'`=:(])(?:~\/|\.\.\/|\/(?:Users|home|private|var\/folders|etc|tmp)\/|[A-Za-z]:\\)[^\s"'`)]*/;
+const REPO_FILE_PATH_PATTERN =
+  /\b(?:\.claude|bot|config\.local\.yaml|memory|\.env|id_rsa|\.ssh|[A-Za-z0-9_-]+\/[A-Za-z0-9._/-]+\.(?:env|json|key|md|pem|ts|tsx|yaml|yml))\b/;
+const HIGH_ENTROPY_TOKEN_PATTERN = /[A-Za-z0-9_+/=-]{32,}/g;
+const SENSITIVE_URL_PARAM_PATTERN =
+  /(?:api[_-]?key|auth|cookie|credential|key|passwd|password|secret|session|token)/i;
+
+function containsHighEntropyToken(text: string): boolean {
+  for (const [token] of text.matchAll(HIGH_ENTROPY_TOKEN_PATTERN)) {
+    if (/[a-z]/.test(token) && /[A-Z]/.test(token) && /\d/.test(token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface OutboundTextValidationOptions {
+  checkSensitiveAssignments?: boolean;
+  checkLocalPaths?: boolean;
+  checkRepoPaths?: boolean;
+}
+
+function validateOutboundText(
+  kind: "query" | "url" | "url path" | "url query parameter",
+  text: string,
+  maxChars: number,
+  options: OutboundTextValidationOptions = {},
+): string | undefined {
+  if (text.length > maxChars) {
+    return `${kind} exceeds ${maxChars} characters`;
+  }
+  if (/[\r\n]/.test(text)) {
+    return `${kind} contains multiline content`;
+  }
+  if (text.includes("```")) {
+    return `${kind} contains a code block`;
+  }
+  if (PRIVATE_KEY_MARKER_PATTERN.test(text)) {
+    return `${kind} contains private-key material`;
+  }
+  if (AUTH_HEADER_PATTERN.test(text) || COMMON_SECRET_TOKEN_PATTERN.test(text) || JWT_PATTERN.test(text)) {
+    return `${kind} contains credential-like text`;
+  }
+  if (options.checkSensitiveAssignments !== false && SENSITIVE_ASSIGNMENT_PATTERN.test(text)) {
+    return `${kind} contains a sensitive assignment`;
+  }
+  if (options.checkLocalPaths && LOCAL_PATH_PATTERN.test(text)) {
+    return `${kind} contains local path text`;
+  }
+  if (options.checkRepoPaths && REPO_FILE_PATH_PATTERN.test(text)) {
+    return `${kind} contains local path text`;
+  }
+  if (containsHighEntropyToken(text)) {
+    return `${kind} contains high-entropy token-like text`;
+  }
+  return undefined;
+}
+
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal")
+  ) {
+    return true;
+  }
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
+    return true;
+  }
+  const private172 = /^172\.(\d{1,2})\./.exec(host);
+  return private172 !== null && Number(private172[1]) >= 16 && Number(private172[1]) <= 31;
+}
+
+function validateWebSearchEgress(query: string): string | undefined {
+  return validateOutboundText("query", query, MAX_SEARCH_QUERY_CHARS, {
+    checkLocalPaths: true,
+    checkRepoPaths: true,
+  });
+}
+
+function validateWebFetchEgress(url: string): string | undefined {
+  const textProblem = validateOutboundText("url", url, MAX_FETCH_URL_CHARS, {
+    checkSensitiveAssignments: false,
+  });
+  if (textProblem) {
+    return textProblem;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return "url must be an absolute http(s) URL";
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "url must use http(s)";
+  }
+  if (parsed.username || parsed.password) {
+    return "url contains credentials";
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return "url targets a local/private host";
+  }
+
+  const pathProblem = validateOutboundText("url path", parsed.pathname, MAX_FETCH_URL_CHARS, {
+    checkLocalPaths: true,
+  });
+  if (pathProblem) {
+    return pathProblem;
+  }
+
+  for (const [name, value] of parsed.searchParams) {
+    if (value && SENSITIVE_URL_PARAM_PATTERN.test(name)) {
+      return "url contains a sensitive query parameter";
+    }
+    const paramProblem = validateOutboundText("url query parameter", value, MAX_SEARCH_QUERY_CHARS, {
+      checkLocalPaths: true,
+      checkRepoPaths: true,
+    });
+    if (paramProblem) {
+      return paramProblem;
+    }
+  }
+
+  return undefined;
 }
 
 /** Build the Tavily `/search` HTTP request for a `web_search` call. */
@@ -276,6 +419,12 @@ export async function executeWebSearch(args: WebSearchArgs, deps: RunToolDeps): 
     return errResult("web_search requires a non-empty 'query' string.");
   }
 
+  const egressProblem = validateWebSearchEgress(query);
+  if (egressProblem) {
+    deps.warn?.({ tool: "web_search", reason: "blocked-egress", detail: egressProblem });
+    return errResult(`web_search blocked: ${egressProblem}. Do not send local or private data to external web services.`);
+  }
+
   const req = buildSearchRequest(deps.apiKey, { ...args, query });
   try {
     const json = await fetchTavilyJson(req, deps.fetchImpl);
@@ -305,6 +454,12 @@ export async function executeWebFetch(args: WebFetchArgs, deps: RunToolDeps): Pr
     return errResult("web_fetch requires a non-empty 'url' string.");
   }
 
+  const egressProblem = validateWebFetchEgress(url);
+  if (egressProblem) {
+    deps.warn?.({ tool: "web_fetch", reason: "blocked-egress", detail: egressProblem });
+    return errResult(`web_fetch blocked: ${egressProblem}. Do not send local or private data to external web services.`);
+  }
+
   const req = buildExtractRequest(deps.apiKey, { url });
   try {
     const json = await fetchTavilyJson(req, deps.fetchImpl);
@@ -331,7 +486,8 @@ export const WEB_SEARCH_TOOL = {
   label: "Web Search",
   description:
     "Search the web for current information via Tavily. Returns ranked results " +
-    "(title, URL, snippet) and an optional synthesized answer.",
+    "(title, URL, snippet) and an optional synthesized answer. Do not include " +
+    "local file contents, paths, credentials, or other private data.",
   parameters: {
     type: "object",
     properties: {
@@ -358,7 +514,8 @@ export const WEB_FETCH_TOOL = {
   name: "web_fetch",
   label: "Web Fetch",
   description:
-    "Fetch and extract the readable text content of a single web page URL via Tavily.",
+    "Fetch and extract the readable text content of a single public web page URL " +
+    "via Tavily. URLs containing credentials or private/local targets are blocked.",
   parameters: {
     type: "object",
     properties: {
