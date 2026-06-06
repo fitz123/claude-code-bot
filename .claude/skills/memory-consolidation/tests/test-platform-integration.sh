@@ -106,7 +106,7 @@ assert_eq "bot/telegram-bot.plist.example exists" "true" "$([ -f "$REPO_DIR/bot/
 readme_content=$(cat "$REPO_DIR/README.md")
 assert_contains "README has Installation section" "$readme_content" "## Installation"
 assert_contains "README documents Keychain setup" "$readme_content" "security add-generic-password"
-assert_contains "README documents claude auth login" "$readme_content" "claude auth login"
+assert_contains "README documents Pi auth login" "$readme_content" "pi /login"
 
 # --- Summary ---
 echo ""
