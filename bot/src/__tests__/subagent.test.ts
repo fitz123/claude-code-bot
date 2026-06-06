@@ -1,5 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 import {
   accumulateAssistantUsage,
   buildSubagentSpawnArgs,
@@ -20,6 +24,34 @@ import {
   type SubagentReadableLike,
   type SubagentSpawn,
 } from "../pi-extensions/subagent-args.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const BOT_DIR = resolve(__dirname, "..", "..");
+const BUNDLED_AGENT_DIR = resolve(BOT_DIR, ".claude", "extensions", "subagent", "agents");
+
+function readBundledAgentFrontmatter(name: string): Record<string, unknown> {
+  const content = readFileSync(resolve(BUNDLED_AGENT_DIR, `${name}.md`), "utf8");
+  const match = /^---\n([\s\S]*?)\n---/.exec(content);
+  assert.ok(match, `${name} must have frontmatter`);
+  const frontmatter = parseYaml(match[1]);
+  assert.equal(typeof frontmatter, "object");
+  assert.notEqual(frontmatter, null);
+  return frontmatter as Record<string, unknown>;
+}
+
+function readBundledAgentTools(name: string): string[] | undefined {
+  const tools = readBundledAgentFrontmatter(name).tools;
+  if (tools === undefined) {
+    return undefined;
+  }
+  if (typeof tools !== "string") {
+    assert.fail(`${name} tools frontmatter must be a comma-separated string`);
+  }
+  return tools
+    .split(",")
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+}
 
 /** Build a JSONL `message_end` line for an assistant message. */
 function assistantLine(message: Partial<SubagentMessage>): string {
@@ -96,6 +128,21 @@ describe("subagent: buildSubagentSpawnArgs", () => {
     assert.equal(args.includes("--extension"), false);
     assert.equal(args.includes("--no-extensions"), true);
     assert.equal(args[args.length - 1], "Task: t");
+  });
+});
+
+describe("subagent: bundled agent tool allowlists", () => {
+  it("allows web tools for explicit scout, reviewer, and planner allowlists", () => {
+    for (const agentName of ["scout", "reviewer", "planner"]) {
+      const tools = readBundledAgentTools(agentName);
+      assert.ok(tools, `${agentName} must have an explicit tools allowlist`);
+      assert.ok(tools.includes("web_search"), `${agentName} tools must include web_search`);
+      assert.ok(tools.includes("web_fetch"), `${agentName} tools must include web_fetch`);
+    }
+  });
+
+  it("leaves worker without an explicit tools allowlist", () => {
+    assert.equal(readBundledAgentTools("worker"), undefined);
   });
 });
 

@@ -32,10 +32,10 @@ Desired behavior:
 
 ### Task 2: Bundled subagent tool allowlists
 
-- [ ] Add `web_search, web_fetch` to bundled `scout` frontmatter tools.
-- [ ] Add `web_search, web_fetch` to bundled `reviewer` frontmatter tools.
-- [ ] Add `web_search, web_fetch` to bundled `planner` frontmatter tools.
-- [ ] Leave `worker` unchanged; it has no explicit allowlist.
+- [x] Add `web_search, web_fetch` to bundled `scout` frontmatter tools.
+- [x] Add `web_search, web_fetch` to bundled `reviewer` frontmatter tools.
+- [x] Add `web_search, web_fetch` to bundled `planner` frontmatter tools.
+- [x] Leave `worker` unchanged; it has no explicit allowlist.
 
 ### Task 3: Tests and validation
 
