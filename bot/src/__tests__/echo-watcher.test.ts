@@ -1,11 +1,13 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   writeFileSync,
   rmSync,
   readdirSync,
+  statSync,
   symlinkSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +23,26 @@ const TEST_CHAT_ID = "__test_echo_chat__";
 let TEST_ECHO_DIR: string;
 let TEST_CHAT_DIR: string;
 let fixtures: string[] = [];
+
+function withPatchedGetuid<T>(uid: number, fn: () => T): T {
+  const original = process.getuid;
+  Object.defineProperty(process, "getuid", {
+    value: () => uid,
+    configurable: true,
+  });
+  try {
+    return fn();
+  } finally {
+    if (original === undefined) {
+      Reflect.deleteProperty(process, "getuid");
+    } else {
+      Object.defineProperty(process, "getuid", {
+        value: original,
+        configurable: true,
+      });
+    }
+  }
+}
 
 function writeEchoFile(
   chatId: string,
@@ -165,6 +187,54 @@ describe("EchoWatcher.drain", () => {
     assert.ok(chatIds.includes(chatId2));
   });
 
+  it("refuses a symlinked echo base directory", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "bot-echo-base-symlink-target-"));
+    fixtures.push(targetDir);
+    writeEchoFile(TEST_CHAT_ID, "hidden msg", { baseDir: targetDir });
+    rmSync(TEST_ECHO_DIR, { recursive: true, force: true });
+    symlinkSync(targetDir, TEST_ECHO_DIR);
+
+    const calls: Array<{ text: string }> = [];
+    const watcher = new EchoWatcher({
+      echoDir: TEST_ECHO_DIR,
+      handler: (_chatId, _threadId, text) => calls.push({ text }),
+    });
+
+    watcher.drain();
+
+    assert.strictEqual(calls.length, 0);
+  });
+
+  it("refuses an echo base directory owned by another uid", () => {
+    const currentUid = process.getuid?.();
+    if (currentUid === undefined) return;
+    writeEchoFile(TEST_CHAT_ID, "hidden msg");
+
+    const calls: Array<{ text: string }> = [];
+    const watcher = new EchoWatcher({
+      echoDir: TEST_ECHO_DIR,
+      handler: (_chatId, _threadId, text) => calls.push({ text }),
+    });
+
+    withPatchedGetuid(currentUid + 1, () => watcher.drain());
+
+    assert.strictEqual(calls.length, 0);
+  });
+
+  it("tightens a loose echo base directory before polling", () => {
+    chmodSync(TEST_ECHO_DIR, 0o755);
+    writeEchoFile(TEST_CHAT_ID, "permission msg");
+
+    const watcher = new EchoWatcher({
+      echoDir: TEST_ECHO_DIR,
+      handler: () => {},
+    });
+
+    watcher.drain();
+
+    assert.strictEqual(statSync(TEST_ECHO_DIR).mode & 0o777, 0o700);
+  });
+
   it("skips symlinked chat directories", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "bot-echo-symlink-target-"));
     fixtures.push(targetDir);
@@ -178,6 +248,40 @@ describe("EchoWatcher.drain", () => {
     });
 
     watcher.drain();
+
+    assert.strictEqual(calls.length, 0);
+  });
+
+  it("tightens loose chat directories before processing", () => {
+    writeEchoFile(TEST_CHAT_ID, "permission msg");
+    chmodSync(TEST_CHAT_DIR, 0o755);
+
+    const calls: Array<{ text: string }> = [];
+    const watcher = new EchoWatcher({
+      echoDir: TEST_ECHO_DIR,
+      handler: (_chatId, _threadId, text) => calls.push({ text }),
+    });
+
+    watcher.drain();
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(statSync(TEST_CHAT_DIR).mode & 0o777, 0o700);
+  });
+
+  it("skips chat directories owned by another uid", () => {
+    const currentUid = process.getuid?.();
+    if (currentUid === undefined) return;
+    writeEchoFile(TEST_CHAT_ID, "hidden msg");
+
+    const calls: Array<{ text: string }> = [];
+    const watcher = new EchoWatcher({
+      echoDir: TEST_ECHO_DIR,
+      handler: (_chatId, _threadId, text) => calls.push({ text }),
+    });
+
+    withPatchedGetuid(currentUid + 1, () => {
+      (watcher as unknown as { pollAll(): void }).pollAll();
+    });
 
     assert.strictEqual(calls.length, 0);
   });
@@ -203,6 +307,25 @@ describe("EchoWatcher.drain", () => {
     watcher.drain();
 
     assert.strictEqual(calls.length, 0);
+  });
+
+  it("skips echo files owned by another uid", () => {
+    const currentUid = process.getuid?.();
+    if (currentUid === undefined) return;
+    writeEchoFile(TEST_CHAT_ID, "hidden msg", { filename: "uid-mismatch.json" });
+
+    const calls: Array<{ text: string }> = [];
+    const watcher = new EchoWatcher({
+      echoDir: TEST_ECHO_DIR,
+      handler: (_chatId, _threadId, text) => calls.push({ text }),
+    });
+
+    withPatchedGetuid(currentUid + 1, () => {
+      (watcher as unknown as { processDir(chatDir: string): void }).processDir(TEST_CHAT_DIR);
+    });
+
+    assert.strictEqual(calls.length, 0);
+    assert.deepStrictEqual(readdirSync(TEST_CHAT_DIR), ["uid-mismatch.json"]);
   });
 
   it("skips malformed JSON files without crashing", () => {

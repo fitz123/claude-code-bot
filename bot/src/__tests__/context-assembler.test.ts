@@ -2,6 +2,7 @@ import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -32,6 +33,26 @@ const MEMORY_DIRECTIVE =
   "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the legacy harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
 
 const created: string[] = [];
+
+function withPatchedGetuid<T>(uid: number, fn: () => T): T {
+  const original = process.getuid;
+  Object.defineProperty(process, "getuid", {
+    value: () => uid,
+    configurable: true,
+  });
+  try {
+    return fn();
+  } finally {
+    if (original === undefined) {
+      Reflect.deleteProperty(process, "getuid");
+    } else {
+      Object.defineProperty(process, "getuid", {
+        value: original,
+        configurable: true,
+      });
+    }
+  }
+}
 
 after(() => {
   for (const dir of created) {
@@ -424,6 +445,34 @@ describe("writeTempArtifact", () => {
       /symlink/,
     );
     assert.throws(() => statSync(join(decoy, "pi-context-agent-7.bundle.md")));
+  });
+
+  it("refuses to write artifacts when .tmp is owned by another uid", () => {
+    const currentUid = process.getuid?.();
+    if (currentUid === undefined) return;
+    const ws = makeWorkspace({ claudeMd: "# x" });
+
+    assert.throws(
+      () => withPatchedGetuid(currentUid + 1, () => writeTempArtifact(ws, "agent-7", "bundle", "BUNDLE_CONTENT")),
+      /owned by uid/,
+    );
+  });
+
+  it("uses exclusive staging writes and does not overwrite a colliding staging file", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const tmpDir = join(ws, ".tmp");
+    mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+    const finalPath = join(tmpDir, "pi-context-agent-7.bundle.md");
+    const stagingPath = `${finalPath}.tmp.collision`;
+    writeFileSync(stagingPath, "EXISTING_STAGING_CONTENT", "utf8");
+
+    assert.throws(
+      () => writeTempArtifact(ws, "agent-7", "bundle", "BUNDLE_CONTENT", { stagingSuffix: "collision" }),
+      /EEXIST|exist/i,
+    );
+
+    assert.strictEqual(readFileSync(stagingPath, "utf8"), "EXISTING_STAGING_CONTENT");
+    assert.strictEqual(existsSync(finalPath), false);
   });
 });
 

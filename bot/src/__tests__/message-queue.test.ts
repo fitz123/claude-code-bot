@@ -772,10 +772,12 @@ describe("MessageQueue mid-turn buffering", () => {
     queue.clearAll();
   });
 
-  it("caps the mid-turn collect buffer at queueCap and drops overflow", async () => {
+  it("caps the mid-turn collect buffer at queueCap, drops overflow, and runs overflow cleanup", async () => {
     const mock = createMockProcess();
     const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 2 });
     const platform = mockPlatform();
+    let overflowCleanup = 0;
+    let overflowDropCleanup = 0;
 
     mock.setBlocking(true);
     queue.enqueue(INJECT_CHAT, "pi-agent", "initial", platform);
@@ -783,9 +785,18 @@ describe("MessageQueue mid-turn buffering", () => {
 
     queue.enqueue(INJECT_CHAT, "pi-agent", "b1", platform);
     queue.enqueue(INJECT_CHAT, "pi-agent", "b2", platform);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "drop", platform);
+    queue.enqueue(
+      INJECT_CHAT,
+      "pi-agent",
+      "drop",
+      platform,
+      () => { overflowCleanup++; },
+      () => { overflowDropCleanup++; },
+    );
 
     assert.strictEqual(queue.getCollectCount(INJECT_CHAT), 2, "collect buffer capped at queueCap");
+    assert.strictEqual(overflowCleanup, 1, "overflow cleanup runs immediately for the dropped message");
+    assert.strictEqual(overflowDropCleanup, 1, "overflow drop cleanup runs immediately for the dropped message");
 
     mock.setBlocking(false);
     mock.unblock();
@@ -795,6 +806,8 @@ describe("MessageQueue mid-turn buffering", () => {
     assert.ok(mock.calls[1].text.includes("b1"));
     assert.ok(mock.calls[1].text.includes("b2"));
     assert.ok(!mock.calls[1].text.includes("drop"), "the over-cap message was dropped, not delivered");
+    assert.strictEqual(overflowCleanup, 1, "overflow cleanup is not repeated during drain");
+    assert.strictEqual(overflowDropCleanup, 1, "overflow drop cleanup is not repeated during drain");
 
     queue.clearAll();
   });

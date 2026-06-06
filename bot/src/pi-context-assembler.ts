@@ -477,11 +477,13 @@ export function writeTempArtifact(
   agentId: string,
   kind: PiArtifactKind,
   content: string,
+  opts?: { stagingSuffix?: string },
 ): string {
   const tmpDir = join(workspaceCwd, ".tmp");
   ensurePrivateArtifactDir(tmpDir);
   const finalPath = join(tmpDir, `pi-context-${safeArtifactAgentId(agentId)}.${kind}.md`);
-  const stagingPath = `${finalPath}.tmp.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}`;
+  const stagingSuffix = opts?.stagingSuffix ?? `${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}`;
+  const stagingPath = `${finalPath}.tmp.${stagingSuffix}`;
   writeFileSync(stagingPath, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
   renameSync(stagingPath, finalPath);
   return finalPath;

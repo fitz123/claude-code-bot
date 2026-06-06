@@ -1507,6 +1507,74 @@ describe("telegram echo routing", () => {
     assert.strictEqual(delivered, false);
     assert.strictEqual(steerCalls, 0);
   });
+
+  it("routes topic echoes to the topic binding and topic session key", () => {
+    const bindings: TelegramBinding[] = [
+      { chatId: -100999, agentId: "general", kind: "group", label: "General", requireMention: false },
+      { chatId: -100999, topicId: 20, agentId: "ops-topic", kind: "group", label: "Ops", requireMention: false },
+    ];
+    const calls: Array<{ chatId: string; agentId: string; text: string }> = [];
+
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "-100999",
+      threadId: "20",
+      text: "topic cron said hello",
+      bindings,
+      sessionDefaults: { requireMention: true } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId, text) => {
+        calls.push({ chatId, agentId, text });
+        return true;
+      },
+    });
+
+    assert.strictEqual(delivered, true);
+    assert.deepStrictEqual(calls, [{
+      chatId: "-100999:20",
+      agentId: "ops-topic",
+      text: "[Bot echo - context only, no reply needed]\n\ntopic cron said hello",
+    }]);
+  });
+
+  it("routes group echoes when requireMention is disabled for the binding", () => {
+    const bindings: TelegramBinding[] = [
+      { chatId: -100999, agentId: "group-agent", kind: "group", label: "Group", requireMention: false },
+    ];
+    const calls: Array<{ chatId: string; agentId: string }> = [];
+
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "-100999",
+      text: "group cron said hello",
+      bindings,
+      sessionDefaults: { requireMention: true } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId) => {
+        calls.push({ chatId, agentId });
+        return true;
+      },
+    });
+
+    assert.strictEqual(delivered, true);
+    assert.deepStrictEqual(calls, [{ chatId: "-100999", agentId: "group-agent" }]);
+  });
+
+  it("returns false when no active eligible turn accepts the echo", () => {
+    const calls: Array<{ chatId: string; agentId: string; text: string }> = [];
+
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "111111111",
+      text: "cron said hello",
+      bindings: testBindings,
+      sessionDefaults: { requireMention: false } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId, text) => {
+        calls.push({ chatId, agentId, text });
+        return false;
+      },
+    });
+
+    assert.strictEqual(delivered, false);
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].chatId, "111111111");
+    assert.strictEqual(calls[0].agentId, "main");
+  });
 });
 
 describe("extractChatContext", () => {
