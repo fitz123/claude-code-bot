@@ -1,9 +1,11 @@
 import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -400,7 +402,13 @@ describe("writeTempArtifact", () => {
 
     assert.ok(path.endsWith(join(".tmp", "pi-context-agent-7.bundle.md")));
     assert.strictEqual(readFileSync(path, "utf8"), "BUNDLE_CONTENT");
-    assert.throws(() => statSync(`${path}.tmp.${process.pid}`), "staging file is renamed away");
+    assert.strictEqual(statSync(join(ws, ".tmp")).mode & 0o777, 0o700);
+    assert.strictEqual(statSync(path).mode & 0o777, 0o600);
+    assert.deepStrictEqual(
+      readdirSync(join(ws, ".tmp")).filter((name) => name.includes(`.tmp.${process.pid}.`)),
+      [],
+      "staging file is renamed away",
+    );
   });
 
   it("keeps unsafe agent IDs inside .tmp artifact paths", () => {
@@ -411,6 +419,31 @@ describe("writeTempArtifact", () => {
     assert.match(path, /pi-context-outside_agent-[a-f0-9]{12}\.bundle\.md$/);
     assert.strictEqual(readFileSync(path, "utf8"), "SAFE_CONTENT");
     assert.throws(() => statSync(join(ws, "outside", "agent.bundle.md")));
+  });
+
+  it("tightens an existing loose .tmp directory before writing artifacts", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const tmpDir = join(ws, ".tmp");
+    mkdirSync(tmpDir, { recursive: true, mode: 0o755 });
+    chmodSync(tmpDir, 0o755);
+
+    const path = writeTempArtifact(ws, "agent-7", "persona", "PERSONA_CONTENT");
+
+    assert.strictEqual(statSync(tmpDir).mode & 0o777, 0o700);
+    assert.strictEqual(statSync(path).mode & 0o777, 0o600);
+  });
+
+  it("refuses to write artifacts through a .tmp symlink", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const decoy = mkdtempSync(join(tmpdir(), "pi-context-decoy-"));
+    created.push(decoy);
+    symlinkSync(decoy, join(ws, ".tmp"));
+
+    assert.throws(
+      () => writeTempArtifact(ws, "agent-7", "bundle", "BUNDLE_CONTENT"),
+      /symlink/,
+    );
+    assert.throws(() => statSync(join(decoy, "pi-context-agent-7.bundle.md")));
   });
 });
 

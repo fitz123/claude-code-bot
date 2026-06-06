@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -9,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { AgentConfig } from "./types.js";
 import { log } from "./logger.js";
 
@@ -66,6 +67,23 @@ function safeArtifactAgentId(agentId: string): string {
     .replace(/^_+|_+$/g, "");
   const hash = createHash("sha256").update(agentId).digest("hex").slice(0, 12);
   return `${stem || "agent"}-${hash}`;
+}
+
+function ensurePrivateArtifactDir(path: string): void {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Refusing to use ${path}: it is a symlink`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`Refusing to use ${path}: not a directory`);
+  }
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    throw new Error(`Refusing to use ${path}: owned by uid ${stat.uid}, expected ${process.getuid()}`);
+  }
+  if ((stat.mode & 0o777) !== 0o700) {
+    chmodSync(path, 0o700);
+  }
 }
 
 /**
@@ -439,10 +457,11 @@ function readOutputStyleContent(workspaceCwd: string): string | null {
 /**
  * Atomically write a bundle/persona artifact to a STABLE per-agent path under
  * `<workspaceCwd>/.tmp/`: `pi-context-<safe-agent-id>.<kind>.md`. Write a staging file
- * (`<path>.tmp.<pid>`) then `renameSync` over the final path, so a concurrent
- * reader never sees a half-written file. Stable path ⇒ no accumulation, no cleanup
- * job. Returns the final path. May throw (e.g. unwritable `.tmp/`) — the caller
- * (assemblePiContext) wraps it in the fail-safe.
+ * then `renameSync` over the final path, so a concurrent reader never sees a
+ * half-written file. Stable path ⇒ no accumulation, no cleanup job. The `.tmp`
+ * dir and artifact files are private because they contain assembled system
+ * context. Returns the final path. May throw (e.g. unwritable `.tmp/`) — the
+ * caller (assemblePiContext) wraps it in the fail-safe.
  */
 export function writeTempArtifact(
   workspaceCwd: string,
@@ -451,10 +470,10 @@ export function writeTempArtifact(
   content: string,
 ): string {
   const tmpDir = join(workspaceCwd, ".tmp");
-  mkdirSync(tmpDir, { recursive: true });
+  ensurePrivateArtifactDir(tmpDir);
   const finalPath = join(tmpDir, `pi-context-${safeArtifactAgentId(agentId)}.${kind}.md`);
-  const stagingPath = `${finalPath}.tmp.${process.pid}`;
-  writeFileSync(stagingPath, content, "utf8");
+  const stagingPath = `${finalPath}.tmp.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}`;
+  writeFileSync(stagingPath, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
   renameSync(stagingPath, finalPath);
   return finalPath;
 }
