@@ -27,9 +27,10 @@ import { log } from "./logger.js";
  *   --append-system-prompt   → the context bundle (APPENDED)
  *   --no-context-files       → so Pi does not ALSO load CLAUDE.md/AGENTS.md (no double context)
  *
- * Everything here is FAIL-SAFE: a missing/unreadable source is warned + skipped,
- * never thrown. A total failure returns null so the caller degrades to a bare Pi
- * spawn rather than crashing it. Wiring into the spawn path is in pi-rpc-protocol.ts.
+ * Missing/unreadable sources are warned + skipped. Artifact-write failures are
+ * deliberately allowed to throw so callers can fail closed by passing
+ * `--no-context-files` without artifact args. Wiring into the spawn path is in
+ * pi-rpc-protocol.ts.
  *
  * Deterministic bundle order (see {@link assembleBundle}):
  *   1. CLAUDE.md body with every `@<path>` line removed.
@@ -70,7 +71,13 @@ function safeArtifactAgentId(agentId: string): string {
 }
 
 function ensurePrivateArtifactDir(path: string): void {
-  mkdirSync(path, { recursive: true, mode: 0o700 });
+  try {
+    mkdirSync(path, { recursive: true, mode: 0o700 });
+  } catch (err) {
+    if ((err as { code?: string }).code !== "EEXIST") {
+      throw err;
+    }
+  }
   const stat = lstatSync(path);
   if (stat.isSymbolicLink()) {
     throw new Error(`Refusing to use ${path}: it is a symlink`);
@@ -573,67 +580,56 @@ function computeManifestSignature(agent: AgentConfig): string {
  * Assemble the full Pi context for an agent and return the artifact paths, or null
  * to signal "no extra context — bare spawn".
  *
- * Returns null when there is nothing meaningful to inject (no CLAUDE.md body, no
- * imports, no rules, AND no persona) or when assembly fails outright — either way
- * the caller spawns Pi without the context args rather than crashing the spawn.
- *
  * Caches by a source-file manifest: an unchanged source set skips the re-read +
  * re-assemble of the source tree, but STILL re-writes the `.tmp/` artifacts from
  * the cached content so the files on disk always match what the assembler produced
  * (and so a deleted artifact is transparently recreated).
+ *
+ * Returns null only for a genuinely empty workspace with no persona. If artifact
+ * writing fails after content was assembled, this throws; Pi callers must catch
+ * and add `--no-context-files` so Pi does not fall back to flat context loading.
  */
 export function assemblePiContext(agent: AgentConfig): PiContextArtifacts | null {
-  try {
-    const signature = computeManifestSignature(agent);
-    const cached = cache.get(agent.id);
+  const signature = computeManifestSignature(agent);
+  const cached = cache.get(agent.id);
 
-    let bundle: string;
-    let persona: string | null;
-    if (cached && cached.signature === signature) {
-      // Source manifest unchanged: reuse the assembled content (skip the expensive
-      // re-read + re-parse of every source file) but fall through to RE-WRITE the
-      // artifacts below. A cache entry only exists for a non-empty assembly, so the
-      // content here is guaranteed meaningful — no empty-workspace re-check needed.
-      bundle = cached.bundle;
-      persona = cached.persona;
-    } else {
-      const assembled = assembleBundle(agent.workspaceCwd);
-      const resolvedPersona = resolvePersona(agent);
-      if (!assembled.hasContent && resolvedPersona === null) {
-        // Empty workspace — let Pi fall back to its own (flat) context loading
-        // instead of forcing an empty bundle + --no-context-files.
-        cache.delete(agent.id);
-        return null;
-      }
-      bundle = assembled.bundle;
-      persona = resolvedPersona;
+  let bundle: string;
+  let persona: string | null;
+  if (cached && cached.signature === signature) {
+    // Source manifest unchanged: reuse the assembled content (skip the expensive
+    // re-read + re-parse of every source file) but fall through to RE-WRITE the
+    // artifacts below. A cache entry only exists for a non-empty assembly, so the
+    // content here is guaranteed meaningful — no empty-workspace re-check needed.
+    bundle = cached.bundle;
+    persona = cached.persona;
+  } else {
+    const assembled = assembleBundle(agent.workspaceCwd);
+    const resolvedPersona = resolvePersona(agent);
+    if (!assembled.hasContent && resolvedPersona === null) {
+      // Empty workspace — let Pi fall back to its own (flat) context loading
+      // instead of forcing an empty bundle + --no-context-files.
+      cache.delete(agent.id);
+      return null;
     }
-
-    // Always (re-)write the artifacts — on a cache hit too. This keeps the on-disk
-    // bundle/persona faithful to the cached content even if a prior session or an
-    // external process overwrote them, and recreates an artifact that was deleted.
-    const appendSystemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "bundle", bundle);
-    let systemPromptPath: string | undefined;
-    if (persona !== null) {
-      systemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "persona", persona);
-    }
-
-    const result: PiContextArtifacts =
-      systemPromptPath !== undefined
-        ? { systemPromptPath, appendSystemPromptPath }
-        : { appendSystemPromptPath };
-    cache.set(agent.id, { signature, bundle, persona });
-    return result;
-  } catch (err) {
-    // Belt-and-suspenders: every file op above is already fail-safe, but a write
-    // (e.g. an unwritable `.tmp/`) could still throw. Degrade to a bare spawn.
-    log.error(
-      "pi-context",
-      `context assembly failed for agent "${agent.id}", falling back to a bare spawn: ${(err as Error).message}`,
-    );
-    cache.delete(agent.id);
-    return null;
+    bundle = assembled.bundle;
+    persona = resolvedPersona;
   }
+
+  // Always (re-)write the artifacts — on a cache hit too. This keeps the on-disk
+  // bundle/persona faithful to the cached content even if a prior session or an
+  // external process overwrote them, and recreates an artifact that was deleted.
+  const appendSystemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "bundle", bundle);
+  let systemPromptPath: string | undefined;
+  if (persona !== null) {
+    systemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "persona", persona);
+  }
+
+  const result: PiContextArtifacts =
+    systemPromptPath !== undefined
+      ? { systemPromptPath, appendSystemPromptPath }
+      : { appendSystemPromptPath };
+  cache.set(agent.id, { signature, bundle, persona });
+  return result;
 }
 
 /** Test-only: clear the per-agent manifest cache. */

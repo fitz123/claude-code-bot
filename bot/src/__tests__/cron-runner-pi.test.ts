@@ -239,6 +239,27 @@ describe("cron-runner runPi", () => {
     assert.ok(cronInstructionIdx < extensionIdx);
   });
 
+  it("suppresses flat context loading when context assembly throws", () => {
+    const ws = makeWorkspace();
+    const captures: SpawnCapture[] = [];
+    const deps = makeDeps(captures, {
+      assembleContext: () => {
+        throw new Error("artifact write failed");
+      },
+      resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
+    });
+
+    runPi(makeCron(), ws, deps);
+
+    const args = captures[0].args;
+    assert.ok(!args.includes("--system-prompt"));
+    assert.ok(args.includes("--no-context-files"));
+    const appendPrompts = flagValues(args, "--append-system-prompt");
+    assert.strictEqual(appendPrompts.length, 1);
+    assertCronSystemInstruction(appendPrompts[0]);
+    assert.ok(args.indexOf("--no-context-files") < args.indexOf("--append-system-prompt"));
+  });
+
   it("passes pre-resolved cron agent data into the Pi agent builder", () => {
     const ws = makeWorkspace();
     const captures: SpawnCapture[] = [];

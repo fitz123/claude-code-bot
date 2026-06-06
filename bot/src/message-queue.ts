@@ -24,19 +24,6 @@ export type ProcessFn = (
 /** Fire-and-forget cleanup callback (e.g. delete a temp file after processing). */
 export type CleanupFn = () => void;
 
-/**
- * Pi mid-turn delivery hook, consulted in the busy-turn branch before buffering.
- *
- * Returns `true` if the message was delivered live to the running session (the
- * Pi `steer` path): the queue then skips buffering it, since Pi has no inject
- * hook and no ack mechanism — buffering would re-deliver the message as a
- * followup when the turn drains.
- *
- * Returns `false` when no live Pi child is available for steer delivery: the
- * queue buffers the message and drains it as a normal followup.
- */
-export type SteerFn = (chatId: string, agentId: string, text: string) => boolean;
-
 interface ChatQueueState {
   /** Messages pending debounce timer (pre-send) */
   pendingTexts: string[];
@@ -58,21 +45,8 @@ interface ChatQueueState {
   /** Drop-only cleanup callbacks for collected messages (see pendingDropCleanups). */
   collectDropCleanups: CleanupFn[];
 
-  /** Deferred cleanups for messages consumed by hook mid-turn (temp files still in use) */
-  deferredCleanups: CleanupFn[];
-
   /** Whether a message is currently being processed */
   busy: boolean;
-
-  /**
-   * Number of mid-turn messages steered live to the provider during the
-   * current turn (Pi path). Reset to 0 at each turn start. Bounds live steers
-   * by `queueCap` so an authorized-chat flood cannot push unbounded messages
-   * into the Pi child's stdin / work queue — the same protection the collect
-   * buffer provides. Overflow falls through to the (also capped)
-   * collect-buffer path and is delivered as a followup or dropped.
-   */
-  steerCount: number;
 
   /** Latest platform context for sending responses */
   latestPlatform: PlatformContext | null;
@@ -112,16 +86,14 @@ export class MessageQueue {
   private debounceMs: number;
   private queueCap: number;
   private processFn: ProcessFn;
-  private steerFn: SteerFn | null;
 
   constructor(
     processFn: ProcessFn,
-    options?: { debounceMs?: number; queueCap?: number; steerFn?: SteerFn },
+    options?: { debounceMs?: number; queueCap?: number },
   ) {
     this.processFn = processFn;
     this.debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.queueCap = options?.queueCap ?? DEFAULT_QUEUE_CAP;
-    this.steerFn = options?.steerFn ?? null;
   }
 
   private getState(chatId: string, agentId: string): ChatQueueState {
@@ -135,9 +107,7 @@ export class MessageQueue {
         collectBuffer: [],
         collectCleanups: [],
         collectDropCleanups: [],
-        deferredCleanups: [],
         busy: false,
-        steerCount: 0,
         latestPlatform: null,
         agentId,
       };
@@ -172,36 +142,10 @@ export class MessageQueue {
     state.latestPlatform = platform;
 
     if (state.busy) {
-      // Pi mid-turn delivery. Deliver the message live via
-      // `steer` and do NOT buffer it: Pi has no inject hook + no ack, so a
-      // buffered message would be re-delivered as a followup on drain. For the
-      // idle/no-live-child path, steerFn returns false and we fall through to
-      // the capped collect buffer below.
-      //
-      // Cap live steers per turn at `queueCap`: an unbounded steer path would
-      // remove the flood protection the collect buffer provides (each
-      // steer writes to the Pi child's stdin / work queue). Past the cap we do
-      // NOT consult steerFn — we fall through to the (also capped) collect
-      // buffer, which delivers the overflow as a followup or drops it.
-      if (
-        this.steerFn &&
-        state.steerCount < this.queueCap &&
-        this.steerFn(chatId, state.agentId, text)
-      ) {
-        state.steerCount++;
-        // Defer the turn-scoped cleanup: the steered text may reference a temp
-        // file the agent still reads this turn (runs when the turn drains).
-        // Drop the persistent-media drop-cleanup — the agent now owns the file,
-        // exactly like a normal delivered prompt.
-        if (cleanup) state.deferredCleanups.push(cleanup);
-        log.debug(
-          "message-queue",
-          `Steered mid-turn message for ${chatId} (provider delivery)`,
-        );
-        return;
-      }
-
-      // Mid-turn collect: buffer the message
+      // Mid-turn collect: buffer user messages for reliable follow-up delivery.
+      // Pi `steer` has no usable delivery acknowledgement in the stream, so a
+      // normal user prompt must not be removed from the queue just because a
+      // steer command was written to stdin.
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
         state.collectCleanups.push(cleanup ?? (() => {}));
@@ -260,8 +204,6 @@ export class MessageQueue {
     const dropCleanups = state.pendingDropCleanups.splice(0);
     state.debounceTimer = null;
     state.busy = true;
-    // New turn → fresh per-turn steer budget.
-    state.steerCount = 0;
 
     const combinedText = texts.length === 1 ? texts[0] : texts.join("\n\n");
 
@@ -309,10 +251,6 @@ export class MessageQueue {
     }
     if (queueCleared) return;
 
-    // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
-    for (const fn of state.deferredCleanups) fn();
-    state.deferredCleanups = [];
-
     state.busy = false;
 
     // Drain collect buffer if messages arrived during processing
@@ -339,8 +277,6 @@ export class MessageQueue {
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
-      // New turn → fresh per-turn steer budget.
-      state.steerCount = 0;
       log.debug(
         "message-queue",
         `Draining ${collected.length} collected message(s) for ${chatId}`,
@@ -376,10 +312,6 @@ export class MessageQueue {
       }
       if (queueCleared) return;
 
-      // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
-      for (const fn of state.deferredCleanups) fn();
-      state.deferredCleanups = [];
-
       state.busy = false;
     }
   }
@@ -410,7 +342,6 @@ export class MessageQueue {
       for (const fn of state.pendingDropCleanups) fn();
       for (const fn of state.collectCleanups) fn();
       for (const fn of state.collectDropCleanups) fn();
-      for (const fn of state.deferredCleanups) fn();
       this.queues.delete(chatId);
     }
   }
@@ -439,7 +370,6 @@ export class MessageQueue {
       for (const fn of state.pendingDropCleanups) fn();
       for (const fn of state.collectCleanups) fn();
       for (const fn of state.collectDropCleanups) fn();
-      for (const fn of state.deferredCleanups) fn();
     }
     this.queues.clear();
   }

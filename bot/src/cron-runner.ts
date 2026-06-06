@@ -624,12 +624,17 @@ function runPi(
     thinking,
   ];
 
-  const context = deps.assembleContext(agent);
-  if (context) {
-    if (context.systemPromptPath) {
-      args.push("--system-prompt", context.systemPromptPath);
+  try {
+    const context = deps.assembleContext(agent);
+    if (context) {
+      if (context.systemPromptPath) {
+        args.push("--system-prompt", context.systemPromptPath);
+      }
+      args.push("--append-system-prompt", context.appendSystemPromptPath);
+      args.push("--no-context-files");
     }
-    args.push("--append-system-prompt", context.appendSystemPromptPath);
+  } catch (err) {
+    log(cron.name, `Pi context assembly failed; suppressing flat context loading: ${(err as Error).message}`);
     args.push("--no-context-files");
   }
 

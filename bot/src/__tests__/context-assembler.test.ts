@@ -110,26 +110,6 @@ function captureWarn<T>(fn: () => T): { value: T; warnings: string[] } {
   }
 }
 
-/** Like captureWarn but ALSO captures log.error — for the fail-safe outer-catch path. */
-function captureWarnError<T>(fn: () => T): { value: T; warnings: string[]; errors: string[] } {
-  const warnings: string[] = [];
-  const errors: string[] = [];
-  const origWarn = log.warn;
-  const origError = log.error;
-  log.warn = (_tag: string, message: string) => {
-    warnings.push(message);
-  };
-  log.error = (_tag: string, message: string) => {
-    errors.push(message);
-  };
-  try {
-    return { value: fn(), warnings, errors };
-  } finally {
-    log.warn = origWarn;
-    log.error = origError;
-  }
-}
-
 describe("buildBundle — deterministic order (D7)", () => {
   it("assembles body, imports (in order), platform rules, custom rules, memory directive", () => {
     const ws = fullFixture();
@@ -626,19 +606,15 @@ describe("assemblePiContext", () => {
     assert.strictEqual(readFileSync(second.systemPromptPath, "utf8"), "PROMPT_TWO");
   });
 
-  it("fail-safe: returns null (no throw) when the .tmp artifact dir cannot be created", () => {
-    // The headline contract is "a total failure degrades to a bare spawn, never
-    // crashes". Force the only throw-capable step (writeTempArtifact's mkdirSync)
-    // to fail by occupying `.tmp` with a regular file, and assert the outer catch
-    // swallows it into a null return.
+  it("throws when the .tmp artifact dir cannot be created after content was assembled", () => {
+    // Callers catch this and add --no-context-files. The assembler itself must not
+    // collapse write failure into the same null result used for empty workspaces.
     const ws = makeWorkspace({ claudeMd: "# x\n\nBODY" });
     writeFileSync(join(ws, ".tmp"), "i am a file, not a dir", "utf8");
 
-    const { value, errors } = captureWarnError(() => assemblePiContext(agentFor(ws, { id: "throwcase" })));
-    assert.strictEqual(value, null, "a write failure degrades to a bare spawn");
-    assert.ok(
-      errors.some((m) => m.includes("context assembly failed")),
-      "the fallback was logged via log.error",
+    assert.throws(
+      () => assemblePiContext(agentFor(ws, { id: "throwcase" })),
+      /Refusing to use .*\.tmp: not a directory/,
     );
   });
 });

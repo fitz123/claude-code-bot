@@ -363,6 +363,17 @@ describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
     ]);
   });
 
+  it("suppresses flat context loading when context artifact writes fail", () => {
+    const ws = makePiWorkspace({ claudeMd: "# Pi Agent\n\nBODY" });
+    writeFileSync(join(ws, ".tmp"), "i am a file, not a dir", "utf8");
+
+    const args = buildPiSpawnArgs(piAgent(ws, { id: "writefail" }), undefined, NO_EXTENSIONS);
+
+    assert.ok(!args.includes("--system-prompt"));
+    assert.ok(!args.includes("--append-system-prompt"));
+    assert.ok(args.includes("--no-context-files"));
+  });
+
   it("suppresses flat context loading when CLAUDE.md is an escaping symlink", () => {
     const parent = mkdtempSync(join(tmpdir(), "pi-spawn-ctx-symlink-"));
     fixtures.push(parent);

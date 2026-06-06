@@ -714,75 +714,11 @@ describe("MessageQueue drop cleanups", () => {
 const INJECT_CHAT = "__inject_test__";
 
 // -------------------------------------------------------------------
-// MessageQueue — provider-aware mid-turn steer (Pi path)
+// MessageQueue — reliable mid-turn buffering
 // -------------------------------------------------------------------
 
-describe("MessageQueue provider-aware steer", () => {
-  it("routes a mid-turn message to steerFn and skips buffering when handled (pi)", async () => {
-    const mock = createMockProcess();
-    const steerCalls: Array<{ chatId: string; agentId: string; text: string }> = [];
-    const steerFn = (chatId: string, agentId: string, text: string) => {
-      steerCalls.push({ chatId, agentId, text });
-      return true; // simulate a live Pi steer
-    };
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, steerFn });
-    const platform = mockPlatform();
-
-    mock.setBlocking(true);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "initial", platform);
-    await wait(60);
-
-    // Mid-turn message while busy
-    queue.enqueue(INJECT_CHAT, "pi-agent", "mid-turn steer", platform);
-
-    // steerFn received the message with the chat's agentId
-    assert.strictEqual(steerCalls.length, 1);
-    assert.deepStrictEqual(steerCalls[0], {
-      chatId: INJECT_CHAT,
-      agentId: "pi-agent",
-      text: "mid-turn steer",
-    });
-
-    // Steered message is not buffered → not re-delivered on drain
-    mock.setBlocking(false);
-    mock.unblock();
-    await wait(60);
-    assert.strictEqual(mock.calls.length, 1, "steered message must not be re-delivered on drain");
-    assert.strictEqual(mock.calls[0].text, "initial");
-
-    queue.clearAll();
-  });
-
-  it("buffers and drains a mid-turn message when steerFn declines", async () => {
-    const mock = createMockProcess();
-    let steerCallCount = 0;
-    const steerFn = () => {
-      steerCallCount++;
-      return false; // no live Pi child available for steer
-    };
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, steerFn });
-    const platform = mockPlatform();
-
-    mock.setBlocking(true);
-    queue.enqueue(INJECT_CHAT, "main", "initial", platform);
-    await wait(60);
-
-    queue.enqueue(INJECT_CHAT, "main", "mid-turn msg", platform);
-
-    // steerFn was consulted but declined
-    assert.strictEqual(steerCallCount, 1);
-    assert.strictEqual(queue.getCollectCount(INJECT_CHAT), 1);
-
-    mock.setBlocking(false);
-    mock.unblock();
-    await wait(80);
-    assert.strictEqual(mock.calls.length, 2);
-    assert.strictEqual(mock.calls[1].text, "mid-turn msg");
-
-    queue.clearAll();
-  });
-
-  it("buffers and drains mid-turn messages when no steerFn is configured", async () => {
+describe("MessageQueue mid-turn buffering", () => {
+  it("buffers and drains a mid-turn user message as a followup", async () => {
     const mock = createMockProcess();
     const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
     const platform = mockPlatform();
@@ -803,10 +739,9 @@ describe("MessageQueue provider-aware steer", () => {
     queue.clearAll();
   });
 
-  it("defers turn-scoped cleanup and never runs drop-cleanup on a handled steer (pi)", async () => {
+  it("runs cleanup after buffered mid-turn delivery and does not run drop-cleanup", async () => {
     const mock = createMockProcess();
-    const steerFn = () => true;
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, steerFn });
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30 });
     const platform = mockPlatform();
 
     mock.setBlocking(true);
@@ -818,94 +753,48 @@ describe("MessageQueue provider-aware steer", () => {
     queue.enqueue(
       INJECT_CHAT,
       "pi-agent",
-      "steered",
+      "buffered",
       platform,
       () => { cleaned = true; },
       () => { dropped = true; },
     );
 
-    // During the turn the cleanup is deferred and the drop-cleanup never runs
-    assert.strictEqual(cleaned, false, "turn-scoped cleanup is deferred during the turn");
-    assert.strictEqual(dropped, false, "drop-cleanup must not run for a delivered message");
+    assert.strictEqual(cleaned, false, "cleanup waits until the buffered followup is processed");
+    assert.strictEqual(dropped, false, "drop-cleanup must not run while buffered");
 
     mock.setBlocking(false);
     mock.unblock();
-    await wait(60);
+    await wait(80);
 
-    // After the turn completes the deferred cleanup runs; drop-cleanup still never ran
-    assert.strictEqual(cleaned, true, "deferred cleanup runs once the turn drains");
-    assert.strictEqual(dropped, false, "drop-cleanup never runs — the agent owns the media");
+    assert.strictEqual(cleaned, true, "cleanup runs after buffered delivery");
+    assert.strictEqual(dropped, false, "drop-cleanup never runs after agent ownership");
 
     queue.clearAll();
   });
 
-  it("caps live steers per turn at queueCap and falls back to the collect buffer for overflow (pi)", async () => {
+  it("caps the mid-turn collect buffer at queueCap and drops overflow", async () => {
     const mock = createMockProcess();
-    let steerCalls = 0;
-    const steerFn = () => { steerCalls++; return true; };
-    // queueCap=2: at most 2 live steers per turn, overflow buffered (and re-
-    // delivered as a followup), past 2*queueCap dropped.
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 2, steerFn });
+    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 2 });
     const platform = mockPlatform();
 
     mock.setBlocking(true);
     queue.enqueue(INJECT_CHAT, "pi-agent", "initial", platform);
     await wait(60);
 
-    // Five mid-turn messages: 2 steered live, 2 buffered (cap), 1 dropped.
-    queue.enqueue(INJECT_CHAT, "pi-agent", "s1", platform);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "s2", platform);
     queue.enqueue(INJECT_CHAT, "pi-agent", "b1", platform);
     queue.enqueue(INJECT_CHAT, "pi-agent", "b2", platform);
     queue.enqueue(INJECT_CHAT, "pi-agent", "drop", platform);
 
-    // Only queueCap (2) messages steered live — the flood is bounded.
-    assert.strictEqual(steerCalls, 2, "live steers are capped at queueCap per turn");
-    assert.strictEqual(queue.getCollectCount(INJECT_CHAT), 2, "overflow buffered up to queueCap");
+    assert.strictEqual(queue.getCollectCount(INJECT_CHAT), 2, "collect buffer capped at queueCap");
 
-    // Drain: the 2 buffered overflow messages are delivered as a followup.
     mock.setBlocking(false);
     mock.unblock();
     await wait(80);
 
-    // calls[0] = "initial"; calls[1] = buffered followup (b1+b2 combined).
-    assert.strictEqual(mock.calls.length, 2, "buffered overflow drains as one followup; dropped message is gone");
+    assert.strictEqual(mock.calls.length, 2, "buffered messages drain as one followup; overflow is gone");
     assert.ok(mock.calls[1].text.includes("b1"));
     assert.ok(mock.calls[1].text.includes("b2"));
     assert.ok(!mock.calls[1].text.includes("drop"), "the over-cap message was dropped, not delivered");
-
-    queue.clearAll();
-  });
-
-  it("resets the per-turn steer budget on each new turn (pi)", async () => {
-    const mock = createMockProcess();
-    let steerCalls = 0;
-    const steerFn = () => { steerCalls++; return true; };
-    const queue = new MessageQueue(mock.processFn, { debounceMs: 30, queueCap: 2, steerFn });
-    const platform = mockPlatform();
-
-    // Turn 1: exhaust the steer budget, then leave one buffered message so a
-    // second turn (drain) runs after this one completes.
-    mock.setBlocking(true);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "initial", platform);
-    await wait(60);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "s1", platform);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "s2", platform);
-    queue.enqueue(INJECT_CHAT, "pi-agent", "buffered", platform);
-    assert.strictEqual(steerCalls, 2, "turn 1 steer budget exhausted at queueCap");
-
-    // Finish turn 1 → drain "buffered" as turn 2 (blocks again).
-    mock.unblock();
-    await wait(60);
-
-    // Turn 2 is now processing (the buffered followup). Its steer budget reset,
-    // so a fresh mid-turn message steers again rather than being capped.
-    queue.enqueue(INJECT_CHAT, "pi-agent", "s3", platform);
-    assert.strictEqual(steerCalls, 3, "steer budget reset for the new turn");
-
-    mock.setBlocking(false);
-    mock.unblock();
-    await wait(80);
 
     queue.clearAll();
   });

@@ -1914,7 +1914,7 @@ describe("createApiErrorLoggingTransformer — call counter", () => {
   });
 });
 
-// --- makeSteerFn (Pi active-turn delivery) ---
+// --- makeSteerFn (Telegram echo context delivery) ---
 
 interface FakeChild {
   exitCode: number | null;
@@ -1950,20 +1950,20 @@ function fakeManager(
 }
 
 describe("makeSteerFn", () => {
-  it("steers (returns true) when a live Pi session is processing", () => {
+  it("steers echo context when a live Pi session is processing", () => {
     const child = makeLiveChild();
     const steerFn = makeSteerFn(fakeManager(true, child));
-    assert.strictEqual(steerFn("chat-1", "main", "mid-turn text"), true);
+    assert.strictEqual(steerFn("chat-1", "main", "echo context"), true);
     assert.deepStrictEqual(parseFirstStdinWrite(child), {
       type: "steer",
-      message: "mid-turn text",
+      message: "echo context",
     });
   });
 
   it("returns false when a live session is not actively processing", () => {
     const child = makeLiveChild();
     const steerFn = makeSteerFn(fakeManager(true, child, null));
-    assert.strictEqual(steerFn("chat-1", "main", "mid-turn text"), false);
+    assert.strictEqual(steerFn("chat-1", "main", "echo context"), false);
     assert.strictEqual(child.stdin.writes.length, 0);
   });
 

@@ -299,10 +299,10 @@ export function buildPiSpawnArgs(
   //   --no-context-files          so Pi does NOT ALSO flat-load CLAUDE.md/AGENTS.md
   //                               from cwd (avoids double context).
   // At most ONE --system-prompt and ONE --append-system-prompt are emitted. The
-  // assembler is fail-safe by construction (a bad source → warn+skip; a total
-  // failure or empty workspace → null → bare spawn), but a write into an
-  // unwritable `.tmp/` could still throw — wrap it so a throw degrades to a bare
-  // spawn (log.error) and NEVER blocks the spawn.
+  // assembler is fail-safe for source reads (bad source → warn+skip; empty
+  // workspace → null → bare spawn), but artifact writes can throw after source
+  // content has been classified. A throw must fail closed with --no-context-files
+  // so Pi does not flat-load context files the assembler could not safely deliver.
   try {
     const context = assemblePiContext(agent);
     if (context) {
@@ -315,8 +315,9 @@ export function buildPiSpawnArgs(
   } catch (err) {
     log.error(
       "pi-rpc",
-      `Pi context assembly threw for agent "${agent.id}", spawning bare: ${(err as Error).message}`,
+      `Pi context assembly threw for agent "${agent.id}", suppressing flat context loading: ${(err as Error).message}`,
     );
+    args.push("--no-context-files");
   }
 
   // Keep `--no-extensions` on every spawn to suppress Pi's ambient extension

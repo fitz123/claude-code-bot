@@ -9,7 +9,6 @@ import {
   buildDiscordSourcePrefix,
   handleDiscordChatInputCommand,
   installDiscordErrorHandlers,
-  makeSteerFn,
 } from "../discord-bot.js";
 import { validateDiscordBinding } from "../config.js";
 import type { BotConfig, DiscordBinding, DiscordConfig } from "../types.js";
@@ -621,90 +620,3 @@ describe("installDiscordErrorHandlers", () => {
 
 // Streaming control flag tests are in discord-adapter.test.ts
 // where they verify actual adapter behavior, not just type shapes.
-
-// --- makeSteerFn (Pi active-turn delivery) ---
-
-interface FakeChild {
-  exitCode: number | null;
-  signalCode: NodeJS.Signals | null;
-  killed: boolean;
-  stdin: { destroyed: boolean; writes: string[]; write: (s: string) => void };
-}
-
-function makeLiveChild(): FakeChild {
-  const writes: string[] = [];
-  return {
-    exitCode: null,
-    signalCode: null,
-    killed: false,
-    stdin: { destroyed: false, writes, write: (s: string) => { writes.push(s); } },
-  };
-}
-
-function parseFirstStdinWrite(child: FakeChild): unknown {
-  assert.strictEqual(child.stdin.writes.length, 1);
-  return JSON.parse(child.stdin.writes[0].trim());
-}
-
-function fakeManager(
-  hasSession: boolean,
-  child: FakeChild,
-  processingStartedAt: number | null = Date.now(),
-): Pick<SessionManager, "getActive"> {
-  return {
-    getActive: (_chatId: string) =>
-      (hasSession ? ({ child, processingStartedAt } as unknown) : undefined) as never,
-  };
-}
-
-describe("makeSteerFn (discord)", () => {
-  it("steers (returns true) when a live Pi session is processing", () => {
-    const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager(true, child));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "mid-turn text"), true);
-    assert.deepStrictEqual(parseFirstStdinWrite(child), {
-      type: "steer",
-      message: "mid-turn text",
-    });
-  });
-
-  it("returns false when a live session is not actively processing", () => {
-    const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager(true, child, null));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "mid-turn text"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-
-  it("returns false when there is no active session", () => {
-    const steerFn = makeSteerFn(fakeManager(false, makeLiveChild()));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-  });
-
-  it("returns false when the Pi child has already exited", () => {
-    const child = makeLiveChild();
-    child.exitCode = 0;
-    const steerFn = makeSteerFn(fakeManager(true, child));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-
-  it("returns false in the idle window after agent_end", () => {
-    // processingStartedAt === null: session-manager has cleared it after
-    // agent_end but MessageQueue.busy may still be true. Steering here would
-    // hand the message to an idle Pi child and lose it; buffer instead.
-    const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager(true, child, null));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-
-  it("returns false when writing steer to Pi fails", () => {
-    const child = makeLiveChild();
-    child.stdin.write = () => {
-      throw new Error("EPIPE");
-    };
-    const steerFn = makeSteerFn(fakeManager(true, child));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-});

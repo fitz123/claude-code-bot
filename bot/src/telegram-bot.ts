@@ -3,7 +3,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
 import { outboxDir, hasExited, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
-import { MessageQueue, type SteerFn } from "./message-queue.js";
+import { MessageQueue } from "./message-queue.js";
 import { sendPiSteer } from "./pi-rpc-protocol.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
@@ -22,6 +22,8 @@ import { buildStatusReport } from "./status-report.js";
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
+
+type SteerFn = (chatId: string, agentId: string, text: string) => boolean;
 
 /** Derive a short sender label for the message content index. */
 function senderLabel(from?: { first_name: string; username?: string }): string {
@@ -639,9 +641,9 @@ export const AUTO_RETRY_OPTIONS = {
 } as const;
 
 /**
- * Build the Pi mid-turn delivery decision. A mid-turn message must be steered
- * live into the running Pi child; if no live active turn is available, returning
- * false lets the queue buffer it as a normal followup.
+ * Build the Pi steer decision for passive echo context. Normal user messages
+ * stay on MessageQueue's collect-buffer path because Pi steer responses do not
+ * provide a usable delivery acknowledgement.
  */
 export function makeSteerFn(
   sessionManager: Pick<SessionManager, "getActive">,
@@ -652,10 +654,8 @@ export function makeSteerFn(
     // Only steer when a Pi turn is actively processing. After `agent_end`,
     // session-manager clears `processingStartedAt` while MessageQueue.busy can
     // still be true (relay/cleanup of the final response is finishing). A
-    // message arriving in that window must NOT be steered: the Pi child has no
-    // active turn, Pi may reject the steer, and the parser drops failed
-    // side-command responses (pi-rpc-protocol.ts) — losing the message.
-    // Returning false buffers it so the queue drains it as a normal followup.
+    // echo arriving in that window must NOT be steered: the Pi child has no
+    // active turn, and failed side-command responses are best-effort logs.
     if (session.processingStartedAt === null) return false;
     try {
       sendPiSteer(session.child, text);
@@ -712,7 +712,7 @@ export function createTelegramBot(
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
-  // Pi mid-turn delivery for live active turns.
+  // Best-effort Pi steer for deliver.sh echo context only.
   const steerFn = makeSteerFn(sessionManager);
 
   // Message queue: debounce rapid messages and collect mid-turn messages
@@ -721,7 +721,6 @@ export function createTelegramBot(
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
       await relayStream(stream, platform, outboxDir(chatId), onAgentOwnership);
     },
-    { steerFn },
   );
 
   // Watchdog touch: notify liveness watchdog on every incoming update
