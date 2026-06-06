@@ -51,6 +51,30 @@ describe("SOPS secret reader", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("rejects invalid keys before invoking sops", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "secrets-test-"));
+    const file = join(tmpDir, "secrets.sops.yaml");
+    writeFileSync(file, "placeholder: true\n", "utf8");
+    let calls = 0;
+    const execFileSync: ExecFileSyncLike = () => {
+      calls += 1;
+      return "should-not-run\n";
+    };
+
+    try {
+      assert.throws(
+        () => readSopsSecret({ file, key: "tavily.api key", execFileSync }),
+        (err: unknown) => err instanceof SecretSourceError &&
+          err.failure.source === "sops" &&
+          err.failure.kind === "invalid-key" &&
+          err.failure.key === "tavily.api key",
+      );
+      assert.equal(calls, 0);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("secret resolver", () => {
@@ -153,4 +177,20 @@ describe("secret resolver", () => {
       },
     );
   }));
+
+  it("returns sanitized errors when no source is configured", () => {
+    assert.throws(
+      () => resolveSecret({ fieldName: "telegramToken", env: {} }),
+      (err: unknown) => {
+        assert.ok(err instanceof SecretResolutionError);
+        assert.deepEqual(err.failures, [
+          { source: "sops", kind: "not-configured" },
+          { source: "env", kind: "not-configured" },
+        ]);
+        assert.match(err.message, /SOPS failed \(not-configured\)/);
+        assert.match(err.message, /env var failed \(not-configured\)/);
+        return true;
+      },
+    );
+  });
 });

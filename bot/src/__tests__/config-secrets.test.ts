@@ -245,6 +245,60 @@ discord:
     ]);
   });
 
+  it("prefers discord.tokenSopsKey over tokenEnv when both are configured", () => {
+    writeSopsPlaceholder();
+    process.env.TEST_DISCORD_TOKEN_ENV = "dc-token-from-env";
+    const execFileSync: ExecFileSyncLike = () => "dc-token-from-sops\n";
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+secrets:
+  sopsFile: config/secrets.sops.yaml
+discord:
+  tokenSopsKey: discord.bot_token
+  tokenEnv: TEST_DISCORD_TOKEN_ENV
+  bindings:
+    - guildId: "999"
+      agentId: main
+      kind: channel
+`
+    );
+
+    const config = loadConfig(configPath, { secretExecFileSync: execFileSync });
+
+    assert.ok(config.discord, "discord config should exist");
+    assert.strictEqual(config.discord!.token, "dc-token-from-sops");
+  });
+
+  it("falls back to discord.tokenEnv when configured SOPS lookup fails", () => {
+    writeSopsPlaceholder();
+    process.env.TEST_DISCORD_TOKEN_ENV = "dc-token-from-env";
+    const execFileSync: ExecFileSyncLike = () => {
+      throw new Error("simulated decrypt failure");
+    };
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+secrets:
+  sopsFile: config/secrets.sops.yaml
+discord:
+  tokenSopsKey: discord.bot_token
+  tokenEnv: TEST_DISCORD_TOKEN_ENV
+  bindings:
+    - guildId: "999"
+      agentId: main
+      kind: channel
+`
+    );
+
+    const config = loadConfig(configPath, { secretExecFileSync: execFileSync });
+
+    assert.ok(config.discord, "discord config should exist");
+    assert.strictEqual(config.discord!.token, "dc-token-from-env");
+  });
+
   it("reads discord.token from env var when tokenEnv set", () => {
     process.env.TEST_DISCORD_TOKEN_ENV = "dc-token-from-env";
     writeFileSync(

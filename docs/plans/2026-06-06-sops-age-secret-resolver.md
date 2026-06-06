@@ -88,17 +88,17 @@ If all configured sources fail or are empty, throw/report a sanitized error nami
 
 ### Task 4: Tests
 
-- [ ] Add unit tests for SOPS extract expression conversion and invalid path rejection.
-- [ ] Add resolver tests using mocked `execFileSync` for:
+- [x] Add unit tests for SOPS extract expression conversion and invalid path rejection.
+- [x] Add resolver tests using mocked `execFileSync` for:
   - SOPS success;
   - SOPS blank -> env fallback;
   - SOPS failure -> env fallback;
   - env blank -> missing-source error;
   - all sources missing/failing -> sanitized error.
-- [ ] Extend `config-secrets.test.ts` for Telegram/Discord `*SopsKey`, source priority, `resolveSecrets: false`, and validation errors.
-- [ ] Update/remove existing Keychain behavior tests so they match the no-Keychain runtime decision.
-- [ ] Extend Tavily/web tool tests so missing-key text mentions SOPS configuration and still returns graceful unavailable results.
-- [ ] Do not add tests that call real `sops`, real Keychain, or use private paths.
+- [x] Extend `config-secrets.test.ts` for Telegram/Discord `*SopsKey`, source priority, `resolveSecrets: false`, and validation errors.
+- [x] Update/remove existing Keychain behavior tests so they match the no-Keychain runtime decision.
+- [x] Extend Tavily/web tool tests so missing-key text mentions SOPS configuration and still returns graceful unavailable results.
+- [x] Do not add tests that call real `sops`, real Keychain, or use private paths.
 
 ### Task 5: Documentation and examples
 
