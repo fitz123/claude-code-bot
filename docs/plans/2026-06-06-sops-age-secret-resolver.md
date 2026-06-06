@@ -102,9 +102,9 @@ If all configured sources fail or are empty, throw/report a sanitized error nami
 
 ### Task 5: Documentation and examples
 
-- [ ] Update `config.local.yaml.example` only with non-secret SOPS/env examples.
-- [ ] Add a short note that runtime SOPS files are private deployment artifacts and not part of the public repo.
-- [ ] Keep docs free of real service values, tokens, user IDs, chat IDs, or private host paths.
+- [x] Update `config.local.yaml.example` only with non-secret SOPS/env examples.
+- [x] Add a short note that runtime SOPS files are private deployment artifacts and not part of the public repo.
+- [x] Keep docs free of real service values, tokens, user IDs, chat IDs, or private host paths.
 
 ## Validation Commands
 

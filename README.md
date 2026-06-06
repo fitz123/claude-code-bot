@@ -65,7 +65,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 
 **Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot Pi print-mode run with the cron's prompt.
 
-**Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). User-specific overrides live in `config.local.yaml` (gitignored, deep-merged over `config.yaml`). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
+**Config:** `config.yaml` defines agents (workspace + model), bindings (chatId/channelId -> agentId), and non-secret pointers to runtime token sources. User-specific overrides live in `config.local.yaml` (gitignored, deep-merged over `config.yaml`). At least one platform (Telegram or Discord) must be configured. Tokens resolve from a private SOPS/age file first, with explicitly configured environment variables as deployment overrides.
 
 ## Installation
 
@@ -74,6 +74,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 - macOS (launchd required for bot service management)
 - Node.js 20+ and npm
 - `jq` — required by hook scripts (`brew install jq`)
+- `sops` with an age identity available to the launchd user, unless you configure only explicit token environment variables
 - The `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) (or Discord bot token)
 
@@ -112,10 +113,26 @@ Create `.claude/settings.local.json` with required settings:
 }
 ```
 
-**3. Store Telegram bot token in macOS Keychain**
+**3. Configure runtime token secrets**
+
+Runtime SOPS files are private deployment artifacts. They are gitignored, are not part of the public repo, and should decrypt to the configured key paths without exposing plaintext in logs or commits.
+
+`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. Create that private file with SOPS/age so the decrypted document contains the needed key paths:
 
 ```bash
-security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
+mkdir -p config
+sops config/secrets.sops.yaml
+```
+
+Example decrypted shape, with encrypted values in the file:
+
+```yaml
+telegram:
+  bot_token: ENC[...]
+discord:
+  bot_token: ENC[...]
+tavily:
+  api_key: ENC[...]
 ```
 
 **4. Initialize Pi auth**
@@ -124,7 +141,7 @@ security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_TOKEN
 pi /login
 ```
 
-Run this as the same user that owns the launchd jobs. Pi manages its own auth in `~/.pi/agent/auth.json`; the bot does not store coding-agent credentials in Keychain.
+Run this as the same user that owns the launchd jobs. Pi manages its own auth in `~/.pi/agent/auth.json`; the bot does not store coding-agent credentials.
 
 **5. Create launchd service**
 
@@ -153,7 +170,7 @@ Send a message to your bot in Telegram to confirm it responds.
 
 ### Optional setup
 
-**Discord:** Store token in Keychain (`security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'TOKEN'`), add a `discord` section to `config.local.yaml`. See [config.yaml](config.yaml) for full reference.
+**Discord:** Add `discord.tokenSopsKey` for `discord.bot_token` in the private SOPS file, or configure `discord.tokenEnv` as an explicit environment override. See [config.yaml](config.yaml) for full reference.
 
 **Crons:** Add your crons to `crons.local.yaml` (copy from `crons.local.yaml.example`), then generate and load plists:
 ```bash
@@ -261,11 +278,11 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
    agents:
      new-agent:
        id: new-agent
-       workspaceCwd: /Users/YOU/.minime/workspace-new
+       workspaceCwd: /absolute/path/to/workspace-new
        model: gpt-5.5
 
    bindings:
-     - chatId: 123456789
+     - chatId: 111111111
        agentId: new-agent
        kind: dm
        label: New Agent DM
@@ -280,17 +297,15 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
 
 ## Add a Discord Binding
 
-1. Store the Discord bot token in macOS Keychain:
-   ```bash
-   security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
-   ```
+1. Add the Discord token to your private SOPS file at `discord.bot_token`, or expose it through a configured environment variable.
 
 2. Add the `discord` section to `config.local.yaml`:
    ```yaml
    discord:
-     tokenService: discord-bot-token
+     tokenSopsKey: discord.bot_token
+     # tokenEnv: DISCORD_BOT_TOKEN
      bindings:
-       - guildId: "9876543210"
+       - guildId: "YOUR_GUILD_ID"
          agentId: main
          kind: channel
          label: My Server
@@ -301,27 +316,29 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
 
 3. Required bot permissions/intents: Guilds, GuildMessages, MessageContent (privileged), DirectMessages. Slash commands (`/start`, `/reconnect`, `/clean`, `/status`) are registered per-guild on startup.
 
-`telegramTokenService` is optional — the bot can run Discord-only.
+Telegram bindings are optional; the bot can run Discord-only.
 
-### Secrets: macOS Keychain vs env vars
+### Secrets: SOPS and env vars
 
-Token resolution accepts either form (env var wins when both are set):
+Token resolution checks SOPS first, then a configured environment variable:
 
 | Field | Source | When to use |
 |---|---|---|
-| `telegramTokenService` / `discord.tokenService` | macOS Keychain via `security find-generic-password` | macOS dev workflow (existing) |
-| `telegramTokenEnv` / `discord.tokenEnv` | Environment variable name (read via `process.env`) | Linux / containers / systemd `EnvironmentFile` (preferred for production) |
+| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical private-workspace deployment backend |
+| `telegramTokenEnv` / `discord.tokenEnv` | Environment variable name read from `process.env` | Explicit environment override for launchd, Linux, containers, or systemd |
 
-Example (NixOS deploy):
+Example:
 ```yaml
-telegramTokenService: telegram-bot-token   # macOS fallback (ignored when tokenEnv resolves on Linux)
-telegramTokenEnv: TELEGRAM_BOT_TOKEN       # Linux uses this from sops-decrypted env file
+secrets:
+  sopsFile: config/secrets.sops.yaml
+telegramTokenSopsKey: telegram.bot_token
+telegramTokenEnv: TELEGRAM_BOT_TOKEN
 discord:
-  tokenService: discord-bot-token          # macOS fallback (same pattern)
+  tokenSopsKey: discord.bot_token
   tokenEnv: DISCORD_BOT_TOKEN
 ```
 
-If neither is set when Telegram bindings are present (or for Discord config), the bot throws a clear error at startup.
+Legacy `telegramTokenService` and `discord.tokenService` Keychain settings are rejected with migration errors. If no configured source resolves when Telegram bindings are present, or when Discord is enabled, the bot throws a clear sanitized error at startup.
 
 ## Memory architecture
 
@@ -350,7 +367,7 @@ Interactive agents run through Pi RPC + OpenAI Codex. The optional per-agent `pr
 agents:
   main:
     id: main
-    workspaceCwd: /Users/YOU/.minime/workspace
+    workspaceCwd: /absolute/path/to/workspace
     model: gpt-5.5
     # provider: pi
     # thinking: high
@@ -371,14 +388,10 @@ Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--
 | Extension | Wrapper | What it does |
 |---|---|---|
 | **A1 guard** | `bot/.claude/extensions/guardian-protect-files.ts` | A `tool_call` handler that blocks edit/write and bash redirects (`>`, `>>`, `tee`, `mv`, `cp`) into the 10-path immutable core of upstream-owned paths (`bot/`, `.claude/hooks/`, `.claude/rules/platform/`, `.claude/skills/workspace-health/scripts/`, `.github/workflows/`, `.githooks/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`) and `..` traversal escapes. It also drives the **schema-enforced deny-by-default** write-guard: it parses the workspace `schema.md` ```` ```write-allowlist ```` block and blocks any write/edit/bash target whose workspace-relative path is not in it (deny-overlay > allow > default-deny). Directory entries (trailing slash) match as prefixes; the four file entries match root-only-exact (`README.md` blocks the root file but not `docs/README.md`). A missing/empty block fails **closed** (immutable core still blocks; everything else is denied with an actionable "add it to `schema.md`" message). Path matching canonicalizes `.`/`..`/`//` and is case-insensitive (APFS). Disable first-party wrappers with `PI_EXTENSIONS_DISABLED=1`; ambient discovery remains disabled. |
-| **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read once at load from macOS Keychain (`security find-generic-password -s tavily-api-key -a minime -w`). A missing key warn-logs but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
+| **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read from SOPS key `tavily.api_key` in `config/secrets.sops.yaml` relative to the Pi session cwd. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
 | **A3 subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Each child spawn also loads the A1 guard (so a delegated task cannot bypass it), honoring the same kill-switch. Child errors warn-log. |
 
-**A2 setup (optional):** store a [Tavily](https://tavily.com) API key in the macOS Keychain to enable `web_search` / `web_fetch` (omit to leave the tools registered-but-unavailable):
-
-```bash
-security add-generic-password -s 'tavily-api-key' -a 'minime' -w 'YOUR_TAVILY_KEY'
-```
+**A2 setup (optional):** add a [Tavily](https://tavily.com) API key to the private workspace SOPS file at `tavily.api_key` to enable `web_search` / `web_fetch`. Omit it to leave the tools registered-but-unavailable.
 
 **Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with no explicit first-party wrappers; the spawn still passes `--no-extensions`, so ambient discovery does not load other extensions. With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session). Pi crons are stricter: LLM crons require A1 and fail closed if `PI_EXTENSIONS_DISABLED=1`.
 
@@ -555,7 +568,7 @@ crons:
       npx tsx scripts/codex-quota-sampler.ts
       >> /absolute/path/to/minime/logs/codex-quota-sampler.log 2>&1
     agentId: main
-    deliveryChatId: 123456789
+    deliveryChatId: 111111111
     timeout: 60000
 ```
 
@@ -627,13 +640,13 @@ If you have a local `config.yaml` from the old workflow, git will refuse to pull
 # 1. Back up your current config
 cp config.yaml config.local.yaml
 
-# 2. Remove the untracked file so git can check out the new tracked version
-rm config.yaml
+# 2. Move the untracked file aside so git can check out the new tracked version
+trash config.yaml
 
 # 3. Pull — git will restore config.yaml with upstream defaults
 git pull
 
-# 4. Edit config.local.yaml — keep only your overrides (workspaceCwd, chatId, tokens, bindings)
+# 4. Edit config.local.yaml — keep only your overrides (workspaceCwd, chatId, secret source pointers, bindings)
 #    Remove anything that matches the upstream defaults in config.yaml
 ```
 

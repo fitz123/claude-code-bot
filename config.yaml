@@ -6,7 +6,7 @@
 #   agents.<name>.workspaceCwd, bindings with real chatIds, discord config.
 
 # Runtime token sources. SOPS is the canonical private-workspace backend; env
-# vars remain available as explicit non-Keychain deployment overrides.
+# vars remain available as explicit environment deployment overrides.
 secrets:
   sopsFile: config/secrets.sops.yaml
 telegramTokenSopsKey: telegram.bot_token
@@ -71,18 +71,18 @@ metricsPort: 9091
 
 # Default delivery target for cron results (optional).
 # Individual crons can override with their own deliveryChatId/deliveryThreadId.
-# defaultDeliveryChatId: -1001234567890
+# defaultDeliveryChatId: -1001111111111
 # defaultDeliveryThreadId: 42
 
 # Admin chat for fallback notifications when cron delivery fails (optional).
-# adminChatId: 123456789
+# adminChatId: 111111111
 
 # Discord support (optional — bot works Telegram-only without this section)
 # discord:
 #   tokenSopsKey: discord.bot_token
 #   tokenEnv: DISCORD_BOT_TOKEN
 #   bindings:
-#     - guildId: '1234567890'
+#     - guildId: 'YOUR_GUILD_ID'
 #       agentId: main
 #       kind: channel
 #       label: My Server

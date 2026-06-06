@@ -45,6 +45,7 @@ completed/
 # Instance config overrides (user creates from .example)
 config.local.yaml
 crons.local.yaml
+config/*.sops.yaml
 
 # OS
 .DS_Store
