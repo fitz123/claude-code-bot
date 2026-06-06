@@ -79,6 +79,10 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("minime-bot CLI", () => {
   it("prints help", () => {
     const result = runWithCapture(["--help"]);
@@ -112,10 +116,17 @@ describe("minime-bot CLI", () => {
       assert.equal(result.code, 0);
       assert.match(result.stdout, /Workspace valid\./);
       assert.match(result.stdout, /Effective paths:/);
-      assert.match(result.stdout, new RegExp(`control workspace root: ${workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(cli\\)`));
+      assert.match(result.stdout, new RegExp(`control workspace root: ${escapeRegExp(workspace)} \\(cli\\)`));
       assert.match(result.stdout, /package root:/);
+      assert.match(result.stdout, /config path:/);
+      assert.match(result.stdout, /crons path:/);
       assert.match(result.stdout, /Pi extension dir:/);
-      assert.match(result.stdout, /Agent workspaces:\n  main: /);
+      assert.match(result.stdout, /data dir:/);
+      assert.match(result.stdout, /session store path:/);
+      assert.match(result.stdout, /log dir:/);
+      assert.match(result.stdout, /media base dir:/);
+      assert.match(result.stdout, /runtime dir:/);
+      assert.match(result.stdout, new RegExp(`Agent workspaces:\\n  main: ${escapeRegExp(join(workspace, "agent-workspace"))}`));
       assert.match(result.stdout, /Crons: 1/);
       assert.equal(result.stderr, "");
     } finally {
@@ -132,7 +143,7 @@ describe("minime-bot CLI", () => {
 
     assert.equal(result.code, 0);
     assert.match(result.stdout, /Workspace valid\./);
-    assert.match(result.stdout, new RegExp(`control workspace root: ${MINIMAL_WORKSPACE_FIXTURE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(env\\)`));
+    assert.match(result.stdout, new RegExp(`control workspace root: ${escapeRegExp(MINIMAL_WORKSPACE_FIXTURE)} \\(env\\)`));
     assert.match(result.stdout, /config path: .*minimal-workspace\/config\.yaml \(workspace-default\)/);
     assert.equal(result.stderr, "");
   });

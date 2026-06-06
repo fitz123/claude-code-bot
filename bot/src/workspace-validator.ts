@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { loadMergedCrons } from "./cron-runner.js";
 import type { BotConfig } from "./types.js";
@@ -47,6 +48,26 @@ function existsAsDirectory(path: string): boolean {
 
 function existsAsFile(path: string): boolean {
   return safeStat(path)?.isFile() === true;
+}
+
+function warnIfMissingAgentContext(
+  issues: WorkspaceValidationIssue[],
+  agentId: string,
+  agentWorkspace: string,
+): void {
+  for (const fileName of ["CLAUDE.md", "MEMORY.md"] as const) {
+    const path = join(agentWorkspace, fileName);
+    if (!existsAsFile(path)) {
+      issue(issues, "warning", `agent "${agentId}" context file is not present: ${path}`);
+    }
+  }
+
+  for (const relDir of [join(".claude", "rules", "platform"), join(".claude", "rules", "custom")] as const) {
+    const path = join(agentWorkspace, relDir);
+    if (!existsAsDirectory(path)) {
+      issue(issues, "warning", `agent "${agentId}" rules dir is not present: ${path}`);
+    }
+  }
 }
 
 function describePathKind(path: string): string {
@@ -125,6 +146,8 @@ export function validateWorkspaceContract(
         issue(issues, "error", `agent "${agentId}" workspaceCwd does not exist: ${agentWorkspace}`);
       } else if (!existsAsDirectory(agentWorkspace)) {
         issue(issues, "error", `agent "${agentId}" workspaceCwd is not a directory: ${agentWorkspace}`);
+      } else {
+        warnIfMissingAgentContext(issues, agentId, agentWorkspace);
       }
     }
   }

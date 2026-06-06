@@ -210,10 +210,10 @@ Safety baseline after retirement:
 
 ### Task 6: Update validator contract
 
-- [ ] Validator hard-fails on invalid control workspace config/crons and missing/non-directory configured agent `workspaceCwd` directories.
-- [ ] Validator no longer requires `schema.md` in control or agent workspaces.
-- [ ] Validator accepts absolute agent workspace paths outside the control workspace.
-- [ ] Validator prints effective paths for:
+- [x] Validator hard-fails on invalid control workspace config/crons and missing/non-directory configured agent `workspaceCwd` directories.
+- [x] Validator no longer requires `schema.md` in control or agent workspaces.
+- [x] Validator accepts absolute agent workspace paths outside the control workspace.
+- [x] Validator prints effective paths for:
   - control workspace root;
   - config path;
   - crons path;
@@ -221,8 +221,8 @@ Safety baseline after retirement:
   - extension dir;
   - runtime data/log dirs;
   - every configured agent workspace.
-- [ ] Validator treats missing agent context files (`CLAUDE.md`, `MEMORY.md`, rules dirs) as warnings unless current runtime requires them as hard failures.
-- [ ] Validator remains no-decrypt by default.
+- [x] Validator treats missing agent context files (`CLAUDE.md`, `MEMORY.md`, rules dirs) as warnings unless current runtime requires them as hard failures.
+- [x] Validator remains no-decrypt by default.
 
 ### Task 7: Update docs, tests, and deterministic removal gate
 
