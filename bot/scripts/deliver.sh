@@ -53,10 +53,10 @@ if [ -x "$TSX_BIN" ] && [ -f "$CONVERTER" ]; then
   CAN_CONVERT=1
 fi
 
-# Token from Keychain
-TOKEN="$(security find-generic-password -s 'telegram-bot-token' -w 2>/dev/null)"
+# Token is supplied by cron-runner after SOPS/env config resolution.
+TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 if [ -z "$TOKEN" ]; then
-  echo "[deliver] Error: failed to read Telegram token from Keychain" >&2
+  echo "[deliver] Error: TELEGRAM_BOT_TOKEN is not set; run via cron-runner or provide a resolved token" >&2
   exit 1
 fi
 

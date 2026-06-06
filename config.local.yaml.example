@@ -11,7 +11,8 @@
 
 # Optional: SOPS-backed runtime secrets. These are only non-secret pointers to
 # private deployment artifacts. Runtime SOPS files are not part of this public
-# repo and must not be committed.
+# repo and must not be committed. SOPS key paths are dot paths with
+# [A-Za-z0-9_-]+ segments; a configured *SopsKey requires secrets.sopsFile.
 # secrets:
 #   sopsFile: config/secrets.sops.yaml
 # telegramTokenSopsKey: telegram.bot_token

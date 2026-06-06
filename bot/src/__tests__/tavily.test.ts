@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildExtractRequest,
   buildSearchRequest,
@@ -31,6 +32,8 @@ import {
 import type { ExecFileSyncLike } from "../secrets.js";
 
 const KEY = "tvly-test-key";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const WEB_TOOLS_WRAPPER_PATH = resolve(__dirname, "../../.claude/extensions/web-tools.ts");
 
 interface FetchCall {
   url: string;
@@ -40,6 +43,14 @@ interface FetchCall {
 interface MockFetch {
   fn: typeof fetch;
   calls: FetchCall[];
+}
+
+interface RegisteredTool {
+  name: string;
+  execute: (
+    toolCallId: string,
+    params: Record<string, unknown>,
+  ) => Promise<{ content: Array<{ type: "text"; text: string }>; details: { ok: boolean } }>;
 }
 
 /** A minimal Response-like object for the success / HTTP-error paths. */
@@ -382,5 +393,81 @@ describe("tavily: warn + tool descriptors", () => {
     assert.equal(WEB_FETCH_TOOL.name, "web_fetch");
     assert.deepEqual([...WEB_FETCH_TOOL.parameters.required], ["url"]);
     assert.equal(WEB_FETCH_TOOL.parameters.properties.url.type, "string");
+  });
+});
+
+describe("web-tools Pi wrapper", () => {
+  async function importWrapper(): Promise<(pi: { registerTool(tool: RegisteredTool): void }) => void> {
+    const mod = await import(pathToFileURL(WEB_TOOLS_WRAPPER_PATH).href) as {
+      default: (pi: { registerTool(tool: RegisteredTool): void }) => void;
+    };
+    return mod.default;
+  }
+
+  it("imports the wrapper, registers both tools, and stays graceful when the SOPS file is missing", async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "web-tools-wrapper-missing-"));
+    const oldCwd = process.cwd();
+    const oldWarn = console.warn;
+    const warnings: string[] = [];
+    const registered: RegisteredTool[] = [];
+
+    try {
+      process.chdir(tmpDir);
+      console.warn = (message?: unknown) => {
+        warnings.push(String(message));
+      };
+      const registerWebTools = await importWrapper();
+      registerWebTools({ registerTool: (tool) => registered.push(tool) });
+
+      assert.deepEqual(registered.map((tool) => tool.name), ["web_search", "web_fetch"]);
+      assert.deepEqual(warnings, ["[web-tools] tool=web_search reason=missing-key"]);
+
+      const result = await registered[0].execute("call-1", { query: "docs" });
+      assert.equal(result.details.ok, false);
+      assert.match(result.content[0].text, /web_search is unavailable/);
+      assert.match(result.content[0].text, /SOPS key tavily\.api_key in config\/secrets\.sops\.yaml/);
+    } finally {
+      console.warn = oldWarn;
+      process.chdir(oldCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads the wrapper API key through SOPS and passes it to Tavily requests", async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "web-tools-wrapper-sops-"));
+    const binDir = join(tmpDir, "bin");
+    const oldCwd = process.cwd();
+    const oldPath = process.env.PATH;
+    const oldFetch = globalThis.fetch;
+    const registered: RegisteredTool[] = [];
+    const fetchCalls: FetchCall[] = [];
+
+    try {
+      mkdirSync(join(tmpDir, "config"), { recursive: true });
+      mkdirSync(binDir, { recursive: true });
+      writeFileSync(join(tmpDir, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+      writeFileSync(join(binDir, "sops"), "#!/bin/bash\nprintf 'tvly-wrapper-key\\n'\n", "utf8");
+      chmodSync(join(binDir, "sops"), 0o755);
+      process.env.PATH = `${binDir}:${oldPath ?? ""}`;
+      process.chdir(tmpDir);
+      globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+        fetchCalls.push({ url: String(url), init });
+        return jsonResponse({ results: [] });
+      }) as typeof fetch;
+
+      const registerWebTools = await importWrapper();
+      registerWebTools({ registerTool: (tool) => registered.push(tool) });
+      const result = await registered[0].execute("call-1", { query: "docs" });
+
+      assert.equal(result.details.ok, true);
+      assert.equal(fetchCalls.length, 1);
+      assert.equal(fetchCalls[0].init?.headers && (fetchCalls[0].init.headers as Record<string, string>)["Authorization"], "Bearer tvly-wrapper-key");
+    } finally {
+      globalThis.fetch = oldFetch;
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      process.chdir(oldCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

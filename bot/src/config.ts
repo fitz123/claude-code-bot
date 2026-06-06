@@ -5,7 +5,7 @@ import { parse as parseYaml } from "yaml";
 import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults, DiscordBinding, DiscordChannelOverride, DiscordConfig } from "./types.js";
 import { log, parseLogLevel } from "./logger.js";
 import { DEFAULT_MAX_MEDIA_BYTES } from "./media-store.js";
-import { resolveSecret, type ExecFileSyncLike } from "./secrets.js";
+import { resolveSecret, sopsExtractExpression, type ExecFileSyncLike } from "./secrets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
@@ -289,6 +289,7 @@ function validateDiscordConfig(
   }
   const tokenSopsKey = optionalConfigString(raw.tokenSopsKey, "discord.tokenSopsKey");
   const tokenEnv = optionalConfigString(raw.tokenEnv, "discord.tokenEnv");
+  validateConfiguredSopsSource(sopsFile, tokenSopsKey, "discord.tokenSopsKey");
   if (!tokenSopsKey && !tokenEnv) {
     throw new Error("discord requires a token source (discord.tokenSopsKey with secrets.sopsFile, or discord.tokenEnv)");
   }
@@ -389,8 +390,50 @@ function resolveConfiguredSopsFile(raw: RawConfig, configPath?: string): string 
   return resolve(dirname(resolve(configPath ?? DEFAULT_CONFIG_PATH)), sopsFile);
 }
 
+function validateConfiguredSopsSource(
+  sopsFile: string | undefined,
+  sopsKey: string | undefined,
+  fieldName: string,
+): void {
+  if (!sopsKey) return;
+  try {
+    sopsExtractExpression(sopsKey);
+  } catch {
+    throw new Error(`${fieldName} must be a dot path with segments matching [A-Za-z0-9_-]+`);
+  }
+  if (!sopsFile) {
+    throw new Error(`${fieldName} requires secrets.sopsFile`);
+  }
+}
+
 function findLegacyConfigKey(raw: object, keyPattern: RegExp): string | undefined {
   return Object.keys(raw).find((key) => keyPattern.test(key));
+}
+
+export function loadTelegramToken(configPath?: string, options: LoadConfigOptions = {}): string {
+  const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
+  const sopsFile = resolveConfiguredSopsFile(raw, configPath);
+  const legacyTelegramKey = findLegacyConfigKey(raw, LEGACY_TELEGRAM_SERVICE_KEY_RE);
+  if (legacyTelegramKey) {
+    throw new Error(
+      `${legacyTelegramKey} is no longer supported; migrate to telegramTokenSopsKey with secrets.sopsFile or telegramTokenEnv`,
+    );
+  }
+  const telegramTokenSopsKey = optionalConfigString(raw.telegramTokenSopsKey, "telegramTokenSopsKey");
+  const telegramTokenEnv = optionalConfigString(raw.telegramTokenEnv, "telegramTokenEnv");
+  validateConfiguredSopsSource(sopsFile, telegramTokenSopsKey, "telegramTokenSopsKey");
+  if (!telegramTokenSopsKey && !telegramTokenEnv) {
+    throw new Error("Telegram delivery requires a token source (telegramTokenSopsKey with secrets.sopsFile, or telegramTokenEnv)");
+  }
+  return options.resolveSecrets === false
+    ? CONFIGURED_SECRET_PLACEHOLDER
+    : resolveSecret({
+      sopsFile,
+      sopsKey: telegramTokenSopsKey,
+      envVar: telegramTokenEnv,
+      fieldName: "telegramToken",
+      execFileSync: options.secretExecFileSync,
+    });
 }
 
 export function loadConfig(configPath?: string, options: LoadConfigOptions = {}): BotConfig {
@@ -431,8 +474,11 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   }
   const telegramTokenSopsKey = optionalConfigString(raw.telegramTokenSopsKey, "telegramTokenSopsKey");
   const telegramTokenEnv = optionalConfigString(raw.telegramTokenEnv, "telegramTokenEnv");
+  validateConfiguredSopsSource(sopsFile, telegramTokenSopsKey, "telegramTokenSopsKey");
+  const rawTelegramBindings = Array.isArray(raw.bindings) ? raw.bindings : [];
+  const hasTelegramBindings = rawTelegramBindings.length > 0;
   let telegramToken: string | undefined;
-  if (telegramTokenSopsKey || telegramTokenEnv) {
+  if (hasTelegramBindings && (telegramTokenSopsKey || telegramTokenEnv)) {
     telegramToken = resolveSecrets
       ? resolveSecret({
         sopsFile,
@@ -446,11 +492,11 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
 
   // Validate Telegram bindings (optional if Discord is configured)
   let bindings: TelegramBinding[] = [];
-  if (Array.isArray(raw.bindings) && raw.bindings.length > 0) {
+  if (hasTelegramBindings) {
     if (!telegramToken) {
       throw new Error("Telegram bindings require a token source (telegramTokenSopsKey with secrets.sopsFile, or telegramTokenEnv)");
     }
-    bindings = raw.bindings.map((b, i) => {
+    bindings = rawTelegramBindings.map((b, i) => {
       const binding = validateBinding(b, i);
       if (!agents[binding.agentId]) {
         throw new Error(`Binding[${i}] references unknown agent "${binding.agentId}"`);

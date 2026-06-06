@@ -75,6 +75,54 @@ describe("SOPS secret reader", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("reports a missing SOPS file without invoking sops", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "secrets-test-"));
+    const missingFile = join(tmpDir, "missing.sops.yaml");
+    let calls = 0;
+    const execFileSync: ExecFileSyncLike = () => {
+      calls += 1;
+      return "should-not-run\n";
+    };
+
+    try {
+      assert.throws(
+        () => readSopsSecret({ file: missingFile, key: "tavily.api_key", execFileSync }),
+        (err: unknown) => err instanceof SecretSourceError &&
+          err.failure.source === "sops" &&
+          err.failure.kind === "missing-file" &&
+          err.failure.key === "tavily.api_key",
+      );
+      assert.equal(calls, 0);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports decrypt failures without leaking command stderr text", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "secrets-test-"));
+    const file = join(tmpDir, "secrets.sops.yaml");
+    writeFileSync(file, "placeholder: true\n", "utf8");
+    const execFileSync: ExecFileSyncLike = () => {
+      throw Object.assign(new Error("sensitive stderr text"), { status: 1 });
+    };
+
+    try {
+      assert.throws(
+        () => readSopsSecret({ file, key: "tavily.api_key", execFileSync }),
+        (err: unknown) => {
+          assert.ok(err instanceof SecretSourceError);
+          assert.equal(err.failure.source, "sops");
+          assert.equal(err.failure.kind, "decrypt-failed");
+          assert.equal(err.failure.key, "tavily.api_key");
+          assert.doesNotMatch(err.message, /sensitive stderr text/);
+          return true;
+        },
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("secret resolver", () => {

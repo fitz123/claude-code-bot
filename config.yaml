@@ -5,8 +5,10 @@
 # Only user-specific values need to be in config.local.yaml:
 #   agents.<name>.workspaceCwd, bindings with real chatIds, discord config.
 
-# Runtime token sources. SOPS is the canonical private-workspace backend; env
-# vars remain available as explicit environment deployment overrides.
+# Runtime token sources. SOPS is the canonical private-workspace backend for
+# bot platform tokens; env vars remain available as explicit deployment
+# overrides. SOPS key paths are dot paths with [A-Za-z0-9_-]+ segments.
+# A configured *SopsKey requires secrets.sopsFile.
 secrets:
   sopsFile: config/secrets.sops.yaml
 telegramTokenSopsKey: telegram.bot_token

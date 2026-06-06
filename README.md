@@ -74,7 +74,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 - macOS (launchd required for bot service management)
 - Node.js 20+ and npm
 - `jq` — required by hook scripts (`brew install jq`)
-- `sops` with an age identity available to the launchd user, unless you configure only explicit token environment variables
+- `sops` and `age`, with an age identity available to the launchd user unless you configure only explicit token environment variables
 - The `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) (or Discord bot token)
 
@@ -117,7 +117,24 @@ Create `.claude/settings.local.json` with required settings:
 
 Runtime SOPS files are private deployment artifacts. They are gitignored, are not part of the public repo, and should decrypt to the configured key paths without exposing plaintext in logs or commits.
 
-`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. Create that private file with SOPS/age so the decrypted document contains the needed key paths:
+Install the tooling and create the age identity as the same user that owns the launchd jobs:
+
+```bash
+brew install sops age
+mkdir -p ~/.config/sops/age
+age-keygen -o ~/.config/sops/age/keys.txt
+age-keygen -y ~/.config/sops/age/keys.txt
+```
+
+Use the printed public recipient in a local `.sops.yaml`, or pass it directly with `sops --age <age-recipient> ...`. Example creation rule:
+
+```yaml
+creation_rules:
+  - path_regex: config/.*\.sops\.yaml$
+    age: age1replace_with_your_public_recipient
+```
+
+`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. This bot runtime file is resolved relative to the bot config file, not relative to agent workspaces. Create it with SOPS/age so the decrypted document contains only bot platform token paths:
 
 ```bash
 mkdir -p config
@@ -131,9 +148,9 @@ telegram:
   bot_token: ENC[...]
 discord:
   bot_token: ENC[...]
-tavily:
-  api_key: ENC[...]
 ```
+
+Tavily web-tool secrets use a separate SOPS file in each agent workspace, described in [A2 setup](#pi-extensions-a1-a3). Do not copy Telegram or Discord bot tokens into agent workspaces.
 
 **4. Initialize Pi auth**
 
@@ -324,7 +341,7 @@ Token resolution checks SOPS first, then a configured environment variable:
 
 | Field | Source | When to use |
 |---|---|---|
-| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical private-workspace deployment backend |
+| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical private-workspace deployment backend for bot platform tokens |
 | `telegramTokenEnv` / `discord.tokenEnv` | Environment variable name read from `process.env` | Explicit environment override for launchd, Linux, containers, or systemd |
 
 Example:
@@ -338,7 +355,9 @@ discord:
   tokenEnv: DISCORD_BOT_TOKEN
 ```
 
-Legacy `telegramTokenService` and `discord.tokenService` Keychain settings are rejected with migration errors. If no configured source resolves when Telegram bindings are present, or when Discord is enabled, the bot throws a clear sanitized error at startup.
+SOPS key paths are dot paths whose segments must match `[A-Za-z0-9_-]+`, such as `telegram.bot_token`. A configured `*SopsKey` requires `secrets.sopsFile`; invalid key syntax or a missing `secrets.sopsFile` is a config error. Runtime lookup failures such as a missing file, decrypt failure, or blank decrypted value fall back to the configured env var, then fail with sanitized source/key/env/failure-kind details if no source resolves.
+
+Legacy `telegramTokenService` and `discord.tokenService` Keychain settings are rejected with migration errors. Telegram token resolution is required only when Telegram bindings are configured; Discord-only deployments can set `bindings: []` and provide a Discord token source.
 
 ## Memory architecture
 
@@ -388,10 +407,17 @@ Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--
 | Extension | Wrapper | What it does |
 |---|---|---|
 | **A1 guard** | `bot/.claude/extensions/guardian-protect-files.ts` | A `tool_call` handler that blocks edit/write and bash redirects (`>`, `>>`, `tee`, `mv`, `cp`) into the 10-path immutable core of upstream-owned paths (`bot/`, `.claude/hooks/`, `.claude/rules/platform/`, `.claude/skills/workspace-health/scripts/`, `.github/workflows/`, `.githooks/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`) and `..` traversal escapes. It also drives the **schema-enforced deny-by-default** write-guard: it parses the workspace `schema.md` ```` ```write-allowlist ```` block and blocks any write/edit/bash target whose workspace-relative path is not in it (deny-overlay > allow > default-deny). Directory entries (trailing slash) match as prefixes; the four file entries match root-only-exact (`README.md` blocks the root file but not `docs/README.md`). A missing/empty block fails **closed** (immutable core still blocks; everything else is denied with an actionable "add it to `schema.md`" message). Path matching canonicalizes `.`/`..`/`//` and is case-insensitive (APFS). Disable first-party wrappers with `PI_EXTENSIONS_DISABLED=1`; ambient discovery remains disabled. |
-| **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read from SOPS key `tavily.api_key` in `config/secrets.sops.yaml` relative to the Pi session cwd. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
+| **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read from SOPS key `tavily.api_key` in `config/secrets.sops.yaml` relative to the Pi session cwd, which is the agent's `workspaceCwd`. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
 | **A3 subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Each child spawn also loads the A1 guard (so a delegated task cannot bypass it), honoring the same kill-switch. Child errors warn-log. |
 
-**A2 setup (optional):** add a [Tavily](https://tavily.com) API key to the private workspace SOPS file at `tavily.api_key` to enable `web_search` / `web_fetch`. Omit it to leave the tools registered-but-unavailable.
+**A2 setup (optional):** add a [Tavily](https://tavily.com) API key to a Tavily-only private SOPS file at `<agent.workspaceCwd>/config/secrets.sops.yaml` to enable `web_search` / `web_fetch` for that agent. The decrypted shape should contain only the web-tool secret:
+
+```yaml
+tavily:
+  api_key: ENC[...]
+```
+
+Keep this file separate from the bot runtime SOPS file used for Telegram and Discord tokens. Omit it to leave the tools registered-but-unavailable.
 
 **Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with no explicit first-party wrappers; the spawn still passes `--no-extensions`, so ambient discovery does not load other extensions. With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session). Pi crons are stricter: LLM crons require A1 and fail closed if `PI_EXTENSIONS_DISABLED=1`.
 

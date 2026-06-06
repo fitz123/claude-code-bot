@@ -23,7 +23,7 @@
  * and missing-key paths with a mock fetch and never touch the network.
  */
 
-import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-secret.js";
+import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-constants.js";
 
 export const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 export const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
@@ -235,7 +235,7 @@ function errResult(text: string): WebToolResult {
 function missingKeyText(tool: "web_search" | "web_fetch"): string {
   return `${tool} is unavailable: Tavily API key not configured (SOPS key ` +
     `${TAVILY_SOPS_KEY} in ${TAVILY_SOPS_FILE_RELPATH}). Add the private ` +
-    "runtime SOPS file and restart the bot.";
+    "Tavily-only workspace SOPS file and restart the bot.";
 }
 
 /**

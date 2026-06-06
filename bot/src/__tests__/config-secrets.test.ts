@@ -212,6 +212,87 @@ bindings:
     );
   });
 
+  it("does not resolve Telegram token sources when Telegram bindings are disabled", () => {
+    process.env.TEST_DISCORD_TOKEN_ENV = "dc-token-from-env";
+    const execFileSync: ExecFileSyncLike = () => {
+      throw new Error("telegram sops should not be read");
+    };
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+secrets:
+  sopsFile: config/missing.sops.yaml
+telegramTokenSopsKey: telegram.bot_token
+bindings: []
+discord:
+  tokenEnv: TEST_DISCORD_TOKEN_ENV
+  bindings:
+    - guildId: "999"
+      agentId: main
+      kind: channel
+`
+    );
+
+    const config = loadConfig(configPath, { secretExecFileSync: execFileSync });
+
+    assert.equal(config.telegramToken, undefined);
+    assert.equal(config.bindings.length, 0);
+    assert.equal(config.discord!.token, "dc-token-from-env");
+  });
+
+  it("validates telegramTokenEnv type (must be string)", () => {
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+telegramTokenEnv: 123
+bindings:
+  - chatId: 111
+    agentId: main
+    kind: dm
+`
+    );
+    assert.throws(() => loadConfig(configPath), /telegramTokenEnv must be a string/);
+  });
+
+  it("rejects Telegram SOPS keys without secrets.sopsFile even when env is configured", () => {
+    process.env.TEST_TELEGRAM_TOKEN_ENV = "tg-token-from-env";
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+telegramTokenSopsKey: telegram.bot_token
+telegramTokenEnv: TEST_TELEGRAM_TOKEN_ENV
+bindings:
+  - chatId: 111
+    agentId: main
+    kind: dm
+`
+    );
+    assert.throws(() => loadConfig(configPath), /telegramTokenSopsKey requires secrets\.sopsFile/);
+  });
+
+  it("rejects invalid SOPS key syntax during structure-only validation", () => {
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+secrets:
+  sopsFile: config/secrets.sops.yaml
+telegramTokenSopsKey: telegram.bot/token
+bindings:
+  - chatId: 111
+    agentId: main
+    kind: dm
+`
+    );
+    assert.throws(
+      () => loadConfig(configPath, { resolveSecrets: false }),
+      /telegramTokenSopsKey must be a dot path with segments matching \[A-Za-z0-9_-\]\+/,
+    );
+  });
+
   it("reads discord.token from SOPS when tokenSopsKey is configured", () => {
     const sopsFile = writeSopsPlaceholder();
     const calls: Array<{ file: string; args: readonly string[] }> = [];
@@ -400,6 +481,27 @@ discord:
 `
     );
     assert.throws(() => loadConfig(configPath), /discord.tokenEnv must be a string/);
+  });
+
+  it("rejects invalid Discord SOPS key syntax during structure-only validation", () => {
+    writeFileSync(
+      configPath,
+      minimalAgentsYaml +
+        `
+secrets:
+  sopsFile: config/secrets.sops.yaml
+discord:
+  tokenSopsKey: discord.bot/token
+  bindings:
+    - guildId: "999"
+      agentId: main
+      kind: channel
+`
+    );
+    assert.throws(
+      () => loadConfig(configPath, { resolveSecrets: false }),
+      /discord\.tokenSopsKey must be a dot path with segments matching \[A-Za-z0-9_-\]\+/,
+    );
   });
 
   it("validates SOPS config field types", () => {

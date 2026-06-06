@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 import { readSopsSecret, type ExecFileSyncLike } from "../secrets.js";
+import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-constants.js";
 
-export const TAVILY_SOPS_FILE_RELPATH = "config/secrets.sops.yaml";
-export const TAVILY_SOPS_KEY = "tavily.api_key";
+export { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-constants.js";
 
 export interface ReadTavilyApiKeyOptions {
   cwd?: string;

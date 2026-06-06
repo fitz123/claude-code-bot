@@ -3,7 +3,7 @@
 // Loads cron definition from crons.yaml, runs a Pi print-mode one-shot, delivers output to Telegram
 
 import { readFileSync, appendFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
-import { loadRawMergedConfig, validateAgent } from "./config.js";
+import { loadRawMergedConfig, loadTelegramToken, validateAgent } from "./config.js";
 import {
   execSync,
   spawnSync,
@@ -428,11 +428,16 @@ function deliver(
   threadId?: number,
 ): void {
   try {
+    const telegramToken = loadTelegramToken();
     execSync(buildDeliverCommand(chatId, threadId), {
       input: message,
       encoding: "utf8",
       timeout: 30000,
       stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        TELEGRAM_BOT_TOKEN: telegramToken,
+      },
     });
   } catch (err) {
     throw new Error(`Delivery failed: ${(err as Error).message}`);
