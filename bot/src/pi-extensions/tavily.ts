@@ -182,7 +182,7 @@ function validateOutboundText(
     return `${kind} contains local path text`;
   }
   if (options.checkRepoPaths && REPO_FILE_PATH_PATTERN.test(text)) {
-    return `${kind} contains local path text`;
+    return `${kind} contains repository path text`;
   }
   if (containsHighEntropyToken(text)) {
     return `${kind} contains high-entropy token-like text`;

@@ -269,6 +269,19 @@ describe("tavily: executeWebSearch", () => {
     ]);
   });
 
+  it("blocks repository path text in a search query before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebSearch({ query: "inspect bot/src/config.ts" }, deps);
+    assert.equal(res.ok, false);
+    assert.match(res.text, /blocked/);
+    assert.doesNotMatch(res.text, /bot\/src\/config\.ts/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, [
+      { tool: "web_search", reason: "blocked-egress", detail: "query contains repository path text" },
+    ]);
+  });
+
   it("allows ordinary search queries containing bot or memory", async () => {
     const mock = mockFetch(async () => jsonResponse({ results: [] }));
     const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
