@@ -81,6 +81,7 @@ function makeDeps(overrides: Partial<RunToolDeps> = {}): { deps: RunToolDeps; wa
   const deps: RunToolDeps = {
     apiKey: KEY,
     fetchImpl: mockFetch(async () => jsonResponse({ results: [] })).fn,
+    resolveHost: async () => ["93.184.216.34"],
     warn: (e) => warns.push(e),
     ...overrides,
   };
@@ -440,6 +441,8 @@ describe("tavily: executeWebFetch", () => {
       "http://169.254.1.1/",
       "http://172.16.0.1/",
       "http://192.168.1.1/",
+      "http://192.0.0.9/",
+      "http://192.0.0.10/",
       "http://192.0.2.1/",
       "http://198.18.0.1/",
       "http://198.51.100.1/",
@@ -461,6 +464,49 @@ describe("tavily: executeWebFetch", () => {
       reason: "blocked-egress" as const,
       detail: "url targets a local/private host",
     })));
+  });
+
+  it("blocks hostnames that resolve to local/private addresses before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const resolveCalls: string[] = [];
+    const { deps, warns } = makeDeps({
+      fetchImpl: mock.fn,
+      resolveHost: async (hostname) => {
+        resolveCalls.push(hostname);
+        return ["10.0.0.1"];
+      },
+    });
+
+    const res = await executeWebFetch({ url: "https://10.0.0.1.nip.io/docs" }, deps);
+
+    assert.equal(res.ok, false);
+    assert.match(res.text, /blocked/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(resolveCalls, ["10.0.0.1.nip.io"]);
+    assert.deepEqual(warns, [{
+      tool: "web_fetch",
+      reason: "blocked-egress",
+      detail: "url host resolves to a local/private address",
+    }]);
+  });
+
+  it("fails closed when hostname resolution is unavailable", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({
+      fetchImpl: mock.fn,
+      resolveHost: async () => { throw new Error("ENOTFOUND"); },
+    });
+
+    const res = await executeWebFetch({ url: "https://example.test/docs" }, deps);
+
+    assert.equal(res.ok, false);
+    assert.match(res.text, /blocked/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, [{
+      tool: "web_fetch",
+      reason: "blocked-egress",
+      detail: "url host could not be resolved safely",
+    }]);
   });
 
   it("blocks local, private, and reserved IPv6 literal URLs before external egress", async () => {

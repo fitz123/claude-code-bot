@@ -18,11 +18,13 @@
  *    with a {@link TavilyWarn} so the Pi session logs it (the wrapper passes
  *    `console.warn` of {@link formatTavilyWarn}).
  *
- * Everything here is pure + dependency-injected (`fetchImpl`, `apiKey`, `warn`)
- * so `tavily.test.ts` can exercise request shape, response parse, HTTP-error,
- * and missing-key paths with a mock fetch and never touch the network.
+ * Everything here is pure + dependency-injected (`fetchImpl`, `apiKey`,
+ * `resolveHost`, `warn`) so `tavily.test.ts` can exercise request shape,
+ * response parse, HTTP-error, DNS-based egress guard, and missing-key paths
+ * with mocks and never touch the network.
  */
 
+import { lookup as lookupDns } from "node:dns/promises";
 import { isIP } from "node:net";
 import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-constants.js";
 
@@ -37,6 +39,7 @@ export const MAX_SEARCH_MAX_RESULTS = 20;
 export const MAX_SEARCH_QUERY_CHARS = 300;
 /** Hard cap for fetch URLs before they are sent to Tavily. */
 export const MAX_FETCH_URL_CHARS = 2048;
+const DNS_RESOLVE_TIMEOUT_MS = 1500;
 
 /** A fully-described HTTP request (so tests can assert shape without a network). */
 export interface TavilyHttpRequest {
@@ -95,11 +98,15 @@ export interface TavilyWarn {
   detail?: string;
 }
 
+export type ResolveHost = (hostname: string) => Promise<readonly string[]>;
+
 export interface RunToolDeps {
   /** Tavily API key, or undefined when the SOPS lookup failed at load. */
   apiKey: string | undefined;
   /** Injected fetch (defaults to global `fetch` in the wrapper). */
   fetchImpl: typeof fetch;
+  /** Optional DNS resolver for hostname egress checks (mocked in tests). */
+  resolveHost?: ResolveHost;
   /** Structured warn sink. */
   warn?: (event: TavilyWarn) => void;
 }
@@ -213,7 +220,7 @@ function isPublicIpv4(octets: readonly number[]): boolean {
   const isLoopback = a === 127;
   const isSharedAddressSpace = a === 100 && b >= 64 && b <= 127;
   const isLinkLocal = a === 169 && b === 254;
-  const isIetfProtocolAssignment = a === 192 && b === 0 && c === 0 && d !== 9 && d !== 10;
+  const isIetfProtocolAssignment = a === 192 && b === 0 && c === 0;
   const isDocumentation = (
     (a === 192 && b === 0 && c === 2) ||
     (a === 198 && b === 51 && c === 100) ||
@@ -329,6 +336,50 @@ function isPrivateOrLocalHost(hostname: string): boolean {
   return !isPublicIpv6(v6);
 }
 
+async function defaultResolveHost(hostname: string): Promise<readonly string[]> {
+  const records = await lookupDns(hostname, { all: true, verbatim: true });
+  return records.map((record) => record.address);
+}
+
+async function resolveHostWithTimeout(resolveHost: ResolveHost, hostname: string): Promise<readonly string[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("dns-timeout")), DNS_RESOLVE_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([resolveHost(hostname), timeout]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function validateResolvedHostname(hostname: string, resolveHost: ResolveHost): Promise<string | undefined> {
+  const host = canonicalHostname(hostname);
+  if (isIP(host)) {
+    return undefined;
+  }
+
+  let addresses: readonly string[];
+  try {
+    addresses = await resolveHostWithTimeout(resolveHost, host);
+  } catch {
+    return "url host could not be resolved safely";
+  }
+
+  if (addresses.length === 0) {
+    return "url host could not be resolved safely";
+  }
+
+  if (addresses.some((address) => isPrivateOrLocalHost(address))) {
+    return "url host resolves to a local/private address";
+  }
+
+  return undefined;
+}
+
 function validateWebSearchEgress(query: string): string | undefined {
   return validateOutboundText("query", query, MAX_SEARCH_QUERY_CHARS, {
     checkLocalPaths: true,
@@ -361,7 +412,10 @@ function validateDecodedUrlText(kind: "url path" | "url fragment", rawText: stri
   });
 }
 
-function validateWebFetchEgress(url: string): WebFetchEgressValidation {
+async function validateWebFetchEgress(
+  url: string,
+  resolveHost: ResolveHost = defaultResolveHost,
+): Promise<WebFetchEgressValidation> {
   const textProblem = validateOutboundText("url", url, MAX_FETCH_URL_CHARS, {
     checkSensitiveAssignments: false,
   });
@@ -384,6 +438,11 @@ function validateWebFetchEgress(url: string): WebFetchEgressValidation {
   }
   if (isPrivateOrLocalHost(parsed.hostname)) {
     return { problem: "url targets a local/private host" };
+  }
+
+  const resolvedHostProblem = await validateResolvedHostname(parsed.hostname, resolveHost);
+  if (resolvedHostProblem) {
+    return { problem: resolvedHostProblem };
   }
 
   const rawPathProblem = validateOutboundText("url path", parsed.pathname, MAX_FETCH_URL_CHARS, {
@@ -613,7 +672,7 @@ export async function executeWebFetch(args: WebFetchArgs, deps: RunToolDeps): Pr
     return errResult("web_fetch requires a non-empty 'url' string.");
   }
 
-  const egress = validateWebFetchEgress(url);
+  const egress = await validateWebFetchEgress(url, deps.resolveHost ?? defaultResolveHost);
   if (egress.problem) {
     deps.warn?.({ tool: "web_fetch", reason: "blocked-egress", detail: egress.problem });
     return errResult(`web_fetch blocked: ${egress.problem}. Do not send local or private data to external web services.`);
