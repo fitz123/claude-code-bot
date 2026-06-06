@@ -9,9 +9,18 @@
 # compatibility but is no longer inherited by agents.
 # defaultModel: gpt-5.5
 
+# Optional: SOPS-backed runtime secrets. These are only non-secret pointers to
+# private deployment artifacts. Runtime SOPS files are not part of this public
+# repo and must not be committed. SOPS key paths are dot paths with
+# [A-Za-z0-9_-]+ segments; a configured *SopsKey requires secrets.sopsFile.
+# secrets:
+#   sopsFile: config/secrets.sops.yaml
+# telegramTokenSopsKey: telegram.bot_token
+# telegramTokenEnv: TELEGRAM_BOT_TOKEN   # optional environment deployment override
+
 agents:
   main:
-    workspaceCwd: /Users/you/.minime/workspace   # absolute path to your agent workspace (~ not expanded)
+    workspaceCwd: /absolute/path/to/agent/workspace   # absolute path to your agent workspace (~ not expanded)
     model: gpt-5.5
     # provider: pi      # optional compatibility field; omit or set to "pi"
     # thinking: xhigh   # optional Pi/Codex thinking level: off, minimal, low, medium, high, xhigh
@@ -19,7 +28,7 @@ agents:
                         # optional systemPrompt, and thinking.
 
 bindings:
-  - chatId: 123456789           # your Telegram user ID (get it from @userinfobot)
+  - chatId: 111111111           # placeholder Telegram user ID; replace with your numeric ID
     agentId: main
     kind: dm
     label: My DM
@@ -29,15 +38,16 @@ bindings:
 #   requireMention: true              # require @mention for all group bindings unless overridden
 
 # Optional: default delivery target for cron results
-# defaultDeliveryChatId: -1001234567890
+# defaultDeliveryChatId: -1001111111111
 # defaultDeliveryThreadId: 42
 
 # Optional: admin chat for fallback notifications when cron delivery fails
-# adminChatId: 123456789
+# adminChatId: 111111111
 
 # Optional: Discord support
 # discord:
-#   tokenService: discord-bot-token
+#   tokenSopsKey: discord.bot_token
+#   tokenEnv: DISCORD_BOT_TOKEN          # optional environment deployment override
 #   bindings:
 #     - guildId: 'YOUR_GUILD_ID'
 #       agentId: main

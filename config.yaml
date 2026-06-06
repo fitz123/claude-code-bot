@@ -5,9 +5,14 @@
 # Only user-specific values need to be in config.local.yaml:
 #   agents.<name>.workspaceCwd, bindings with real chatIds, discord config.
 
-# Keychain service name for the Telegram bot token.
-# Store your token: security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_BOT_TOKEN'
-telegramTokenService: telegram-bot-token
+# Runtime token sources. SOPS is the canonical private-workspace backend for
+# bot platform tokens; env vars remain available as explicit deployment
+# overrides. SOPS key paths are dot paths with [A-Za-z0-9_-]+ segments.
+# A configured *SopsKey requires secrets.sopsFile.
+secrets:
+  sopsFile: config/secrets.sops.yaml
+telegramTokenSopsKey: telegram.bot_token
+# telegramTokenEnv: TELEGRAM_BOT_TOKEN
 logLevel: info
 
 # Agents must set explicit Pi/Codex models. The top-level defaultModel key is
@@ -68,18 +73,18 @@ metricsPort: 9091
 
 # Default delivery target for cron results (optional).
 # Individual crons can override with their own deliveryChatId/deliveryThreadId.
-# defaultDeliveryChatId: -1001234567890
+# defaultDeliveryChatId: -1001111111111
 # defaultDeliveryThreadId: 42
 
 # Admin chat for fallback notifications when cron delivery fails (optional).
-# adminChatId: 123456789
+# adminChatId: 111111111
 
 # Discord support (optional — bot works Telegram-only without this section)
-# Store token: security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN'
 # discord:
-#   tokenService: discord-bot-token
+#   tokenSopsKey: discord.bot_token
+#   tokenEnv: DISCORD_BOT_TOKEN
 #   bindings:
-#     - guildId: '1234567890'
+#     - guildId: 'YOUR_GUILD_ID'
 #       agentId: main
 #       kind: channel
 #       label: My Server

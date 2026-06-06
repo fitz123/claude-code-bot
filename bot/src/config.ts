@@ -1,16 +1,18 @@
 import { readFileSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDefaults, DiscordBinding, DiscordChannelOverride, DiscordConfig } from "./types.js";
 import { log, parseLogLevel } from "./logger.js";
 import { DEFAULT_MAX_MEDIA_BYTES } from "./media-store.js";
+import { resolveSecret, sopsExtractExpression, type ExecFileSyncLike } from "./secrets.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
 const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const CONFIGURED_SECRET_PLACEHOLDER = "[configured]";
+const LEGACY_TELEGRAM_SERVICE_KEY_RE = /^telegramToken[Ss]ervice$/;
+const LEGACY_DISCORD_SERVICE_KEY_RE = /^token[Ss]ervice$/;
 
 // Derive the .local counterpart path: config.yaml → config.local.yaml
 function deriveLocalConfigPath(configPath: string): string {
@@ -63,7 +65,10 @@ export function loadRawMergedConfig(configPath?: string): Record<string, unknown
 }
 
 interface RawConfig {
-  telegramTokenService?: string;
+  secrets?: {
+    sopsFile?: string;
+  };
+  telegramTokenSopsKey?: string;
   telegramTokenEnv?: string;
   agents?: Record<string, unknown>;
   bindings?: unknown[];
@@ -72,7 +77,7 @@ interface RawConfig {
   metricsPort?: number;
   metricsHost?: string;
   discord?: {
-    tokenService?: string;
+    tokenSopsKey?: string;
     tokenEnv?: string;
     bindings?: unknown[];
   };
@@ -85,52 +90,7 @@ interface RawConfig {
 
 interface LoadConfigOptions {
   resolveSecrets?: boolean;
-}
-
-/**
- * Resolve a secret from either an environment variable (Linux/NixOS) or
- * the macOS Keychain (legacy Mac workflow). Env var wins if set.
- *
- * Designed for cross-platform bot deployment:
- *   - macOS: `tokenService:` (existing) → security find-generic-password
- *   - Linux/NixOS: `tokenEnv:` → process.env[envVar] (e.g. sops-nix injected)
- *   - Both set: env wins (lets NixOS override Keychain for testing)
- *   - Neither set: throw
- *
- * @param opts.service   Keychain service name (macOS fallback)
- * @param opts.envVar    Env var name (preferred when set)
- * @param opts.fieldName Human-readable config field name (for error messages)
- */
-function resolveSecret(opts: {
-  service?: string;
-  envVar?: string;
-  fieldName: string;
-}): string {
-  // 1. Env var wins if set (Linux/NixOS path — preferred for production deploy).
-  // Trim whitespace and treat blank as unset — sops-nix EnvironmentFile and
-  // systemd often leave trailing newlines or accidental quoting that would
-  // otherwise produce a "valid-but-garbage" token that fails much later.
-  if (opts.envVar) {
-    const val = process.env[opts.envVar];
-    if (val !== undefined && val.trim() !== "") {
-      return val.trim();
-    }
-  }
-  // 2. Fall back to Keychain (macOS dev workflow — preserves existing behavior)
-  if (opts.service) {
-    try {
-      return execFileSync(
-        "security",
-        ["find-generic-password", "-s", opts.service, "-w"],
-        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-      ).trim();
-    } catch {
-      const envHint = opts.envVar ? ` (env var '${opts.envVar}' also unset)` : "";
-      throw new Error(`Failed to read Keychain service '${opts.service}' for ${opts.fieldName}${envHint}`);
-    }
-  }
-  // 3. Neither configured — config error
-  throw new Error(`${opts.fieldName} requires either a Keychain service name or an env var name`);
+  secretExecFileSync?: ExecFileSyncLike;
 }
 
 export function validateAgent(
@@ -317,26 +277,30 @@ export function validateDiscordBinding(raw: unknown, index: number): DiscordBind
 function validateDiscordConfig(
   raw: RawConfig["discord"],
   agents: Record<string, AgentConfig>,
+  sopsFile: string | undefined,
   options: LoadConfigOptions = {},
 ): DiscordConfig | undefined {
   if (!raw) return undefined;
-  // Accept either tokenService (Keychain — macOS) or tokenEnv (env var — Linux/NixOS).
-  // At least one must be set.
-  if (raw.tokenService !== undefined && typeof raw.tokenService !== "string") {
-    throw new Error("discord.tokenService must be a string");
+  const legacyKey = findLegacyConfigKey(raw, LEGACY_DISCORD_SERVICE_KEY_RE);
+  if (legacyKey) {
+    throw new Error(
+      `discord.${legacyKey} is no longer supported; migrate to discord.tokenSopsKey with secrets.sopsFile or discord.tokenEnv`,
+    );
   }
-  if (raw.tokenEnv !== undefined && typeof raw.tokenEnv !== "string") {
-    throw new Error("discord.tokenEnv must be a string");
-  }
-  if (!raw.tokenService && !raw.tokenEnv) {
-    throw new Error("discord requires either tokenService (macOS Keychain) or tokenEnv (env var)");
+  const tokenSopsKey = optionalConfigString(raw.tokenSopsKey, "discord.tokenSopsKey");
+  const tokenEnv = optionalConfigString(raw.tokenEnv, "discord.tokenEnv");
+  validateConfiguredSopsSource(sopsFile, tokenSopsKey, "discord.tokenSopsKey");
+  if (!tokenSopsKey && !tokenEnv) {
+    throw new Error("discord requires a token source (discord.tokenSopsKey with secrets.sopsFile, or discord.tokenEnv)");
   }
   const token = options.resolveSecrets === false
     ? CONFIGURED_SECRET_PLACEHOLDER
     : resolveSecret({
-      service: raw.tokenService,
-      envVar: raw.tokenEnv,
+      sopsFile,
+      sopsKey: tokenSopsKey,
+      envVar: tokenEnv,
       fieldName: "discord.token",
+      execFileSync: options.secretExecFileSync,
     });
   if (!Array.isArray(raw.bindings) || raw.bindings.length === 0) {
     throw new Error("discord.bindings must be a non-empty array");
@@ -407,6 +371,71 @@ export function validateSessionDefaults(raw: unknown): SessionDefaults {
   return { idleTimeoutMs, maxConcurrentSessions, maxMessageAgeMs, requireMention, maxMediaBytes };
 }
 
+function optionalConfigString(value: unknown, fieldName: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function resolveConfiguredSopsFile(raw: RawConfig, configPath?: string): string | undefined {
+  if (raw.secrets === undefined) return undefined;
+  if (typeof raw.secrets !== "object" || raw.secrets === null || Array.isArray(raw.secrets)) {
+    throw new Error("secrets must be an object");
+  }
+  const sopsFile = optionalConfigString(raw.secrets.sopsFile, "secrets.sopsFile");
+  if (!sopsFile) return undefined;
+  return resolve(dirname(resolve(configPath ?? DEFAULT_CONFIG_PATH)), sopsFile);
+}
+
+function validateConfiguredSopsSource(
+  sopsFile: string | undefined,
+  sopsKey: string | undefined,
+  fieldName: string,
+): void {
+  if (!sopsKey) return;
+  try {
+    sopsExtractExpression(sopsKey);
+  } catch {
+    throw new Error(`${fieldName} must be a dot path with segments matching [A-Za-z0-9_-]+`);
+  }
+  if (!sopsFile) {
+    throw new Error(`${fieldName} requires secrets.sopsFile`);
+  }
+}
+
+function findLegacyConfigKey(raw: object, keyPattern: RegExp): string | undefined {
+  return Object.keys(raw).find((key) => keyPattern.test(key));
+}
+
+export function loadTelegramToken(configPath?: string, options: LoadConfigOptions = {}): string {
+  const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
+  const sopsFile = resolveConfiguredSopsFile(raw, configPath);
+  const legacyTelegramKey = findLegacyConfigKey(raw, LEGACY_TELEGRAM_SERVICE_KEY_RE);
+  if (legacyTelegramKey) {
+    throw new Error(
+      `${legacyTelegramKey} is no longer supported; migrate to telegramTokenSopsKey with secrets.sopsFile or telegramTokenEnv`,
+    );
+  }
+  const telegramTokenSopsKey = optionalConfigString(raw.telegramTokenSopsKey, "telegramTokenSopsKey");
+  const telegramTokenEnv = optionalConfigString(raw.telegramTokenEnv, "telegramTokenEnv");
+  validateConfiguredSopsSource(sopsFile, telegramTokenSopsKey, "telegramTokenSopsKey");
+  if (!telegramTokenSopsKey && !telegramTokenEnv) {
+    throw new Error("Telegram delivery requires a token source (telegramTokenSopsKey with secrets.sopsFile, or telegramTokenEnv)");
+  }
+  return options.resolveSecrets === false
+    ? CONFIGURED_SECRET_PLACEHOLDER
+    : resolveSecret({
+      sopsFile,
+      sopsKey: telegramTokenSopsKey,
+      envVar: telegramTokenEnv,
+      fieldName: "telegramToken",
+      execFileSync: options.secretExecFileSync,
+    });
+}
+
 export function loadConfig(configPath?: string, options: LoadConfigOptions = {}): BotConfig {
   const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
   const resolveSecrets = options.resolveSecrets !== false;
@@ -414,6 +443,7 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   if (!raw || typeof raw !== "object") {
     throw new Error("Config file is empty or invalid");
   }
+  const sopsFile = resolveConfiguredSopsFile(raw, configPath);
 
   // Validate top-level defaults for migration clarity. Agents no longer inherit
   // defaultModel now that Pi is the only runtime.
@@ -434,34 +464,39 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
     agents[id] = validateAgent(agentRaw, id, defaultModel);
   }
 
-  // Resolve Telegram token from env var (Linux/NixOS) or Keychain (macOS).
+  // Resolve Telegram token from configured non-interactive secret sources.
   // Optional — not needed for Discord-only setups.
-  // Explicit type validation (mirrors discord.tokenService/tokenEnv checks):
-  // catches `telegramTokenEnv: 123` early instead of silently falling through.
-  if (raw.telegramTokenService !== undefined && typeof raw.telegramTokenService !== "string") {
-    throw new Error("telegramTokenService must be a string");
+  const legacyTelegramKey = findLegacyConfigKey(raw, LEGACY_TELEGRAM_SERVICE_KEY_RE);
+  if (legacyTelegramKey) {
+    throw new Error(
+      `${legacyTelegramKey} is no longer supported; migrate to telegramTokenSopsKey with secrets.sopsFile or telegramTokenEnv`,
+    );
   }
-  if (raw.telegramTokenEnv !== undefined && typeof raw.telegramTokenEnv !== "string") {
-    throw new Error("telegramTokenEnv must be a string");
-  }
+  const telegramTokenSopsKey = optionalConfigString(raw.telegramTokenSopsKey, "telegramTokenSopsKey");
+  const telegramTokenEnv = optionalConfigString(raw.telegramTokenEnv, "telegramTokenEnv");
+  validateConfiguredSopsSource(sopsFile, telegramTokenSopsKey, "telegramTokenSopsKey");
+  const rawTelegramBindings = Array.isArray(raw.bindings) ? raw.bindings : [];
+  const hasTelegramBindings = rawTelegramBindings.length > 0;
   let telegramToken: string | undefined;
-  if (raw.telegramTokenService || raw.telegramTokenEnv) {
+  if (hasTelegramBindings && (telegramTokenSopsKey || telegramTokenEnv)) {
     telegramToken = resolveSecrets
       ? resolveSecret({
-        service: raw.telegramTokenService,
-        envVar: raw.telegramTokenEnv,
+        sopsFile,
+        sopsKey: telegramTokenSopsKey,
+        envVar: telegramTokenEnv,
         fieldName: "telegramToken",
+        execFileSync: options.secretExecFileSync,
       })
       : CONFIGURED_SECRET_PLACEHOLDER;
   }
 
   // Validate Telegram bindings (optional if Discord is configured)
   let bindings: TelegramBinding[] = [];
-  if (Array.isArray(raw.bindings) && raw.bindings.length > 0) {
+  if (hasTelegramBindings) {
     if (!telegramToken) {
-      throw new Error("Telegram bindings require telegramTokenService (macOS Keychain) or telegramTokenEnv (env var)");
+      throw new Error("Telegram bindings require a token source (telegramTokenSopsKey with secrets.sopsFile, or telegramTokenEnv)");
     }
-    bindings = raw.bindings.map((b, i) => {
+    bindings = rawTelegramBindings.map((b, i) => {
       const binding = validateBinding(b, i);
       if (!agents[binding.agentId]) {
         throw new Error(`Binding[${i}] references unknown agent "${binding.agentId}"`);
@@ -478,7 +513,7 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   }
 
   // Validate Discord config (optional)
-  const discord = validateDiscordConfig(raw.discord, agents, { resolveSecrets });
+  const discord = validateDiscordConfig(raw.discord, agents, sopsFile, options);
 
   // At least one platform must be configured
   if (bindings.length === 0 && !discord) {

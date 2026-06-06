@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const runCronScript = resolve(__dirname, "../../scripts/run-cron.sh");
 const startBotScript = resolve(__dirname, "../../scripts/start-bot.sh");
+const deliverScript = resolve(__dirname, "../../scripts/deliver.sh");
 
 describe("start-bot.sh", () => {
   it("does not read Claude OAuth credentials or export Claude runtime flags", () => {
@@ -140,5 +141,16 @@ describe("run-cron.sh", () => {
     } finally {
       rmSync(fixture, { recursive: true, force: true });
     }
+  });
+});
+
+describe("deliver.sh", () => {
+  it("does not read Keychain credentials and expects a resolved Telegram token in env", () => {
+    const script = readFileSync(deliverScript, "utf8");
+
+    assert.doesNotMatch(script, /security find-generic-password/);
+    assert.doesNotMatch(script, /Keychain/);
+    assert.match(script, /TELEGRAM_BOT_TOKEN/);
+    assert.match(script, /\nTOKEN="\$\{TELEGRAM_BOT_TOKEN:-\}"[\s\S]*\nunset TELEGRAM_BOT_TOKEN\n[\s\S]*\nAPI=/);
   });
 });

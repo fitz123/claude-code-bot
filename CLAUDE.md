@@ -34,6 +34,7 @@ Five hooks are wired in `.claude/settings.json`:
 - Live Pi sessions stay on `transport: auto`; only `bot/scripts/codex-quota-sampler.ts` creates an isolated sampler cwd with `transport: "sse"`.
 - `bot/.claude/extensions/codex-usage.ts` is sampler-only and must not be added to the normal Pi RPC extension list.
 - Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
+- Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Telegram/Discord SOPS files resolve relative to the bot config file, while Tavily uses `config/secrets.sops.yaml` relative to each Pi session `workspaceCwd` and should contain only `tavily.api_key`.
 - Bot validation commands: `cd bot && npm test`, `npm run typecheck`, and `npm run validate-config`.
 - Sampler dry-run check: `cd bot && CODEX_QUOTA_TEXTFILE_DIR=/tmp/codex-quota-test CODEX_QUOTA_STATE_FILE=/tmp/codex-quota-test/state.json npx tsx scripts/codex-quota-sampler.ts --dry-run`.
 
