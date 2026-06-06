@@ -52,19 +52,6 @@ crons:
     deliveryChatId: 111
 `,
   );
-  writeFileSync(
-    join(workspace, "schema.md"),
-    [
-      "# Fixture schema",
-      "",
-      "```write-allowlist",
-      "agent-workspace/",
-      "*.md",
-      "schema.md",
-      "```",
-      "",
-    ].join("\n"),
-  );
   return workspace;
 }
 
@@ -127,11 +114,9 @@ describe("minime-bot CLI", () => {
       assert.match(result.stdout, /Effective paths:/);
       assert.match(result.stdout, new RegExp(`control workspace root: ${workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(cli\\)`));
       assert.match(result.stdout, /package root:/);
-      assert.match(result.stdout, /schema path:/);
       assert.match(result.stdout, /Pi extension dir:/);
       assert.match(result.stdout, /Agent workspaces:\n  main: /);
       assert.match(result.stdout, /Crons: 1/);
-      assert.match(result.stdout, /Schema allow-list entries: 3/);
       assert.equal(result.stderr, "");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -149,20 +134,19 @@ describe("minime-bot CLI", () => {
     assert.match(result.stdout, /Workspace valid\./);
     assert.match(result.stdout, new RegExp(`control workspace root: ${MINIMAL_WORKSPACE_FIXTURE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(env\\)`));
     assert.match(result.stdout, /config path: .*minimal-workspace\/config\.yaml \(workspace-default\)/);
-    assert.match(result.stdout, /schema path: .*minimal-workspace\/schema\.md \(workspace-default\)/);
     assert.equal(result.stderr, "");
   });
 
   it("reports workspace validation hard failures separately from warnings", () => {
     const workspace = createWorkspace();
     try {
-      rmSync(join(workspace, "schema.md"), { force: true });
+      rmSync(join(workspace, "agent-workspace"), { recursive: true, force: true });
       const result = runWithCapture(["workspace", "validate", "--workspace", workspace], workspace);
 
       assert.equal(result.code, 1);
       assert.match(result.stdout, /Workspace invalid\./);
       assert.match(result.stdout, /Hard failures:/);
-      assert.match(result.stdout, /schema validation failed/);
+      assert.match(result.stdout, /workspaceCwd does not exist/);
       assert.match(result.stderr, /Error: Workspace validation failed\./);
     } finally {
       rmSync(workspace, { recursive: true, force: true });

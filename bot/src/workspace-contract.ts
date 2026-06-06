@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 export const MINIME_WORKSPACE_ROOT_ENV = "MINIME_WORKSPACE_ROOT";
 export const MINIME_CONFIG_PATH_ENV = "MINIME_CONFIG_PATH";
 export const MINIME_CRONS_PATH_ENV = "MINIME_CRONS_PATH";
-export const MINIME_SCHEMA_PATH_ENV = "MINIME_SCHEMA_PATH";
 
 export type WorkspacePathSource =
   | "cli"
@@ -32,7 +31,6 @@ export interface WorkspaceContractPaths {
   workspaceRoot: string;
   configPath: string;
   cronsPath: string;
-  schemaPath: string;
   piExtensionDir: string;
   dataDir: string;
   sessionStorePath: string;
@@ -202,12 +200,6 @@ export function resolveWorkspaceContract(
     workspaceRootDiag.path,
     "crons.yaml",
   );
-  const schemaPathDiag = pathOverrideOrWorkspaceDefault(
-    env,
-    MINIME_SCHEMA_PATH_ENV,
-    workspaceRootDiag.path,
-    "schema.md",
-  );
   const piExtensionDirDiag = inferPiExtensionDir(packageRoot, moduleUrl);
   const dataDirDiag: WorkspacePathDiagnostic = {
     path: normalize(resolve(workspaceRootDiag.path, "data")),
@@ -248,7 +240,6 @@ export function resolveWorkspaceContract(
     workspaceRoot: workspaceRootDiag,
     configPath: configPathDiag,
     cronsPath: cronsPathDiag,
-    schemaPath: schemaPathDiag,
     piExtensionDir: piExtensionDirDiag,
     dataDir: dataDirDiag,
     sessionStorePath: sessionStorePathDiag,

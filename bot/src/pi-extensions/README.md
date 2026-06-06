@@ -2,8 +2,8 @@
 
 Pure, testable helpers for Pi extension wrappers.
 
-Most helpers here back the live Pi RPC extensions (A1 guard, A2 web-tools, A3
-subagent) loaded into every `pi --mode rpc` spawn. `codex-usage.ts` is different:
+Most helpers here back the live Pi RPC extensions (web-tools and subagent)
+loaded into every `pi --mode rpc` spawn. `codex-usage.ts` is different:
 it is used only by the out-of-band Codex quota sampler via
 `bot/.claude/extensions/codex-usage.ts`, and must not be added to the normal
 `PI_EXTENSION_WRAPPER_RELPATHS` list. See
@@ -14,8 +14,8 @@ it is used only by the out-of-band Codex quota sampler via
 There are TWO kinds of files in this feature, deliberately split:
 
 1. **Pure helpers — `bot/src/pi-extensions/*.ts`** (this directory).
-   All real logic lives here: path classification (A1), Tavily request/parse
-   (A2), subagent spawn-arg/result helpers (A3), and the sampler-only Codex
+   All real logic lives here: Tavily request/parse, subagent spawn-arg/result
+   helpers, and the sampler-only Codex
    quota cache/export helper. These files are:
    - **Type-checked by `tsc --noEmit`** (the `npm run lint` command) because the
      bot `tsconfig.json` `include` is `["src/**/*.ts"]`, which matches this path.
@@ -24,8 +24,8 @@ There are TWO kinds of files in this feature, deliberately split:
 
    Proven in Task 0 by a throwaway stub helper (`_smoke.ts`) + a sibling test
    (`__tests__/pi-extensions-smoke.test.ts`); both were removed in Task 4 once
-   the real A1-A3 helpers (`guard.ts`, `tavily.ts`, `subagent-args.ts`) made the
-   coverage self-evident.
+   the real helpers (`tavily.ts`, `subagent-args.ts`) made the coverage
+   self-evident.
 
 2. **Thin wrappers — `bot/.claude/extensions/<name>.ts`** (or `<name>/index.ts`
    for A3). Each is a minimal `export default function (pi) { ... }` that wires a

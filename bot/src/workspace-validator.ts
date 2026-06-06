@@ -1,13 +1,6 @@
 import { existsSync, statSync } from "node:fs";
-import { normalize, resolve } from "node:path";
 import { loadConfig } from "./config.js";
 import { loadMergedCrons } from "./cron-runner.js";
-import { PI_EXTENSIONS_DISABLED_ENV } from "./pi-rpc-protocol.js";
-import {
-  readWriteAllowlistSchema,
-  resolveWriteAllowlistSchemaPath,
-  type WriteAllowlistSchemaResult,
-} from "./pi-extensions/write-allowlist-schema.js";
 import type { BotConfig } from "./types.js";
 import {
   resolveAgentWorkspaceCwd,
@@ -25,13 +18,11 @@ export interface WorkspaceValidationResult {
   contract: ResolvedWorkspaceContract;
   config?: BotConfig;
   crons?: Array<Record<string, unknown>>;
-  schema?: WriteAllowlistSchemaResult;
   issues: WorkspaceValidationIssue[];
 }
 
 export interface ValidateWorkspaceOptions {
   env?: NodeJS.ProcessEnv;
-  guardEnforcementEnabled?: boolean;
 }
 
 function issue(
@@ -73,10 +64,6 @@ function describePathKind(path: string): string {
     return "is a regular file";
   }
   return "is not a regular file";
-}
-
-function schemaGuardEnabled(options: ValidateWorkspaceOptions, env: NodeJS.ProcessEnv): boolean {
-  return options.guardEnforcementEnabled ?? env[PI_EXTENSIONS_DISABLED_ENV] !== "1";
 }
 
 export function workspaceValidationErrors(
@@ -131,34 +118,6 @@ export function validateWorkspaceContract(
     }
   }
 
-  const defaultSchemaPath = normalize(resolve(contract.paths.workspaceRoot, "schema.md"));
-  if (contract.effectivePaths.schemaPath.source !== "env" && contract.paths.schemaPath !== defaultSchemaPath) {
-    issue(
-      issues,
-      "error",
-      `schema path must default to workspace root schema.md when no override is set: ${contract.paths.schemaPath}`,
-    );
-  }
-
-  const guardSchemaPath = resolveWriteAllowlistSchemaPath(contract.paths.workspaceRoot, env);
-  if (guardSchemaPath !== contract.paths.schemaPath) {
-    issue(
-      issues,
-      "error",
-      `live guard schema path does not match validator schema path: guard=${guardSchemaPath} validator=${contract.paths.schemaPath}`,
-    );
-  }
-
-  let schema: WriteAllowlistSchemaResult | undefined;
-  if (schemaGuardEnabled(options, env)) {
-    schema = readWriteAllowlistSchema(contract.paths.schemaPath);
-    if (schema.issue) {
-      issue(issues, "error", `schema validation failed: ${schema.issue.message}`);
-    }
-  } else {
-    issue(issues, "warning", `Pi guard enforcement is disabled by ${PI_EXTENSIONS_DISABLED_ENV}=1; schema allow-list was not enforced`);
-  }
-
   if (config) {
     for (const [agentId, agent] of Object.entries(config.agents)) {
       const agentWorkspace = resolveAgentWorkspaceCwd(contract.paths.workspaceRoot, agent.workspaceCwd);
@@ -180,5 +139,5 @@ export function validateWorkspaceContract(
     issue(issues, "warning", warning);
   }
 
-  return { contract, config, crons, schema, issues };
+  return { contract, config, crons, issues };
 }

@@ -66,7 +66,7 @@ crons.yaml → generate-plists.ts → launchd plist → run-cron.sh → cron-run
   timeout: 300000                 # Execution timeout ms (optional)
 ```
 
-For LLM crons, `engine` must be omitted or `pi`; `engine: claude` fails validation. `CRON_PI_DISABLED=1` is unsupported. `PI_EXTENSIONS_DISABLED=1` fails LLM crons because the A1 guard extension is required.
+For LLM crons, `engine` must be omitted or `pi`; `engine: claude` fails validation. `CRON_PI_DISABLED=1` is unsupported.
 
 ### Environment handling
 

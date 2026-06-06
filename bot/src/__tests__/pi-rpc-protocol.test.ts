@@ -11,7 +11,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -22,7 +21,6 @@ import {
   PI_CRON_WRAPPER_RELPATHS,
   PI_EXTENSION_ARTIFACT_WRAPPER_RELPATHS,
   PI_EXTENSION_WRAPPER_RELPATHS,
-  PI_GUARD_WORKSPACE_ROOT_ENV,
   PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS,
   PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
   buildGetStateCommand,
@@ -44,7 +42,7 @@ import {
   type PiExtensionResolveOptions,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, StreamLine } from "../types.js";
-import { MINIME_SCHEMA_PATH_ENV, MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 const testAgent: AgentConfig = {
   id: "main",
@@ -349,8 +347,7 @@ describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
     assert.ok(noContextIdx < firstExtension, "context args must precede --extension args");
     assert.ok(firstExtension < session, "--extension args must precede --session");
     assert.strictEqual(args[session + 1], "pi-sess-resume");
-    // All three extension wrappers still resolve alongside the new context args.
-    assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
+    assert.strictEqual(args.filter((a) => a === "--extension").length, 2);
   });
 
   it("degrades to no context args for an empty pi workspace", () => {
@@ -412,60 +409,46 @@ describe("Pi extension loading (--extension)", () => {
 
   it("resolves a repeatable --extension arg (abs path) for each wrapper, in load order", () => {
     assert.deepStrictEqual(resolvePiExtensionArgs(presentAll), [
-      "--extension", wrapperAbs("guardian-protect-files.ts"),
       "--extension", wrapperAbs("web-tools.ts"),
       "--extension", wrapperAbs("subagent/index.ts"),
     ]);
   });
 
-  it("defaults the wrapper list to A1 guard, A2 web-tools, A3 subagent", () => {
+  it("defaults the wrapper list to web-tools and subagent", () => {
     assert.deepStrictEqual(
       [...PI_EXTENSION_WRAPPER_RELPATHS],
-      ["guardian-protect-files.ts", "web-tools.ts", "subagent/index.ts"],
+      ["web-tools.ts", "subagent/index.ts"],
     );
     assert.deepStrictEqual(
       [...PI_EXTENSION_ARTIFACT_WRAPPER_RELPATHS],
-      ["guardian-protect-files.js", "web-tools.js", "subagent/index.js"],
+      ["web-tools.js", "subagent/index.js"],
     );
   });
 
-  it("the subagent-child wrapper subset is A1 guard + A2 web-tools, without A3 subagent recursion", () => {
-    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], [
-      "guardian-protect-files.ts",
-      "web-tools.ts",
-    ]);
-    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS], [
-      "guardian-protect-files.js",
-      "web-tools.js",
-    ]);
+  it("the subagent-child wrapper subset is web-tools only, without subagent recursion", () => {
+    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], ["web-tools.ts"]);
+    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS], ["web-tools.js"]);
   });
 
-  it("the Pi cron wrapper subset is A1 guard only", () => {
-    assert.deepStrictEqual([...PI_CRON_WRAPPER_RELPATHS], ["guardian-protect-files.ts"]);
+  it("the Pi cron wrapper subset is empty", () => {
+    assert.deepStrictEqual([...PI_CRON_WRAPPER_RELPATHS], []);
   });
 
-  it("resolves only the requested relpaths subset (subagent child loads guard + web-tools only)", () => {
+  it("resolves only the requested relpaths subset (subagent child loads web-tools only)", () => {
     const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
     assert.deepStrictEqual(args, [
-      "--extension", wrapperAbs("guardian-protect-files.ts"),
       "--extension", wrapperAbs("web-tools.ts"),
     ]);
   });
 
-  it("resolves only the requested relpaths subset (Pi cron loads guard only)", () => {
+  it("resolves only the requested relpaths subset (Pi cron loads no wrappers)", () => {
     const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_CRON_WRAPPER_RELPATHS });
-    assert.deepStrictEqual(args, [
-      "--extension", wrapperAbs("guardian-protect-files.ts"),
-    ]);
+    assert.deepStrictEqual(args, []);
   });
 
   it("maps source wrapper relpaths to built JS relpaths for package artifact dirs", () => {
     const artifactDir = resolve("/tmp/project/node_modules/minime/dist/extensions/pi");
 
-    assert.equal(
-      piExtensionRelpathForDir(artifactDir, "guardian-protect-files.ts"),
-      "guardian-protect-files.js",
-    );
     assert.equal(
       piExtensionRelpathForDir(artifactDir, "subagent/index.ts"),
       "subagent/index.js",
@@ -486,7 +469,6 @@ describe("Pi extension loading (--extension)", () => {
     });
 
     assert.deepStrictEqual(args, [
-      "--extension", resolve(artifactDir, "guardian-protect-files.js"),
       "--extension", resolve(artifactDir, "web-tools.js"),
       "--extension", resolve(artifactDir, "subagent/index.js"),
     ]);
@@ -502,19 +484,6 @@ describe("Pi extension loading (--extension)", () => {
     assert.deepStrictEqual(args, []);
   });
 
-  it("the subset still fails CLOSED when the A1 guard wrapper is missing on disk", () => {
-    assert.throws(
-      () =>
-        resolvePiExtensionArgs({
-          extensionsDir: FAKE_DIR,
-          env: {},
-          exists: () => false,
-          relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
-        }),
-      /guardian-protect-files\.ts[\s\S]*Refusing to spawn an unguarded/,
-    );
-  });
-
   it("the subset still fails CLOSED when the A2 web-tools wrapper is missing on disk", () => {
     const presentWithoutWeb = (p: string): boolean => !p.includes("web-tools.ts");
     assert.throws(
@@ -525,7 +494,7 @@ describe("Pi extension loading (--extension)", () => {
           exists: presentWithoutWeb,
           relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
         }),
-      /web-tools\.ts[\s\S]*Refusing to spawn an unguarded/,
+      /web-tools\.ts[\s\S]*Refusing to spawn without the expected first-party extensions/,
     );
   });
 
@@ -533,9 +502,7 @@ describe("Pi extension loading (--extension)", () => {
     const args = buildPiSpawnArgs(testAgent, undefined, presentAll);
 
     assert.ok(args.includes("--no-extensions"), "ambient Pi extension discovery is always suppressed");
-    // The three wrappers are present, one --extension flag each.
-    assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
-    assert.ok(args.includes(wrapperAbs("guardian-protect-files.ts")));
+    assert.strictEqual(args.filter((a) => a === "--extension").length, 2);
     assert.ok(args.includes(wrapperAbs("web-tools.ts")));
     assert.ok(args.includes(wrapperAbs("subagent/index.ts")));
     // Base args remain intact and precede the first --extension.
@@ -571,7 +538,7 @@ describe("Pi extension loading (--extension)", () => {
   it("fails CLOSED (throws loudly) when a configured wrapper is missing on disk", () => {
     assert.throws(
       () => resolvePiExtensionArgs({ extensionsDir: FAKE_DIR, env: {}, exists: () => false }),
-      /Pi extension wrapper not found[\s\S]*Refusing to spawn an unguarded/,
+      /Pi extension wrapper not found[\s\S]*Refusing to spawn without the expected first-party extensions/,
     );
   });
 
@@ -595,27 +562,27 @@ describe("Pi extension loading (--extension)", () => {
     assert.strictEqual(args[session + 1], "pi-sess-resume");
   });
 
-  // End-to-end smoke (real disk, no mocks): the resolver's fail-CLOSED contract
+  // End-to-end smoke (real disk, no mocks): the resolver's missing-wrapper contract
   // means resolvePiExtensionArgs() with NO overrides — real default dir
-  // (bot/.claude/extensions) + real fs.existsSync — only returns without throwing
-  // if all three A1-A3 wrapper files actually exist where a live Pi spawn expects
+  // (bot/.claude/extensions) + real fs.existsSync — returns without throwing
+  // only if all expected wrapper files exist where a live Pi spawn expects
   // them. This is the acceptance smoke that the mocked tests above cannot give:
   // it would catch a wrapper that was renamed, moved, or never copied.
-  it("smoke: a real Pi spawn resolves all three on-disk wrappers (A1 guard, A2 web-tools, A3 subagent)", () => {
+  it("smoke: a real Pi spawn resolves the expected on-disk wrappers", () => {
     // Override only the env (drop any ambient kill-switch) so the default dir +
     // default existsSync run against the real repo layout.
     const args = resolvePiExtensionArgs({ env: {} });
 
     const flags = args.filter((a) => a === "--extension");
-    assert.strictEqual(flags.length, 3, "expected one --extension per wrapper");
+    assert.strictEqual(flags.length, 2, "expected one --extension per wrapper");
 
     const paths = args.filter((a) => a !== "--extension");
-    assert.strictEqual(paths.length, 3);
+    assert.strictEqual(paths.length, 2);
     for (const p of paths) {
       assert.ok(p.startsWith("/"), `wrapper path must be absolute: ${p}`);
       assert.ok(existsSync(p), `resolved wrapper must exist on disk: ${p}`);
     }
-    // Paths resolve to the canonical A1-A3 entrypoints, in load order.
+    // Paths resolve to the canonical entrypoints, in load order.
     assert.deepStrictEqual(
       paths.map((p) => p.split("/.claude/extensions/")[1]),
       [...PI_EXTENSION_WRAPPER_RELPATHS],
@@ -663,9 +630,7 @@ describe("buildPiSpawnEnv", () => {
       "TAVILY_API_KEY",
       "TELEGRAM_BOT_TOKEN",
       "MINIME_SESSION_SECRET",
-      "MINIME_SCHEMA_PATH",
       "MINIME_WORKSPACE_ROOT",
-      "PI_GUARD_WORKSPACE_ROOT",
     ];
     const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
 
@@ -690,7 +655,6 @@ describe("buildPiSpawnEnv", () => {
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
       process.env.MINIME_SESSION_SECRET = "fixture";
       process.env[MINIME_WORKSPACE_ROOT_ENV] = "/tmp";
-      process.env[PI_GUARD_WORKSPACE_ROOT_ENV] = "/wrong-root";
 
       const env = buildPiSpawnEnv(testAgent);
 
@@ -704,8 +668,6 @@ describe("buildPiSpawnEnv", () => {
       assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
       assert.strictEqual(env.MINIME_SESSION_SECRET, undefined);
       assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync("/tmp"));
-      assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], "/tmp/schema.md");
       assert.strictEqual(env.ANTHROPIC_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.AWS_ACCESS_KEY_ID, undefined);
       assert.strictEqual(env.AWS_SECRET_ACCESS_KEY, undefined);
@@ -792,8 +754,7 @@ describe("buildPiSpawnEnv", () => {
     try {
       const env = withWorkspaceRoot(controlWorkspace, () => buildPiSpawnEnv(testAgent));
 
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(controlWorkspace));
-      assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], join(controlWorkspace, "schema.md"));
+      assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
     } finally {
       rmSync(controlWorkspace, { recursive: true, force: true });
     }
@@ -808,126 +769,13 @@ describe("buildPiSpawnEnv", () => {
     try {
       const env = withWorkspaceRoot(workspaceRoot, () => buildPiSpawnEnv({ ...testAgent, workspaceCwd: symlinkWorkspace }));
 
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspaceRoot));
+      assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
       rmSync(externalWorkspace, { recursive: true, force: true });
     }
   });
 
-  it("replaces a stray PI_GUARD_WORKSPACE_ROOT with the resolved control workspace root", () => {
-    const oldRoot = process.env.PI_GUARD_WORKSPACE_ROOT;
-    const oldWorkspace = process.env.MINIME_WORKSPACE_ROOT;
-
-    try {
-      process.env[MINIME_WORKSPACE_ROOT_ENV] = "/tmp";
-      process.env.PI_GUARD_WORKSPACE_ROOT = "/somewhere/else";
-      const env = buildPiSpawnEnv(testAgent);
-
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync("/tmp"));
-    } finally {
-      if (oldRoot === undefined) {
-        delete process.env.PI_GUARD_WORKSPACE_ROOT;
-      } else {
-        process.env.PI_GUARD_WORKSPACE_ROOT = oldRoot;
-      }
-      if (oldWorkspace === undefined) {
-        delete process.env.MINIME_WORKSPACE_ROOT;
-      } else {
-        process.env.MINIME_WORKSPACE_ROOT = oldWorkspace;
-      }
-    }
-  });
-
-  it("canonicalizes PI_GUARD_WORKSPACE_ROOT to the workspace realpath", () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-spawn-env-root-"));
-    const parentDir = mkdtempSync(join(tmpdir(), "pi-spawn-env-link-parent-"));
-    const workspaceLink = join(parentDir, "workspace-link");
-    symlinkSync(workspaceRoot, workspaceLink, "dir");
-    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
-
-    try {
-      mkdirSync(join(workspaceRoot, "agent-workspace"), { recursive: true });
-      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceLink;
-      const env = buildPiSpawnEnv({ ...testAgent, workspaceCwd: "./agent-workspace" });
-
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspaceRoot));
-    } finally {
-      if (oldWorkspace === undefined) {
-        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
-      } else {
-        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
-      }
-      rmSync(workspaceRoot, { recursive: true, force: true });
-      rmSync(parentDir, { recursive: true, force: true });
-    }
-  });
-
-  it("canonicalizes subagent child guard roots to realpaths", () => {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-subagent-env-root-"));
-    const parentDir = mkdtempSync(join(tmpdir(), "pi-subagent-env-link-parent-"));
-    const workspaceLink = join(parentDir, "workspace-link");
-    symlinkSync(workspaceRoot, workspaceLink, "dir");
-
-    try {
-      const env = buildPiSubagentChildSpawnEnv(workspaceLink);
-
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspaceRoot));
-    } finally {
-      rmSync(workspaceRoot, { recursive: true, force: true });
-      rmSync(parentDir, { recursive: true, force: true });
-    }
-  });
-
-  it("propagates an absolute MINIME_SCHEMA_PATH override to Pi guard processes", () => {
-    const oldWorkspace = process.env.MINIME_WORKSPACE_ROOT;
-    const oldSchema = process.env.MINIME_SCHEMA_PATH;
-
-    try {
-      process.env.MINIME_WORKSPACE_ROOT = "/tmp";
-      process.env.MINIME_SCHEMA_PATH = "/tmp/override-schema.md";
-      const env = buildPiSpawnEnv(testAgent);
-
-      assert.strictEqual(env.MINIME_SCHEMA_PATH, "/tmp/override-schema.md");
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync("/tmp"));
-    } finally {
-      if (oldWorkspace === undefined) {
-        delete process.env.MINIME_WORKSPACE_ROOT;
-      } else {
-        process.env.MINIME_WORKSPACE_ROOT = oldWorkspace;
-      }
-      if (oldSchema === undefined) {
-        delete process.env.MINIME_SCHEMA_PATH;
-      } else {
-        process.env.MINIME_SCHEMA_PATH = oldSchema;
-      }
-    }
-  });
-
-  it("resolves a relative MINIME_SCHEMA_PATH override before passing it to Pi guard processes", () => {
-    const oldWorkspace = process.env.MINIME_WORKSPACE_ROOT;
-    const oldSchema = process.env.MINIME_SCHEMA_PATH;
-
-    try {
-      process.env.MINIME_WORKSPACE_ROOT = "/tmp";
-      process.env.MINIME_SCHEMA_PATH = "schemas/override.md";
-      const env = buildPiSpawnEnv(testAgent);
-
-      assert.strictEqual(env.MINIME_SCHEMA_PATH, "/tmp/schemas/override.md");
-      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync("/tmp"));
-    } finally {
-      if (oldWorkspace === undefined) {
-        delete process.env.MINIME_WORKSPACE_ROOT;
-      } else {
-        process.env.MINIME_WORKSPACE_ROOT = oldWorkspace;
-      }
-      if (oldSchema === undefined) {
-        delete process.env.MINIME_SCHEMA_PATH;
-      } else {
-        process.env.MINIME_SCHEMA_PATH = oldSchema;
-      }
-    }
-  });
 });
 
 describe("spawnPiRpcSession workspace validation", () => {
@@ -956,7 +804,7 @@ describe("spawnPiRpcSession workspace validation", () => {
 });
 
 describe("buildPiSubagentChildSpawnEnv", () => {
-  it("uses the same credential-scrubbed env as Pi spawns and pins the guard root", () => {
+  it("uses the same credential-scrubbed env as Pi spawns", () => {
     const envKeys = [
       "ANTHROPIC_API_KEY",
       "GITHUB_TOKEN",
@@ -964,7 +812,6 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       "OPENAI_API_KEY",
       "PATH",
       "PI_CODING_AGENT_SESSION_DIR",
-      "PI_GUARD_WORKSPACE_ROOT",
       "SSH_AUTH_SOCK",
       "TAVILY_API_KEY",
       "TELEGRAM_BOT_TOKEN",
@@ -978,28 +825,21 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       process.env.OPENAI_API_KEY = "fixture";
       process.env.PATH = "/usr/bin";
       process.env.PI_CODING_AGENT_SESSION_DIR = "/tmp/pi-sessions";
-      process.env.PI_GUARD_WORKSPACE_ROOT = "/wrong/root";
       process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
       process.env.TAVILY_API_KEY = "fixture";
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
-      const guardRoot = mkdtempSync(join(tmpdir(), "pi-subagent-guard-root-"));
 
-      try {
-        const env = buildPiSubagentChildSpawnEnv(guardRoot);
+      const env = buildPiSubagentChildSpawnEnv();
 
-        assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync(guardRoot));
-        assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
-        assert.strictEqual(env.LC_CTYPE, "UTF-8");
-        assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
-        assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
-        assert.strictEqual(env.GITHUB_TOKEN, undefined);
-        assert.strictEqual(env.OPENAI_API_KEY, undefined);
-        assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
-        assert.strictEqual(env.TAVILY_API_KEY, undefined);
-        assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
-      } finally {
-        rmSync(guardRoot, { recursive: true, force: true });
-      }
+      assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
+      assert.strictEqual(env.LC_CTYPE, "UTF-8");
+      assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+      assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
+      assert.strictEqual(env.GITHUB_TOKEN, undefined);
+      assert.strictEqual(env.OPENAI_API_KEY, undefined);
+      assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
+      assert.strictEqual(env.TAVILY_API_KEY, undefined);
+      assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
     } finally {
       for (const key of envKeys) {
         const oldValue = oldValues.get(key);
