@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, realpathSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -6,13 +6,18 @@ import type { BotConfig, AgentConfig, TelegramBinding, TopicOverride, SessionDef
 import { log, parseLogLevel } from "./logger.js";
 import { DEFAULT_MAX_MEDIA_BYTES } from "./media-store.js";
 import { resolveSecret, sopsExtractExpression, type ExecFileSyncLike } from "./secrets.js";
+import { resolveAgentWorkspaceCwd, resolveWorkspaceContract } from "./workspace-contract.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_CONFIG_PATH = resolve(__dirname, "..", "..", "config.yaml");
 const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const CONFIGURED_SECRET_PLACEHOLDER = "[configured]";
 const LEGACY_TELEGRAM_SERVICE_KEY_RE = /^telegramToken[Ss]ervice$/;
 const LEGACY_DISCORD_SERVICE_KEY_RE = /^token[Ss]ervice$/;
+
+export function resolveConfigPath(configPath?: string): string {
+  return configPath === undefined
+    ? resolveWorkspaceContract().paths.configPath
+    : resolve(configPath);
+}
 
 // Derive the .local counterpart path: config.yaml → config.local.yaml
 function deriveLocalConfigPath(configPath: string): string {
@@ -54,7 +59,7 @@ export function mergeDeep(
 // Load config.yaml and merge config.local.yaml on top if it exists.
 // Exported for use by cron-runner.ts and tests.
 export function loadRawMergedConfig(configPath?: string): Record<string, unknown> {
-  const path = configPath ?? DEFAULT_CONFIG_PATH;
+  const path = resolveConfigPath(configPath);
   const base = (parseYaml(readFileSync(path, "utf8")) as Record<string, unknown>) ?? {};
   const localPath = deriveLocalConfigPath(path);
   if (existsSync(localPath)) {
@@ -91,12 +96,25 @@ interface RawConfig {
 interface LoadConfigOptions {
   resolveSecrets?: boolean;
   secretExecFileSync?: ExecFileSyncLike;
+  workspaceRoot?: string;
+}
+
+export function resolveConfigWorkspaceRoot(configPath?: string, workspaceRoot?: string): string {
+  if (workspaceRoot) {
+    return resolve(workspaceRoot);
+  }
+  const contract = resolveWorkspaceContract();
+  if (configPath === undefined || resolveConfigPath(configPath) === contract.paths.configPath) {
+    return contract.paths.workspaceRoot;
+  }
+  return dirname(resolveConfigPath(configPath));
 }
 
 export function validateAgent(
   raw: unknown,
   id: string,
   defaultModel?: string,
+  workspaceRoot?: string,
 ): AgentConfig {
   if (typeof raw !== "object" || raw === null) {
     throw new Error(`Agent "${id}" must be an object`);
@@ -153,7 +171,9 @@ export function validateAgent(
   }
   return {
     id: String(obj.id ?? id),
-    workspaceCwd: obj.workspaceCwd,
+    workspaceCwd: workspaceRoot === undefined
+      ? obj.workspaceCwd
+      : resolveAgentWorkspaceCwd(workspaceRoot, obj.workspaceCwd),
     model,
     systemPrompt: typeof obj.systemPrompt === "string" ? obj.systemPrompt : undefined,
     thinking: obj.thinking as AgentConfig["thinking"] | undefined,
@@ -387,7 +407,7 @@ function resolveConfiguredSopsFile(raw: RawConfig, configPath?: string): string 
   }
   const sopsFile = optionalConfigString(raw.secrets.sopsFile, "secrets.sopsFile");
   if (!sopsFile) return undefined;
-  return resolve(dirname(resolve(configPath ?? DEFAULT_CONFIG_PATH)), sopsFile);
+  return resolve(dirname(resolveConfigPath(configPath)), sopsFile);
 }
 
 function validateConfiguredSopsSource(
@@ -439,6 +459,7 @@ export function loadTelegramToken(configPath?: string, options: LoadConfigOption
 export function loadConfig(configPath?: string, options: LoadConfigOptions = {}): BotConfig {
   const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
   const resolveSecrets = options.resolveSecrets !== false;
+  const workspaceRoot = resolveConfigWorkspaceRoot(configPath, options.workspaceRoot);
 
   if (!raw || typeof raw !== "object") {
     throw new Error("Config file is empty or invalid");
@@ -461,7 +482,7 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   }
   const agents: Record<string, AgentConfig> = {};
   for (const [id, agentRaw] of Object.entries(raw.agents)) {
-    agents[id] = validateAgent(agentRaw, id, defaultModel);
+    agents[id] = validateAgent(agentRaw, id, defaultModel, workspaceRoot);
   }
 
   // Resolve Telegram token from configured non-interactive secret sources.
@@ -577,9 +598,23 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   return { telegramToken, agents, bindings, sessionDefaults, logLevel, metricsPort, metricsHost, discord, adminChatId, defaultDeliveryChatId, defaultDeliveryThreadId };
 }
 
+function realpathOrResolve(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+function isDirectEntrypoint(): boolean {
+  const entrypoint = process.argv[1];
+  return entrypoint !== undefined
+    && realpathOrResolve(entrypoint) === realpathOrResolve(fileURLToPath(import.meta.url));
+}
+
 // CLI: validate config
 const validateWithoutSecrets = process.argv.includes("--validate-structure") || process.argv.includes("--no-resolve-secrets");
-if (process.argv.includes("--validate") || validateWithoutSecrets) {
+if (isDirectEntrypoint() && (process.argv.includes("--validate") || validateWithoutSecrets)) {
   try {
     const config = loadConfig(undefined, { resolveSecrets: !validateWithoutSecrets });
     log.info("config", "Config valid.");

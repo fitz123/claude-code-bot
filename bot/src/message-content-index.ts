@@ -14,15 +14,12 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { log } from "./logger.js";
+import { resolveWorkspaceContract } from "./workspace-contract.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const BOT_DIR = resolve(__dirname, "..");
 const MAX_CACHE_SIZE = 10_000;
 const MAX_PREVIEW_LENGTH = 150;
-const DEFAULT_INDEX_PATH = join(BOT_DIR, "data", "message-content-index.json");
 
 export interface MessageRecord {
   from: string;
@@ -32,6 +29,15 @@ export interface MessageRecord {
 }
 
 const index = new Map<string, MessageRecord>();
+
+export function defaultMessageIndexPath(): string {
+  const contract = resolveWorkspaceContract();
+  const dataDir =
+    contract.effectivePaths.workspaceRoot.source === "current-repo-fallback"
+      ? join(contract.paths.botRoot, "data")
+      : contract.paths.dataDir;
+  return join(dataDir, "message-content-index.json");
+}
 
 function indexKey(chatId: number, messageId: number): string {
   return `${chatId}:${messageId}`;
@@ -87,7 +93,7 @@ export function messageIndexSize(): number {
  * Save the index to disk as JSON. Called on graceful shutdown.
  * Format: array of [key, value] pairs (Map serialization).
  */
-export function saveMessageIndex(path: string = DEFAULT_INDEX_PATH): void {
+export function saveMessageIndex(path: string = defaultMessageIndexPath()): void {
   const tmpPath = path + ".tmp";
   try {
     const dir = dirname(path);
@@ -107,7 +113,7 @@ export function saveMessageIndex(path: string = DEFAULT_INDEX_PATH): void {
  * Missing or corrupt files result in an empty index (no crash).
  * Respects MAX_CACHE_SIZE — only loads up to 10K entries.
  */
-export function restoreMessageIndex(path: string = DEFAULT_INDEX_PATH): void {
+export function restoreMessageIndex(path: string = defaultMessageIndexPath()): void {
   try {
     const data = readFileSync(path, "utf8");
     index.clear();

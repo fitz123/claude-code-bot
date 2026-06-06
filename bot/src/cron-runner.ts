@@ -3,7 +3,12 @@
 // Loads cron definition from crons.yaml, runs a Pi print-mode one-shot, delivers output to Telegram
 
 import { readFileSync, appendFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
-import { loadRawMergedConfig, loadTelegramToken, validateAgent } from "./config.js";
+import {
+  loadRawMergedConfig,
+  loadTelegramToken,
+  resolveConfigWorkspaceRoot,
+  validateAgent,
+} from "./config.js";
 import {
   execSync,
   spawnSync,
@@ -22,14 +27,14 @@ import {
   PI_CRON_WRAPPER_RELPATHS,
   resolvePiExtensionArgs,
   PI_EXTENSIONS_DISABLED_ENV,
+  PI_GUARD_WORKSPACE_ROOT_ENV,
   shouldIncludePiChildEnvKey,
 } from "./pi-rpc-protocol.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
+import { MINIME_SCHEMA_PATH_ENV, resolveWorkspaceContract } from "./workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
-const REPO_ROOT = resolve(BOT_DIR, "..");
-const CRONS_PATH = resolve(REPO_ROOT, "crons.yaml");
 const LOG_DIR = process.env.LOG_DIR ?? join(homedir(), ".minime", "logs");
 const DELIVER_SCRIPT = resolve(BOT_DIR, "scripts", "deliver.sh");
 
@@ -167,10 +172,16 @@ function deriveCronsLocalPath(cronsPath: string): string {
   return cronsPath.replace(/\.yaml$/, ".local.yaml");
 }
 
+export function resolveCronsPath(cronsPath?: string): string {
+  return cronsPath === undefined
+    ? resolveWorkspaceContract().paths.cronsPath
+    : resolve(cronsPath);
+}
+
 // Load crons.yaml and merge crons.local.yaml on top if it exists.
 // Local crons win on duplicate name. Exported for tests.
 export function loadMergedCrons(cronsPath?: string): Array<Record<string, unknown>> {
-  const path = cronsPath ?? CRONS_PATH;
+  const path = resolveCronsPath(cronsPath);
   const raw: CronsYaml = parseYaml(readFileSync(path, "utf8"));
   if (!raw?.crons || !Array.isArray(raw.crons)) {
     throw new Error("crons.yaml missing 'crons' array");
@@ -291,6 +302,7 @@ function isCronPiThinking(value: unknown): value is PiThinkingLevel {
 }
 
 function resolveCronAgentData(agentId: string, configPath?: string): CronAgentData {
+  const workspaceRoot = resolveConfigWorkspaceRoot(configPath);
   const raw = loadRawMergedConfig(configPath) as {
     agents?: Record<string, unknown>;
     defaultModel?: unknown;
@@ -315,7 +327,7 @@ function resolveCronAgentData(agentId: string, configPath?: string): CronAgentDa
   }
 
   const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
-  const agent = validateAgent(rawAgent, agentId, defaultModel);
+  const agent = validateAgent(rawAgent, agentId, defaultModel, workspaceRoot);
   if (!agent.workspaceCwd.trim()) {
     throw new Error(`Agent "${agentId}" missing workspaceCwd`);
   }
@@ -612,7 +624,11 @@ function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtens
 function hardenPiCronEnv(rawEnv: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(rawEnv)) {
-    if (shouldIncludePiChildEnvKey(key)) {
+    if (
+      shouldIncludePiChildEnvKey(key) ||
+      key === MINIME_SCHEMA_PATH_ENV ||
+      key === PI_GUARD_WORKSPACE_ROOT_ENV
+    ) {
       env[key] = value;
     }
   }
@@ -637,6 +653,9 @@ function runPi(
   const agent = deps.buildAgentConfig(cron, workspaceCwd, agentData);
   const thinking = isCronPiThinking(agent.thinking) ? agent.thinking : "medium";
   const systemInstruction = buildCronSystemInstruction();
+  const env = hardenPiCronEnv(deps.buildEnv(agent));
+  // Pi authenticates via ~/.pi/agent/auth.json, not legacy OAuth credentials.
+  env.HOME ||= homedir();
   const args: string[] = [
     "-p",
     buildPiCronPromptArg(cron.prompt),
@@ -664,10 +683,6 @@ function runPi(
 
   args.push("--append-system-prompt", systemInstruction);
   args.push(...resolvePiCronExtensionArgs(deps.resolveExtensionArgs));
-
-  const env = hardenPiCronEnv(deps.buildEnv(agent));
-  // Pi authenticates via ~/.pi/agent/auth.json, not legacy OAuth credentials.
-  env.HOME ||= homedir();
 
   const result = deps.spawnSync(PI_BIN, args, {
     cwd: workspaceCwd,

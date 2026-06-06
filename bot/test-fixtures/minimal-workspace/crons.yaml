@@ -1,0 +1,6 @@
+crons:
+  - name: smoke
+    schedule: "0 9 * * *"
+    prompt: "smoke"
+    agentId: main
+    deliveryChatId: 111

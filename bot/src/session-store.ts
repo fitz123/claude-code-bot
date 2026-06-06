@@ -1,10 +1,11 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import type { SessionState } from "./types.js";
+import { resolveWorkspaceContract } from "./workspace-contract.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_STORE_PATH = resolve(__dirname, "..", "..", "data", "sessions.json");
+function defaultStorePath(): string {
+  return resolveWorkspaceContract().paths.sessionStorePath;
+}
 
 export type SessionStoreData = Record<string, SessionState>;
 
@@ -13,7 +14,7 @@ export class SessionStore {
   private readonly path: string;
 
   constructor(path?: string) {
-    this.path = path ?? DEFAULT_STORE_PATH;
+    this.path = path ?? defaultStorePath();
     this.load();
   }
 

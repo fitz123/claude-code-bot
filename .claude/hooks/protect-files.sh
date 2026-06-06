@@ -27,11 +27,11 @@ fi
 # Normalize path: prevent bypass via non-canonical paths
 # Collapse multiple slashes: // → /
 while [[ "$FILE_PATH" == *//* ]]; do
-  FILE_PATH="${FILE_PATH//\/\//\/}"
+  FILE_PATH="${FILE_PATH//\/\///}"
 done
 # Collapse /./ → /
 while [[ "$FILE_PATH" == *"/./"* ]]; do
-  FILE_PATH="${FILE_PATH//\/.\//\/}"
+  FILE_PATH="${FILE_PATH//\/.\///}"
 done
 # Resolve /component/.. sequences
 while [[ "$FILE_PATH" == *"/.."* ]]; do

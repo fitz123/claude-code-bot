@@ -1,9 +1,22 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { setThread, getThread, clearThreadCache, threadCacheSize, saveThreadCache, restoreThreadCache } from "../message-thread-cache.js";
+import { fileURLToPath } from "node:url";
+import {
+  setThread,
+  getThread,
+  clearThreadCache,
+  threadCacheSize,
+  saveThreadCache,
+  restoreThreadCache,
+  defaultThreadCachePath,
+} from "../message-thread-cache.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const BOT_ROOT = resolve(__dirname, "..", "..");
 
 describe("message-thread-cache", () => {
   beforeEach(() => {
@@ -167,6 +180,43 @@ describe("message-thread-cache persistence", () => {
     assert.ok(existsSync(nestedPath));
     const data = JSON.parse(readFileSync(nestedPath, "utf8"));
     assert.strictEqual(data.length, 1);
+  });
+
+  it("default path preserves the source-checkout bot data location", () => {
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+
+    try {
+      delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      assert.strictEqual(defaultThreadCachePath(), join(BOT_ROOT, "data", "thread-cache.json"));
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+    }
+  });
+
+  it("default path saves under the resolved workspace data directory when a workspace is explicit", () => {
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    const workspace = join(tmpDir, "workspace");
+    mkdirSync(workspace, { recursive: true });
+
+    try {
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspace;
+      setThread(-100, 1, 10);
+      saveThreadCache();
+
+      const expectedPath = join(workspace, "data", "thread-cache.json");
+      assert.ok(existsSync(expectedPath));
+      assert.strictEqual(JSON.parse(readFileSync(expectedPath, "utf8")).length, 1);
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+    }
   });
 
   it("preserves topicId 0 through save/restore", () => {

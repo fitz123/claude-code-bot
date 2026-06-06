@@ -2,18 +2,35 @@
   "name": "minime",
   "version": "2026.03.0",
   "description": "Multi-agent Telegram and Discord bot powered by Pi/Codex sessions",
-  "main": "index.js",
+  "main": "./dist/main.js",
+  "bin": {
+    "minime-bot": "./dist/cli.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Fitz123/claude-code-bot.git"
   },
   "scripts": {
     "test": "MINIME_TEST_MEDIA_BASE=/tmp/bot-media-test node --experimental-test-module-mocks --import tsx --test src/__tests__/*.test.ts",
-    "build": "tsc",
+    "build": "node scripts/clean-package-dist.mjs && tsc && node scripts/build-package-artifacts.mjs",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "prepare": "npm run build",
+    "prepack": "npm run build",
+    "workspace:validate": "tsx src/cli.ts workspace validate",
     "validate-config": "tsx src/config.ts --validate --no-resolve-secrets"
   },
+  "files": [
+    "dist/*.d.ts",
+    "dist/*.js",
+    "dist/*.js.map",
+    "dist/pi-extensions/**/*.d.ts",
+    "dist/pi-extensions/**/*.js",
+    "dist/pi-extensions/**/*.js.map",
+    "dist/extensions/pi/**/*.js",
+    "dist/extensions/pi/**/*.md",
+    "scripts/deliver.sh"
+  ],
   "keywords": [
     "telegram",
     "discord",
@@ -27,12 +44,16 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.75.3",
+    "@earendil-works/pi-ai": "^0.75.3",
     "@earendil-works/pi-coding-agent": "0.75.3",
+    "@earendil-works/pi-tui": "^0.75.3",
     "@grammyjs/auto-retry": "^2.0.2",
     "discord.js": "^14.25.1",
     "grammy": "^1.41.1",
     "p-queue": "^9.1.0",
     "prom-client": "^15.1.3",
+    "typebox": "^1.1.24",
     "yaml": "^2.8.2"
   },
   "devDependencies": {

@@ -30,13 +30,22 @@ There are TWO kinds of files in this feature, deliberately split:
 2. **Thin wrappers — `bot/.claude/extensions/<name>.ts`** (or `<name>/index.ts`
    for A3). Each is a minimal `export default function (pi) { ... }` that wires a
    Pi `pi.on(...)` / `pi.registerTool(...)` call to the pure helpers above. They
-   are jiti-loaded by Pi at spawn via `--extension <abs-path>`.
+   are jiti-loaded by Pi at spawn via `--extension <abs-path>` in source
+   development.
+
+3. **Package artifacts — `bot/dist/extensions/pi/`**. `npm run build` runs
+   `scripts/build-package-artifacts.mjs`, which clears this generated directory,
+   transpiles the first-party wrappers to `.js` with imports rewritten to compiled
+   `dist/` helpers, and copies A3 bundled `agents/*.md` and `prompts/*.md`
+   resources. Built and installed package runs load wrappers from this artifact
+   directory.
 
 ## Lint-coverage decision for the wrappers (Task 0)
 
-**Decision: the `bot/.claude/extensions/` wrappers are jiti-only — intentionally
+**Decision: the source `bot/.claude/extensions/` wrappers are intentionally
 EXCLUDED from `tsc --noEmit` and from the `npm test` glob. No second tsconfig or
-test glob is added for them.**
+test glob is added for them; package builds transpile them into generated runtime
+artifacts.**
 
 Rationale:
 - They live OUTSIDE `bot/src/`, so the existing tsconfig `include`
@@ -46,11 +55,12 @@ Rationale:
   type-checking and unit-testing is factored into the `src/pi-extensions/*.ts`
   helpers, which ARE covered. A wrapper should contain no logic a test would want
   to assert on.
-- Adding a second tsconfig/glob to type-check the wrappers would pull Pi's
+- Adding a second tsconfig/glob to type-check the source wrappers would pull Pi's
   runtime extension API types into the bot's `tsc` graph and couple the bot
   build to the `@earendil-works/pi-coding-agent` extension surface. jiti loads
-  and validates them at actual spawn time instead; a broken wrapper fails loudly
-  at load (fail-closed loading is handled in Task 1's `buildPiSpawnArgs`).
+  and validates them at source-checkout spawn time instead; built/package mode
+  loads the generated JS wrappers from `dist/extensions/pi`. A broken wrapper
+  fails loudly at load (fail-closed loading is handled by `resolvePiExtensionArgs`).
 
 If a wrapper ever grows logic worth testing, move that logic into a
 `src/pi-extensions/*.ts` helper rather than adding a tsconfig for the wrapper.
