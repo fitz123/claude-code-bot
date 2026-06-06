@@ -92,6 +92,19 @@ function createWorkspace(root: string): string {
   return workspace;
 }
 
+function collectSchemaFiles(root: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...collectSchemaFiles(path));
+    } else if (entry.isFile() && entry.name === "schema.md") {
+      found.push(path);
+    }
+  }
+  return found;
+}
+
 function runInstalledBin(projectDir: string, args: readonly string[], workspace: string): SpawnSyncReturns<string> {
   return spawnSync(join(projectDir, "node_modules", ".bin", "minime-bot"), args, {
     cwd: projectDir,
@@ -165,6 +178,7 @@ describe("package artifact install", () => {
     mkdirSync(packDir, { recursive: true });
     mkdirSync(projectDir, { recursive: true });
     const workspace = createWorkspace(temp);
+    assert.deepEqual(collectSchemaFiles(workspace), [], "installed workspace fixture must not contain schema.md");
 
     try {
       const pack = runNpmPack(["--pack-destination", packDir]);
