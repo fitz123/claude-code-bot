@@ -497,7 +497,7 @@ describe("assemblePiContext", () => {
     assert.ok(!/^[ \t]*@\.\.\/secret\.md[ \t]*$/m.test(bundle), "the escaping @-line is stripped");
   });
 
-  it("does not read a CLAUDE.md symlink that resolves outside the workspace", () => {
+  it("writes a sanitized bundle when CLAUDE.md resolves outside the workspace", () => {
     const parent = mkdtempSync(join(tmpdir(), "pi-ctx-claude-symlink-"));
     created.push(parent);
     writeFileSync(join(parent, "CLAUDE.md"), "CLAUDE_SYMLINK_SECRET_TOKEN", "utf8");
@@ -508,7 +508,10 @@ describe("assemblePiContext", () => {
       assemblePiContext(agentFor(ws, { id: "claudesymlink" })),
     );
 
-    assert.strictEqual(result, null);
+    assert.ok(result, "escaped CLAUDE.md must still suppress Pi flat context loading");
+    const bundle = readFileSync(result.appendSystemPromptPath, "utf8");
+    assert.ok(!bundle.includes("CLAUDE_SYMLINK_SECRET_TOKEN"));
+    assert.ok(bundle.includes("## Memory access"));
     assert.ok(warnings.some((m) => m.includes("CLAUDE.md resolves outside the workspace")));
   });
 

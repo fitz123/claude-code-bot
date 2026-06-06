@@ -58,8 +58,10 @@ export interface BuildSubagentSpawnArgsOptions {
    * Pre-resolved `--extension <abs-path>` args to load into the child (e.g. the
    * A1 write guard, so a delegated task cannot bypass the guard a parent session
    * runs under). Appended verbatim BEFORE the positional task. Empty/absent →
-   * the child loads no extensions (e.g. when the kill-switch is set). The caller
-   * resolves these (`resolvePiExtensionArgs`) so this module stays pure/testable.
+   * the child loads no explicit first-party extensions (e.g. when the kill-switch
+   * is set). The child still passes `--no-extensions` to block Pi's ambient
+   * discovery. The caller resolves these (`resolvePiExtensionArgs`) so this module
+   * stays pure/testable.
    */
   extensionArgs?: string[];
 }
@@ -67,7 +69,7 @@ export interface BuildSubagentSpawnArgsOptions {
 /**
  * Build the complete `pi` argv for one subagent child, in the vendor's order
  * with the openai-codex provider wired in:
- *   --mode json -p --no-session --provider <p> --model <m>
+ *   --mode json -p --no-session --no-extensions --provider <p> --model <m>
  *   [--tools a,b] [--append-system-prompt <path>] [--extension <abs> ...] "Task: <task>"
  *
  * `--mode json` + `-p` make the child emit a single-shot JSONL transcript on
@@ -84,6 +86,7 @@ export function buildSubagentSpawnArgs(
     "json",
     "-p",
     "--no-session",
+    "--no-extensions",
     "--provider",
     SUBAGENT_PROVIDER,
     "--model",

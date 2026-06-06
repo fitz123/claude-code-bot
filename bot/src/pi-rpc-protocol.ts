@@ -54,8 +54,9 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
 export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
 
 /**
- * Kill-switch env var: set to exactly `"1"` to spawn Pi with NO extensions
- * (fast rollback to a bare Pi spawn).
+ * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
+ * first-party extensions. Spawns still pass `--no-extensions` so Pi's ambient
+ * extension discovery remains disabled.
  */
 export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
 
@@ -135,9 +136,10 @@ export function shouldIncludePiChildEnvKey(key: string): boolean {
 /**
  * Resolve the repeatable `--extension <abs-path>` args for a Pi spawn.
  *
- * Loading is DELIBERATELY per-spawn rather than via Pi's auto-discovery dirs
- * (those are for `/reload`). Returns `[]` when `PI_EXTENSIONS_DISABLED=1` so the
- * spawn is a bare Pi command (fast rollback).
+ * Loading is DELIBERATELY per-spawn rather than via Pi's auto-discovery dirs.
+ * Returns `[]` when `PI_EXTENSIONS_DISABLED=1` so the spawn has no explicit
+ * first-party wrappers; callers still pass `--no-extensions` to keep ambient
+ * discovery disabled.
  *
  * FAIL-CLOSED: a configured wrapper missing on disk THROWS loudly instead of
  * silently dropping it — A1 is the write guard, so a silent skip would spawn an
@@ -161,7 +163,7 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
       throw new Error(
         `Pi extension wrapper not found: ${abs}. Refusing to spawn an unguarded ` +
           `Pi session. Restore the wrapper, or set ${PI_EXTENSIONS_DISABLED_ENV}=1 ` +
-          `to spawn without extensions.`,
+          `to spawn without explicit first-party extensions.`,
       );
     }
     args.push("--extension", abs);
@@ -281,6 +283,7 @@ export function buildPiSpawnArgs(
     "--mode", "rpc",
     "--provider", PI_PROVIDER,
     "--model", normalizePiModel(agent.model),
+    "--no-extensions",
   ];
 
   if (agent.thinking) {
@@ -316,9 +319,10 @@ export function buildPiSpawnArgs(
     );
   }
 
-  // Load A1-A3 as repeatable `--extension <abs-path>` args (per-spawn is
-  // deliberate; auto-discovery dirs are for `/reload`). The kill-switch and the
-  // fail-closed missing-wrapper check live in resolvePiExtensionArgs.
+  // Keep `--no-extensions` on every spawn to suppress Pi's ambient extension
+  // discovery; load A1-A3 only as explicit repeatable `--extension <abs-path>`
+  // args. The kill-switch and the fail-closed missing-wrapper check live in
+  // resolvePiExtensionArgs.
   args.push(...resolvePiExtensionArgs(extensionOptions));
 
   // Pi mints its own session id (the bot cannot pre-assign one with

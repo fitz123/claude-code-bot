@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { _resetPiContextCache } from "../pi-context-assembler.js";
@@ -135,6 +136,7 @@ describe("buildPiSpawnArgs", () => {
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
+      "--no-extensions",
     ]);
   });
 
@@ -342,9 +344,10 @@ describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
     assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
   });
 
-  it("degrades to a bare spawn (no context args) for an empty pi workspace", () => {
+  it("degrades to no context args for an empty pi workspace", () => {
     // No CLAUDE.md, no rules, no persona => assemblePiContext returns null =>
-    // none of the context CLI layers are emitted (fail-safe bare spawn).
+    // none of the context CLI layers are emitted. Extension auto-discovery is
+    // still suppressed by the spawn builder's unconditional --no-extensions.
     const ws = makePiWorkspace({});
     const args = buildPiSpawnArgs(piAgent(ws), undefined, NO_EXTENSIONS);
 
@@ -356,7 +359,24 @@ describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
+      "--no-extensions",
     ]);
+  });
+
+  it("suppresses flat context loading when CLAUDE.md is an escaping symlink", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-spawn-ctx-symlink-"));
+    fixtures.push(parent);
+    writeFileSync(join(parent, "CLAUDE.md"), "HOST_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    symlinkSync(join(parent, "CLAUDE.md"), join(ws, "CLAUDE.md"));
+
+    const args = buildPiSpawnArgs(piAgent(ws, { id: "escapesymlink" }), undefined, NO_EXTENSIONS);
+
+    assert.ok(args.includes("--append-system-prompt"), "sanitized bundle still delivered");
+    assert.ok(args.includes("--no-context-files"), "Pi must not flat-load the escaping symlink");
+    const bundlePath = args[args.indexOf("--append-system-prompt") + 1];
+    const bundle = readFileSync(bundlePath, "utf8");
+    assert.ok(!bundle.includes("HOST_SECRET_TOKEN"), "outside-workspace target was not inlined");
   });
 });
 
@@ -420,6 +440,7 @@ describe("Pi extension loading (--extension)", () => {
   it("buildPiSpawnArgs appends the resolved --extension paths after the model/prompt block", () => {
     const args = buildPiSpawnArgs(testAgent, undefined, presentAll);
 
+    assert.ok(args.includes("--no-extensions"), "ambient Pi extension discovery is always suppressed");
     // The three wrappers are present, one --extension flag each.
     assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
     assert.ok(args.includes(wrapperAbs("guardian-protect-files.ts")));
@@ -430,7 +451,7 @@ describe("Pi extension loading (--extension)", () => {
     assert.ok(args.indexOf("--model") < args.indexOf("--extension"));
   });
 
-  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits all --extension args (bare Pi spawn)", () => {
+  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits explicit wrappers but still disables ambient discovery", () => {
     const args = buildPiSpawnArgs(testAgent, undefined, {
       extensionsDir: FAKE_DIR,
       exists: () => true,
@@ -442,6 +463,7 @@ describe("Pi extension loading (--extension)", () => {
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
+      "--no-extensions",
     ]);
   });
 

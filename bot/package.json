@@ -12,7 +12,7 @@
     "build": "tsc",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "validate-config": "tsx src/config.ts --validate"
+    "validate-config": "tsx src/config.ts --validate --no-resolve-secrets"
   },
   "keywords": [
     "telegram",

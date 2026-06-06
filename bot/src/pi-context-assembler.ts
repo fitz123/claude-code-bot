@@ -332,7 +332,9 @@ interface BundleResult {
    * stripped. The import case matters even when EVERY import failed to read: a
    * bare spawn would let Pi flat-load the original CLAUDE.md and surface the
    * literal `@<path>` lines (exactly what this assembler exists to strip), so the
-   * stripped bundle is strictly better and we must suppress flat loading.
+   * stripped bundle is strictly better and we must suppress flat loading. An
+   * escaping CLAUDE.md symlink also counts: a bare spawn could flat-load the same
+   * outside-workspace target we refused to read.
    *
    * False means the bundle is only the fixed memory directive over a CLAUDE.md
    * that had no body and no imports (or no CLAUDE.md at all) — nothing worth
@@ -375,7 +377,7 @@ function assembleBundle(workspaceCwd: string): BundleResult {
   // a bare spawn would flat-load the original CLAUDE.md with its literal `@<path>`
   // lines intact, so the stripped bundle + `--no-context-files` is strictly better.
   const hasContent =
-    trimmedBody !== "" || sections.length > 0 || rules.length > 0 || importLineCount > 0;
+    trimmedBody !== "" || sections.length > 0 || rules.length > 0 || importLineCount > 0 || escaped;
   return { bundle: `${parts.join("\n\n")}\n`, hasContent };
 }
 
