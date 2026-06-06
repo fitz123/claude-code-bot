@@ -145,7 +145,49 @@ describe("subagent: wrapper spawn environment", () => {
     const wrapper = readFileSync(resolve(BOT_DIR, ".claude", "extensions", "subagent", "index.ts"), "utf8");
 
     assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(\)/);
+    assert.match(wrapper, /cwd:\s*opts\.cwd/);
     assert.doesNotMatch(wrapper, /env:\s*\{\s*\.{3}process\.env/);
+  });
+
+  it("does not inject ambient bot or Tavily secrets into subagent child argv", () => {
+    const telegramTokenEnv = ["TELEGRAM", "BOT", "TOKEN"].join("_");
+    const discordTokenEnv = ["DISCORD", "BOT", "TOKEN"].join("_");
+    const tavilyKeyEnv = ["TAVILY", "API", "KEY"].join("_");
+    const oldTelegram = process.env[telegramTokenEnv];
+    const oldDiscord = process.env[discordTokenEnv];
+    const oldTavily = process.env[tavilyKeyEnv];
+    const fixtureValues = ["subagent-telegram-fixture", "subagent-discord-fixture", "subagent-tavily-fixture"];
+
+    try {
+      process.env[telegramTokenEnv] = fixtureValues[0];
+      process.env[discordTokenEnv] = fixtureValues[1];
+      process.env[tavilyKeyEnv] = fixtureValues[2];
+
+      const args = buildSubagentSpawnArgs({}, "delegate safely", {
+        extensionArgs: ["--extension", "/abs/web-tools.ts"],
+      });
+      const serializedArgs = JSON.stringify(args);
+
+      for (const value of fixtureValues) {
+        assert.doesNotMatch(serializedArgs, new RegExp(value));
+      }
+    } finally {
+      if (oldTelegram === undefined) {
+        delete process.env[telegramTokenEnv];
+      } else {
+        process.env[telegramTokenEnv] = oldTelegram;
+      }
+      if (oldDiscord === undefined) {
+        delete process.env[discordTokenEnv];
+      } else {
+        process.env[discordTokenEnv] = oldDiscord;
+      }
+      if (oldTavily === undefined) {
+        delete process.env[tavilyKeyEnv];
+      } else {
+        process.env[tavilyKeyEnv] = oldTavily;
+      }
+    }
   });
 });
 

@@ -119,10 +119,25 @@ describe("Pi spawn workspace contract", () => {
     };
     const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
     const oldDisabled = process.env[PI_EXTENSIONS_DISABLED_ENV];
+    const secretEnvKeys = [
+      ["TELEGRAM", "BOT", "TOKEN"].join("_"),
+      ["DISCORD", "BOT", "TOKEN"].join("_"),
+      ["TAVILY", "API", "KEY"].join("_"),
+    ] as const;
+    const oldSecretValues = new Map(secretEnvKeys.map((key) => [key, process.env[key]]));
+    const fixtureValues = [
+      "parent-telegram-fixture",
+      "parent-discord-fixture",
+      "parent-tavily-fixture",
+      "resolved-telegram-token",
+    ];
 
     try {
       process.env[MINIME_WORKSPACE_ROOT_ENV] = controlWorkspace;
       process.env[PI_EXTENSIONS_DISABLED_ENV] = "1";
+      process.env[secretEnvKeys[0]] = fixtureValues[0];
+      process.env[secretEnvKeys[1]] = fixtureValues[1];
+      process.env[secretEnvKeys[2]] = fixtureValues[2];
       const config = loadConfig(join(controlWorkspace, "config.yaml"), {
         workspaceRoot: controlWorkspace,
         secretExecFileSync: fakeSops,
@@ -141,7 +156,11 @@ describe("Pi spawn workspace contract", () => {
       assert.equal(spawnCaptures[1].options.cwd, reviewerWorkspace);
       for (const capture of spawnCaptures) {
         const env = capture.options.env as NodeJS.ProcessEnv;
-        assert.equal(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
+        assert.equal(env[MINIME_WORKSPACE_ROOT_ENV], controlWorkspace);
+        const serializedChildContract = JSON.stringify({ env, args: capture.args });
+        for (const value of fixtureValues) {
+          assert.doesNotMatch(serializedChildContract, new RegExp(value));
+        }
       }
 
       const mainBundle = readFileSync(flagValue(spawnCaptures[0].args, "--append-system-prompt"), "utf8");
@@ -160,6 +179,14 @@ describe("Pi spawn workspace contract", () => {
         delete process.env[PI_EXTENSIONS_DISABLED_ENV];
       } else {
         process.env[PI_EXTENSIONS_DISABLED_ENV] = oldDisabled;
+      }
+      for (const key of secretEnvKeys) {
+        const oldValue = oldSecretValues.get(key);
+        if (oldValue === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = oldValue;
+        }
       }
     }
   });

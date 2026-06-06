@@ -179,12 +179,12 @@ Safety baseline after retirement:
 
 ### Task 3: Pass non-secret control contract to Pi children
 
-- [ ] Add `MINIME_WORKSPACE_ROOT` to the Pi child env allowlist and set it to the resolved control workspace root for every Pi RPC, Pi cron, and Pi subagent child spawn.
-- [ ] Preserve configured `MINIME_CONFIG_PATH` / `MINIME_CRONS_PATH` propagation only as non-secret path references.
-- [ ] Remove `MINIME_SCHEMA_PATH` and `PI_GUARD_WORKSPACE_ROOT` propagation.
-- [ ] Add tests proving parent/cron/subagent child env contains control `MINIME_WORKSPACE_ROOT` while child `cwd` is the agent workspace or caller-selected subagent cwd.
-- [ ] Add tests proving absolute sibling agent workspace paths do not alter control config/secrets paths.
-- [ ] Add negative tests proving no plaintext Telegram/Discord/Tavily secret is present in child env or argv.
+- [x] Add `MINIME_WORKSPACE_ROOT` to the Pi child env allowlist and set it to the resolved control workspace root for every Pi RPC, Pi cron, and Pi subagent child spawn.
+- [x] Preserve configured `MINIME_CONFIG_PATH` / `MINIME_CRONS_PATH` propagation only as non-secret path references.
+- [x] Remove `MINIME_SCHEMA_PATH` and `PI_GUARD_WORKSPACE_ROOT` propagation.
+- [x] Add tests proving parent/cron/subagent child env contains control `MINIME_WORKSPACE_ROOT` while child `cwd` is the agent workspace or caller-selected subagent cwd.
+- [x] Add tests proving absolute sibling agent workspace paths do not alter control config/secrets paths.
+- [x] Add negative tests proving no plaintext Telegram/Discord/Tavily secret is present in child env or argv.
 
 ### Task 4: Make Tavily a global control-workspace secret
 
