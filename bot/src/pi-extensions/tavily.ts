@@ -23,6 +23,7 @@
  * and missing-key paths with a mock fetch and never touch the network.
  */
 
+import { isIP } from "node:net";
 import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-constants.js";
 
 export const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
@@ -133,7 +134,7 @@ const PRIVATE_KEY_MARKER_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const LOCAL_PATH_PATTERN =
   /(?:^|[\s"'`=:(])(?:~\/|\.\.\/|\/(?:Users|home|private|var\/folders|etc|tmp)\/|[A-Za-z]:\\)[^\s"'`)]*/;
 const REPO_FILE_PATH_PATTERN =
-  /\b(?:\.claude|bot|config\.local\.yaml|memory|\.env|id_rsa|\.ssh|[A-Za-z0-9_-]+\/[A-Za-z0-9._/-]+\.(?:env|json|key|md|pem|ts|tsx|yaml|yml))\b/;
+  /(?:^|[\s"'`=:(])(?:\.claude\/|bot\/|memory\/|\.ssh\/|(?:config\.local\.yaml|\.env|id_rsa)\b|[A-Za-z0-9_-]+\/[A-Za-z0-9._/-]+\.(?:env|json|key|md|pem|ts|tsx|yaml|yml)\b)/;
 const HIGH_ENTROPY_TOKEN_PATTERN = /[A-Za-z0-9_+/=-]{32,}/g;
 const SENSITIVE_URL_PARAM_PATTERN =
   /(?:api[_-]?key|auth|cookie|credential|key|passwd|password|secret|session|token)/i;
@@ -189,22 +190,109 @@ function validateOutboundText(
   return undefined;
 }
 
+function canonicalHostname(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (host.startsWith("[") && host.endsWith("]")) {
+    return host.slice(1, -1);
+  }
+  return host;
+}
+
+function ipv4Octets(host: string): number[] | undefined {
+  if (isIP(host) !== 4) {
+    return undefined;
+  }
+  return host.split(".").map((part) => Number(part));
+}
+
+function isPrivateOrLocalIpv4(octets: readonly number[]): boolean {
+  const [a, b] = octets;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168)
+  );
+}
+
+function ipv6Groups(host: string): number[] | undefined {
+  if (isIP(host) !== 6) {
+    return undefined;
+  }
+
+  let source = host;
+  let embeddedIpv4Groups: number[] = [];
+  const lastColon = source.lastIndexOf(":");
+  const possibleIpv4 = lastColon === -1 ? "" : source.slice(lastColon + 1);
+  const embeddedIpv4 = possibleIpv4.includes(".") ? ipv4Octets(possibleIpv4) : undefined;
+  if (embeddedIpv4) {
+    source = source.slice(0, lastColon);
+    embeddedIpv4Groups = [
+      (embeddedIpv4[0] << 8) | embeddedIpv4[1],
+      (embeddedIpv4[2] << 8) | embeddedIpv4[3],
+    ];
+  }
+
+  const halves = source.split("::");
+  if (halves.length > 2) {
+    return undefined;
+  }
+
+  const parseHalf = (half: string): number[] => {
+    if (!half) {
+      return [];
+    }
+    return half.split(":").map((part) => Number.parseInt(part, 16));
+  };
+  const left = parseHalf(halves[0]);
+  const right = halves.length === 2 ? parseHalf(halves[1]) : [];
+  const explicitGroupCount = left.length + right.length + embeddedIpv4Groups.length;
+  const zeroFillCount = halves.length === 2 ? 8 - explicitGroupCount : 0;
+  if (zeroFillCount < 0 || (halves.length === 1 && explicitGroupCount !== 8)) {
+    return undefined;
+  }
+
+  return [...left, ...Array(zeroFillCount).fill(0), ...right, ...embeddedIpv4Groups];
+}
+
+function ipv4MappedOctets(groups: readonly number[]): number[] | undefined {
+  const hasIpv4Prefix = groups.slice(0, 5).every((group) => group === 0);
+  if (!hasIpv4Prefix || (groups[5] !== 0 && groups[5] !== 0xffff)) {
+    return undefined;
+  }
+  return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff];
+}
+
 function isPrivateOrLocalHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host === "0.0.0.0" ||
-    host === "::1" ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal")
-  ) {
+  const host = canonicalHostname(hostname);
+  if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) {
     return true;
   }
-  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
-    return true;
+
+  const v4 = ipv4Octets(host);
+  if (v4) {
+    return isPrivateOrLocalIpv4(v4);
   }
-  const private172 = /^172\.(\d{1,2})\./.exec(host);
-  return private172 !== null && Number(private172[1]) >= 16 && Number(private172[1]) <= 31;
+
+  const v6 = ipv6Groups(host);
+  if (!v6) {
+    return false;
+  }
+  const first = v6[0];
+  const isUnspecified = v6.every((group) => group === 0);
+  const isLoopback = v6.slice(0, 7).every((group) => group === 0) && v6[7] === 1;
+  const isUniqueLocal = (first & 0xfe00) === 0xfc00;
+  const isLinkLocal = (first & 0xffc0) === 0xfe80;
+  const mappedV4 = ipv4MappedOctets(v6);
+  return (
+    isUnspecified ||
+    isLoopback ||
+    isUniqueLocal ||
+    isLinkLocal ||
+    (mappedV4 !== undefined && isPrivateOrLocalIpv4(mappedV4))
+  );
 }
 
 function validateWebSearchEgress(query: string): string | undefined {

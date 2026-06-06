@@ -269,6 +269,24 @@ describe("tavily: executeWebSearch", () => {
     ]);
   });
 
+  it("allows ordinary search queries containing bot or memory", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const queries = ["Telegram bot webhook docs", "Node memory leak debugging"];
+
+    for (const query of queries) {
+      const res = await executeWebSearch({ query }, deps);
+      assert.equal(res.ok, true);
+    }
+
+    assert.equal(mock.calls.length, queries.length);
+    assert.equal(warns.length, 0);
+    assert.deepEqual(
+      mock.calls.map((call) => JSON.parse(String(call.init?.body)).query),
+      queries,
+    );
+  });
+
   it("blocks multiline search content before external egress", async () => {
     const mock = mockFetch(async () => jsonResponse({ results: [] }));
     const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
@@ -346,6 +364,34 @@ describe("tavily: executeWebFetch", () => {
     assert.deepEqual(warns, [
       { tool: "web_fetch", reason: "blocked-egress", detail: "url contains a sensitive query parameter" },
     ]);
+  });
+
+  it("blocks local and private IPv6 literal URLs before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const urls = [
+      "http://[::]/",
+      "http://[::1]/",
+      "http://[fc00::1]/",
+      "http://[fd12::1]/",
+      "http://[fe80::1]/",
+      "http://[::ffff:127.0.0.1]/",
+      "http://[::ffff:192.168.1.1]/",
+      "http://[0:0:0:0:0:ffff:ac10:1]/",
+    ];
+
+    for (const url of urls) {
+      const res = await executeWebFetch({ url }, deps);
+      assert.equal(res.ok, false);
+      assert.match(res.text, /local\/private host/);
+    }
+
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, urls.map(() => ({
+      tool: "web_fetch" as const,
+      reason: "blocked-egress" as const,
+      detail: "url targets a local/private host",
+    })));
   });
 
   it("allows public source-file URLs that are not local path egress", async () => {
