@@ -37,6 +37,7 @@ describe("workspace contract resolver", () => {
     assertAbsolutePaths(contract.paths);
     assert.strictEqual(contract.paths.packageRoot, BOT_ROOT);
     assert.strictEqual(contract.paths.botRoot, BOT_ROOT);
+    assert.strictEqual(contract.paths.controlWorkspaceRoot, REPO_ROOT);
     assert.strictEqual(contract.paths.workspaceRoot, REPO_ROOT);
     assert.strictEqual(contract.paths.configPath, resolve(REPO_ROOT, "config.yaml"));
     assert.strictEqual(contract.paths.cronsPath, resolve(REPO_ROOT, "crons.yaml"));
@@ -97,7 +98,9 @@ describe("workspace contract resolver", () => {
     });
 
     assert.strictEqual(contract.paths.workspaceRoot, resolve(cwd, cliWorkspace));
+    assert.strictEqual(contract.paths.controlWorkspaceRoot, resolve(cwd, cliWorkspace));
     assert.strictEqual(contract.effectivePaths.workspaceRoot.source, "cli");
+    assert.strictEqual(contract.effectivePaths.controlWorkspaceRoot.source, "cli");
     assert.strictEqual(contract.paths.configPath, resolve(cwd, cliWorkspace, "config.yaml"));
   });
 
@@ -110,6 +113,7 @@ describe("workspace contract resolver", () => {
     });
 
     assertAbsolutePaths(contract.paths);
+    assert.strictEqual(contract.paths.controlWorkspaceRoot, workspaceRoot);
     assert.strictEqual(contract.paths.workspaceRoot, workspaceRoot);
     assert.strictEqual(contract.effectivePaths.workspaceRoot.source, "env");
     assert.strictEqual(contract.paths.configPath, join(workspaceRoot, "config.yaml"));

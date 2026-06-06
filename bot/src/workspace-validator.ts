@@ -10,7 +10,6 @@ import {
 } from "./pi-extensions/write-allowlist-schema.js";
 import type { BotConfig } from "./types.js";
 import {
-  realPathIsInsideOrEqual,
   resolveAgentWorkspaceCwd,
   type ResolvedWorkspaceContract,
 } from "./workspace-contract.js";
@@ -102,9 +101,9 @@ export function validateWorkspaceContract(
   let crons: Array<Record<string, unknown>> | undefined;
 
   if (!existsSync(contract.paths.workspaceRoot)) {
-    issue(issues, "error", `workspace root does not exist: ${contract.paths.workspaceRoot}`);
+    issue(issues, "error", `control workspace root does not exist: ${contract.paths.workspaceRoot}`);
   } else if (!existsAsDirectory(contract.paths.workspaceRoot)) {
-    issue(issues, "error", `workspace root is not a directory: ${contract.paths.workspaceRoot}`);
+    issue(issues, "error", `control workspace root is not a directory: ${contract.paths.workspaceRoot}`);
   }
 
   if (!existsAsFile(contract.paths.configPath)) {
@@ -167,13 +166,6 @@ export function validateWorkspaceContract(
         issue(issues, "error", `agent "${agentId}" workspaceCwd does not exist: ${agentWorkspace}`);
       } else if (!existsAsDirectory(agentWorkspace)) {
         issue(issues, "error", `agent "${agentId}" workspaceCwd is not a directory: ${agentWorkspace}`);
-      } else if (!realPathIsInsideOrEqual(contract.paths.workspaceRoot, agentWorkspace)) {
-        issue(
-          issues,
-          "error",
-          `agent "${agentId}" workspaceCwd must be inside the resolved workspace root for Pi guard enforcement: ` +
-            `workspaceCwd=${agentWorkspace} workspaceRoot=${contract.paths.workspaceRoot}`,
-        );
       }
     }
   }

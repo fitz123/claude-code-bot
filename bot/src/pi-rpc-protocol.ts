@@ -14,7 +14,6 @@ import { log } from "./logger.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
 import {
   MINIME_SCHEMA_PATH_ENV,
-  realPathIsInsideOrEqual,
   resolveAgentWorkspaceCwd,
   resolveWorkspaceContract,
   type ResolvedWorkspaceContract,
@@ -305,20 +304,13 @@ function validateAgentWorkspaceCwd(
   if (!existsSync(agentWorkspace)) {
     throw new Error(
       `Agent "${agent.id}" workspaceCwd does not exist: ${agentWorkspace}. ` +
-        `Set MINIME_WORKSPACE_ROOT/--workspace to the owning workspace or create the agent workspace under it.`,
+        `Create the configured agent workspace or update agents.${agent.id}.workspaceCwd.`,
     );
   }
   if (!statSync(agentWorkspace).isDirectory()) {
     throw new Error(
       `Agent "${agent.id}" workspaceCwd is not a directory: ${agentWorkspace}. ` +
-        `Set MINIME_WORKSPACE_ROOT/--workspace to the owning workspace or move the agent workspace under it.`,
-    );
-  }
-  if (!realPathIsInsideOrEqual(contract.paths.workspaceRoot, agentWorkspace)) {
-    throw new Error(
-      `Agent "${agent.id}" workspaceCwd must be inside the resolved workspace root for Pi guard enforcement: ` +
-        `workspaceCwd=${agentWorkspace} workspaceRoot=${contract.paths.workspaceRoot}. ` +
-        `Set MINIME_WORKSPACE_ROOT/--workspace to the owning workspace or move the agent workspace under it.`,
+        `Point agents.${agent.id}.workspaceCwd at a directory.`,
     );
   }
   return agentWorkspace;

@@ -786,31 +786,36 @@ describe("buildPiSpawnEnv", () => {
     }
   });
 
-  it("fails closed when the agent workspace is outside the resolved workspace root", () => {
-    assert.throws(
-      () => withWorkspaceRoot("/tmp/minime-workspace", () => buildPiSpawnEnv(testAgent)),
-      /workspaceCwd must be inside the resolved workspace root/,
-    );
+  it("allows an absolute agent workspace outside the control workspace root", () => {
+    const controlWorkspace = mkdtempSync(join(tmpdir(), "pi-spawn-env-control-"));
+
+    try {
+      const env = withWorkspaceRoot(controlWorkspace, () => buildPiSpawnEnv(testAgent));
+
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(controlWorkspace));
+      assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], join(controlWorkspace, "schema.md"));
+    } finally {
+      rmSync(controlWorkspace, { recursive: true, force: true });
+    }
   });
 
-  it("fails closed when the agent workspace symlink resolves outside the workspace root", () => {
+  it("allows a symlinked agent workspace that resolves outside the control workspace root", () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-spawn-env-root-"));
     const externalWorkspace = mkdtempSync(join(tmpdir(), "pi-spawn-env-external-"));
     const symlinkWorkspace = join(workspaceRoot, "agent-workspace");
     symlinkSync(externalWorkspace, symlinkWorkspace, "dir");
 
     try {
-      assert.throws(
-        () => withWorkspaceRoot(workspaceRoot, () => buildPiSpawnEnv({ ...testAgent, workspaceCwd: symlinkWorkspace })),
-        /workspaceCwd must be inside the resolved workspace root/,
-      );
+      const env = withWorkspaceRoot(workspaceRoot, () => buildPiSpawnEnv({ ...testAgent, workspaceCwd: symlinkWorkspace }));
+
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspaceRoot));
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
       rmSync(externalWorkspace, { recursive: true, force: true });
     }
   });
 
-  it("replaces a stray PI_GUARD_WORKSPACE_ROOT with the resolved workspace root", () => {
+  it("replaces a stray PI_GUARD_WORKSPACE_ROOT with the resolved control workspace root", () => {
     const oldRoot = process.env.PI_GUARD_WORKSPACE_ROOT;
     const oldWorkspace = process.env.MINIME_WORKSPACE_ROOT;
 
@@ -926,20 +931,19 @@ describe("buildPiSpawnEnv", () => {
 });
 
 describe("spawnPiRpcSession workspace validation", () => {
-  it("validates containment before assembling context artifacts", () => {
+  it("validates missing workspaceCwd before assembling context artifacts", () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-spawn-root-"));
-    const externalWorkspace = mkdtempSync(join(tmpdir(), "pi-spawn-external-"));
+    const missingWorkspace = join(workspaceRoot, "missing-agent-workspace");
     const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
-    writeFileSync(join(externalWorkspace, "CLAUDE.md"), "# External\n\nBODY", "utf8");
 
     try {
       process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceRoot;
 
       assert.throws(
-        () => spawnPiRpcSession({ ...testAgent, id: "external", workspaceCwd: externalWorkspace }),
-        /workspaceCwd must be inside the resolved workspace root/,
+        () => spawnPiRpcSession({ ...testAgent, id: "missing", workspaceCwd: missingWorkspace }),
+        /workspaceCwd does not exist/,
       );
-      assert.ok(!existsSync(join(externalWorkspace, ".tmp")), "context artifacts must not be written before validation");
+      assert.ok(!existsSync(join(missingWorkspace, ".tmp")), "context artifacts must not be written before validation");
     } finally {
       if (oldWorkspace === undefined) {
         delete process.env[MINIME_WORKSPACE_ROOT_ENV];
@@ -947,7 +951,6 @@ describe("spawnPiRpcSession workspace validation", () => {
         process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
       }
       rmSync(workspaceRoot, { recursive: true, force: true });
-      rmSync(externalWorkspace, { recursive: true, force: true });
     }
   });
 });

@@ -153,14 +153,14 @@ Safety baseline after retirement:
 
 ### Task 1: Encode control-vs-agent workspace semantics
 
-- [ ] Add/update central types or resolver docs to distinguish `controlWorkspaceRoot`, `agentWorkspaceRoot` / `workspaceCwd`, and `packageRoot`.
-- [ ] Ensure CLI help and validator output use these names consistently.
-- [ ] Ensure `--workspace` is documented as control/app workspace, not agent workspace.
-- [ ] Preserve backwards compatibility for relative agent workspace paths by resolving them against the control workspace.
-- [ ] Remove/relax the `realPathIsInsideOrEqual(controlWorkspaceRoot, agentWorkspace)` hard-fail from Pi spawn validation and workspace validation.
-- [ ] Keep hard failures for missing/non-directory configured agent workspaces.
-- [ ] Add tests with two agents pointing at different `workspaceCwd` values proving session spawn cwd/context remains per-agent while config/secrets are read from control workspace.
-- [ ] Add a regression fixture where the control workspace and two agent workspaces are sibling directories; `workspace validate` and Pi spawn env/cwd tests must pass.
+- [x] Add/update central types or resolver docs to distinguish `controlWorkspaceRoot`, `agentWorkspaceRoot` / `workspaceCwd`, and `packageRoot`.
+- [x] Ensure CLI help and validator output use these names consistently.
+- [x] Ensure `--workspace` is documented as control/app workspace, not agent workspace.
+- [x] Preserve backwards compatibility for relative agent workspace paths by resolving them against the control workspace.
+- [x] Remove/relax the `realPathIsInsideOrEqual(controlWorkspaceRoot, agentWorkspace)` hard-fail from Pi spawn validation and workspace validation.
+- [x] Keep hard failures for missing/non-directory configured agent workspaces.
+- [x] Add tests with two agents pointing at different `workspaceCwd` values proving session spawn cwd/context remains per-agent while config/secrets are read from control workspace.
+- [x] Add a regression fixture where the control workspace and two agent workspaces are sibling directories; `workspace validate` and Pi spawn env/cwd tests must pass.
 
 ### Task 2: Remove schema/write-guard from package contract
 
