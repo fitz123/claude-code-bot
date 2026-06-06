@@ -166,9 +166,8 @@ function writeWorkspaceValidationReport(
 function runWorkspaceValidate(
   contract: ResolvedWorkspaceContract,
   stdout: WriteFn,
-  env: NodeJS.ProcessEnv,
 ): void {
-  const result = validateWorkspaceContract(contract, { env });
+  const result = validateWorkspaceContract(contract);
   writeWorkspaceValidationReport(result, stdout);
   if (workspaceValidationErrors(result).length > 0) {
     throw new WorkspaceValidationError();
@@ -205,7 +204,7 @@ export function runCli(argv: readonly string[] = process.argv.slice(2), options:
       return 0;
     }
     if (scope === "workspace" && action === "validate") {
-      runWorkspaceValidate(contract, stdout, options.env ?? process.env);
+      runWorkspaceValidate(contract, stdout);
       return 0;
     }
   } catch (err) {

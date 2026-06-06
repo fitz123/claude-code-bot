@@ -69,7 +69,7 @@ function createWorkspace(options: {
 
 function validate(workspace: string, env: NodeJS.ProcessEnv = {}) {
   const contract = resolveWorkspaceContract({ workspace, cwd: workspace, env });
-  return validateWorkspaceContract(contract, { env });
+  return validateWorkspaceContract(contract);
 }
 
 function errorMessages(result: ReturnType<typeof validate>): string {
@@ -155,7 +155,7 @@ describe("workspace validator", () => {
       env: {},
     });
 
-    const result = validateWorkspaceContract(contract, { env: {} });
+    const result = validateWorkspaceContract(contract);
 
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
     assert.strictEqual(result.contract.effectivePaths.workspaceRoot.source, "cli");

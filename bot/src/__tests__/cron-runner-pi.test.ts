@@ -16,7 +16,6 @@ import { runPi, type PiRunDeps } from "../cron-runner.js";
 import { assemblePiContext } from "../pi-context-assembler.js";
 import {
   buildPiSpawnEnv,
-  PI_CRON_WRAPPER_RELPATHS,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, CronJob } from "../types.js";
 import {
@@ -32,7 +31,6 @@ interface SpawnCapture {
 }
 
 const fixtures: string[] = [];
-const CRON_EXTENSION_ARGS: string[] = [];
 
 after(() => {
   for (const dir of fixtures) {
@@ -100,7 +98,6 @@ function makeDeps(
     buildAgentConfig: (_cron, cwd) => makeAgent(cwd),
     buildEnv: () => ({}),
     assembleContext: () => null,
-    resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     ...overrides,
   };
 }
@@ -127,13 +124,8 @@ describe("cron-runner runPi", () => {
   it("spawns Pi in print one-shot mode with the required argv and spawn options", () => {
     const ws = makeWorkspace();
     const captures: SpawnCapture[] = [];
-    let relpathsSeen: readonly string[] | undefined;
     const deps = makeDeps(captures, {
       buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { thinking: "high" }),
-      resolveExtensionArgs: (options) => {
-        relpathsSeen = options?.relpaths;
-        return [];
-      },
     });
 
     const output = runPi(makeCron({ timeout: 1234 }), ws, deps);
@@ -155,7 +147,6 @@ describe("cron-runner runPi", () => {
     assertCronSystemInstruction(flagValue(capture.args, "--append-system-prompt"));
     assert.ok(!capture.args.includes("--extension"));
     assert.strictEqual(capture.options.input, undefined);
-    assert.deepStrictEqual([...(relpathsSeen ?? [])], [...PI_CRON_WRAPPER_RELPATHS]);
     assert.strictEqual(capture.options.cwd, ws);
     assert.strictEqual(capture.options.timeout, 1234);
     assert.strictEqual(capture.options.encoding, "utf8");
@@ -215,7 +206,6 @@ describe("cron-runner runPi", () => {
         systemPromptPath: "/tmp/pi-persona.md",
         appendSystemPromptPath: "/tmp/pi-bundle.md",
       }),
-      resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     });
 
     runPi(makeCron(), ws, deps);
@@ -246,7 +236,6 @@ describe("cron-runner runPi", () => {
       assembleContext: () => {
         throw new Error("artifact write failed");
       },
-      resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     });
 
     runPi(makeCron(), ws, deps);
@@ -292,7 +281,6 @@ describe("cron-runner runPi", () => {
     const deps = makeDeps(captures, {
       buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { systemPrompt: "PERSONA_TOKEN" }),
       assembleContext: assemblePiContext,
-      resolveExtensionArgs: () => [...CRON_EXTENSION_ARGS],
     });
 
     runPi(makeCron(), ws, deps);
@@ -305,7 +293,7 @@ describe("cron-runner runPi", () => {
     assert.ok(args.includes("--no-context-files"));
   });
 
-  it("builds the guarded env before assembling cron context", () => {
+  it("validates the agent workspace before assembling cron context", () => {
     const workspaceRoot = makeWorkspace();
     const missingWorkspace = join(workspaceRoot, "missing-agent-workspace");
     const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
@@ -518,9 +506,7 @@ describe("cron-runner runPi", () => {
   it("allows Pi cron spawns with no explicit first-party wrappers", () => {
     const ws = makeWorkspace();
     const captures: SpawnCapture[] = [];
-    const deps = makeDeps(captures, {
-      resolveExtensionArgs: () => [],
-    });
+    const deps = makeDeps(captures);
 
     runPi(makeCron(), ws, deps);
 

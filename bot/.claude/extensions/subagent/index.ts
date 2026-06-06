@@ -318,16 +318,11 @@ async function runSingleAgent(
 		const invocation = getPiInvocation(args);
 
 		const result = await runSubagentChild({
-			spawn: (command, spawnArgs, opts) =>
-				spawn(command, spawnArgs, {
-					cwd: opts.cwd,
-					env: buildPiSubagentChildSpawnEnv(),
-					shell: false,
-					stdio: ["ignore", "pipe", "pipe"],
-				}),
+			spawn,
 			command: invocation.command,
 			args: invocation.args,
 			cwd: cwd ?? defaultCwd,
+			env: buildPiSubagentChildSpawnEnv(),
 			signal,
 			agentName,
 			onMessage: onUpdate

@@ -35,6 +35,7 @@ import {
   piExtensionRelpathForDir,
   readPiStream,
   resolvePiExtensionArgs,
+  resolveValidatedPiAgentWorkspaceCwd,
   sendPiGetState,
   sendPiPrompt,
   sendPiSteer,
@@ -693,7 +694,7 @@ describe("buildPiSpawnEnv", () => {
       delete process.env[MINIME_CONFIG_PATH_ENV];
       delete process.env[MINIME_CRONS_PATH_ENV];
 
-      const env = buildPiSpawnEnv(testAgent);
+      const env = buildPiSpawnEnv();
 
       assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
@@ -732,7 +733,7 @@ describe("buildPiSpawnEnv", () => {
   });
 
   it("includes /opt/homebrew/bin in PATH", () => {
-    const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv(testAgent));
+    const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv());
 
     assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
   });
@@ -748,7 +749,7 @@ describe("buildPiSpawnEnv", () => {
       process.env[MINIME_CONFIG_PATH_ENV] = "settings/bot.yaml";
       process.env[MINIME_CRONS_PATH_ENV] = join(workspaceRoot, "ops", "crons.yaml");
 
-      const env = buildPiSpawnEnv(testAgent);
+      const env = buildPiSpawnEnv();
 
       assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], workspaceRoot);
       assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/bot.yaml");
@@ -778,7 +779,7 @@ describe("buildPiSpawnEnv", () => {
 
     try {
       process.env.PATH = "/opt/homebrew/bin:/usr/bin";
-      const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv(testAgent));
+      const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv());
 
       assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
     } finally {
@@ -795,10 +796,10 @@ describe("buildPiSpawnEnv", () => {
 
     try {
       process.env.PATH = "";
-      assert.strictEqual(withWorkspaceRoot("/tmp", () => buildPiSpawnEnv(testAgent)).PATH, "/opt/homebrew/bin");
+      assert.strictEqual(withWorkspaceRoot("/tmp", () => buildPiSpawnEnv()).PATH, "/opt/homebrew/bin");
 
       process.env.PATH = ":/usr/bin::/bin:";
-      assert.strictEqual(withWorkspaceRoot("/tmp", () => buildPiSpawnEnv(testAgent)).PATH, "/opt/homebrew/bin:/usr/bin:/bin");
+      assert.strictEqual(withWorkspaceRoot("/tmp", () => buildPiSpawnEnv()).PATH, "/opt/homebrew/bin:/usr/bin:/bin");
     } finally {
       if (oldPath === undefined) {
         delete process.env.PATH;
@@ -813,7 +814,7 @@ describe("buildPiSpawnEnv", () => {
 
     try {
       process.env.CLAUDECODE = "1";
-      const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv(testAgent));
+      const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv());
 
       assert.strictEqual(env.CLAUDECODE, undefined);
     } finally {
@@ -829,9 +830,9 @@ describe("buildPiSpawnEnv", () => {
     const controlWorkspace = mkdtempSync(join(tmpdir(), "pi-spawn-env-control-"));
 
     try {
-      const env = withWorkspaceRoot(controlWorkspace, () => buildPiSpawnEnv(testAgent));
+      const resolved = withWorkspaceRoot(controlWorkspace, () => resolveValidatedPiAgentWorkspaceCwd(testAgent));
 
-      assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
+      assert.strictEqual(resolved, testAgent.workspaceCwd);
     } finally {
       rmSync(controlWorkspace, { recursive: true, force: true });
     }
@@ -844,9 +845,12 @@ describe("buildPiSpawnEnv", () => {
     symlinkSync(externalWorkspace, symlinkWorkspace, "dir");
 
     try {
-      const env = withWorkspaceRoot(workspaceRoot, () => buildPiSpawnEnv({ ...testAgent, workspaceCwd: symlinkWorkspace }));
+      const resolved = withWorkspaceRoot(
+        workspaceRoot,
+        () => resolveValidatedPiAgentWorkspaceCwd({ ...testAgent, workspaceCwd: symlinkWorkspace }),
+      );
 
-      assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
+      assert.strictEqual(resolved, symlinkWorkspace);
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
       rmSync(externalWorkspace, { recursive: true, force: true });
@@ -935,6 +939,47 @@ describe("buildPiSubagentChildSpawnEnv", () => {
           process.env[key] = oldValue;
         }
       }
+    }
+  });
+
+  it("propagates explicit control config and crons path overrides", () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-subagent-child-env-control-contract-"));
+    const envKeys = [
+      "DISCORD_BOT_TOKEN",
+      "TAVILY_API_KEY",
+      "TELEGRAM_BOT_TOKEN",
+      MINIME_CONFIG_PATH_ENV,
+      MINIME_CRONS_PATH_ENV,
+      MINIME_WORKSPACE_ROOT_ENV,
+    ];
+    const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
+
+    try {
+      process.env.DISCORD_BOT_TOKEN = "fixture";
+      process.env.TAVILY_API_KEY = "fixture";
+      process.env.TELEGRAM_BOT_TOKEN = "fixture";
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceRoot;
+      process.env[MINIME_CONFIG_PATH_ENV] = "settings/bot.yaml";
+      process.env[MINIME_CRONS_PATH_ENV] = join(workspaceRoot, "ops", "crons.yaml");
+
+      const env = buildPiSubagentChildSpawnEnv();
+
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], workspaceRoot);
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/bot.yaml");
+      assert.strictEqual(env[MINIME_CRONS_PATH_ENV], join(workspaceRoot, "ops", "crons.yaml"));
+      assert.strictEqual(env.DISCORD_BOT_TOKEN, undefined);
+      assert.strictEqual(env.TAVILY_API_KEY, undefined);
+      assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
+    } finally {
+      for (const key of envKeys) {
+        const oldValue = oldValues.get(key);
+        if (oldValue === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = oldValue;
+        }
+      }
+      rmSync(workspaceRoot, { recursive: true, force: true });
     }
   });
 });

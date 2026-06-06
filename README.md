@@ -152,7 +152,7 @@ tavily:
   api_key: ENC[...]
 ```
 
-Tavily web-tool secrets use the same control-workspace path by default: `config/secrets.sops.yaml` key `tavily.api_key`, described in [A2 setup](#pi-extensions-a1-a3). Do not copy Telegram, Discord, or Tavily secret values into agent workspaces.
+Tavily web-tool secrets use the same control-workspace path by default: `config/secrets.sops.yaml` key `tavily.api_key`, described in [web-tools setup](#web-tools-setup-optional). Do not copy Telegram, Discord, or Tavily secret values into agent workspaces.
 
 **4. Initialize Pi auth**
 
@@ -343,7 +343,7 @@ Token resolution checks SOPS first, then a configured environment variable:
 
 | Field | Source | When to use |
 |---|---|---|
-| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical private-workspace deployment backend for bot platform tokens |
+| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical control-workspace deployment backend for bot platform tokens |
 | `telegramTokenEnv` / `discord.tokenEnv` | Environment variable name read from `process.env` | Explicit environment override for launchd, Linux, containers, or systemd |
 
 Example:
@@ -357,7 +357,7 @@ discord:
   tokenEnv: DISCORD_BOT_TOKEN
 ```
 
-SOPS key paths are dot paths whose segments must match `[A-Za-z0-9_-]+`, such as `telegram.bot_token`. A configured `*SopsKey` requires `secrets.sopsFile`; invalid key syntax or a missing `secrets.sopsFile` is a config error. Runtime lookup failures such as a missing file, decrypt failure, or blank decrypted value fall back to the configured env var, then fail with sanitized source/key/env/failure-kind details if no source resolves.
+SOPS key paths are dot paths whose segments must match `[A-Za-z0-9_-]+`, such as `telegram.bot_token`. A configured `*SopsKey` requires `secrets.sopsFile`; relative SOPS file paths resolve against the control workspace, not the config file directory or any agent workspace. Invalid key syntax or a missing `secrets.sopsFile` is a config error. Runtime lookup failures such as a missing file, decrypt failure, or blank decrypted value fall back to the configured env var, then fail with sanitized source/key/env/failure-kind details if no source resolves.
 
 Legacy `telegramTokenService` and `discord.tokenService` Keychain settings are rejected with migration errors. Telegram token resolution is required only when Telegram bindings are configured; Discord-only deployments can set `bindings: []` and provide a Discord token source.
 
@@ -397,7 +397,9 @@ minime-bot workspace validate --workspace /path/to/control-workspace
 
 `--workspace` takes precedence over `MINIME_WORKSPACE_ROOT`; under ADR-081 it names the control/app workspace that owns config, crons, bindings, runtime state, and global secret references. If neither is set in the current source checkout, the workspace defaults to the repository root. Relative agent `workspaceCwd` values resolve against the control workspace. Absolute agent workspaces are allowed to live outside the control workspace after existence/directory validation.
 
-Validation is structural by default. These commands load config with secret resolution disabled, parse crons, and print effective paths without decrypting SOPS files or printing secret values. The validator hard-fails invalid control config/crons and missing or non-directory configured agent workspaces.
+`MINIME_CONFIG_PATH` and `MINIME_CRONS_PATH` override the control workspace config and crons files. Relative override values resolve against the control workspace. They are non-secret path references and are propagated to Pi children only when explicitly configured.
+
+Validation is structural by default. These commands load config with secret resolution disabled, parse crons, and print effective paths without decrypting SOPS files or printing secret values. The validator hard-fails missing or non-directory control workspaces, invalid or missing config paths, invalid crons paths, missing or non-directory configured agent workspaces, and missing package Pi extension directories. It warns for missing crons files and missing optional agent context files or rules directories.
 
 ### Provider backends
 

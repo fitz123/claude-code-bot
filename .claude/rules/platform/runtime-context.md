@@ -14,7 +14,7 @@ You are running as a **coding-agent backend** spawned by the Telegram/Discord bo
 - Your exact tools depend on the Pi spawn mode. Interactive Pi RPC sessions load the bot's Pi extensions. Pi print-mode crons do not have web-tools/subagent/browser/MCP parity.
 - You are NOT running in a terminal. Messages come from Telegram users, not a keyboard
 - Your responses are sent back to Telegram via the bot's stream relay
-- Your workspace is your current working directory. Other agents live in sibling directories alongside it; check the bot's `config.yaml` (in the main workspace) for the full agent roster and which Telegram chats route to which agent
+- Your workspace is your current working directory from `agents.*.workspaceCwd`. Other agents live wherever the control workspace config points; check the control workspace `config.yaml` / `config.local.yaml` for the full agent roster and which Telegram chats route to which agent
 - Bot tools are available: `bot/scripts/deliver.sh` for Telegram messaging, `launchctl` for cron management
 - Pi print-mode crons do not have automatic memory recall. Use `MEMORY.md` as the index and read specific memory files on demand.
 

@@ -24,6 +24,7 @@ import {
   type SubagentMessage,
   type SubagentReadableLike,
   type SubagentSpawn,
+  type SubagentSpawnOptions,
 } from "../pi-extensions/subagent-args.js";
 import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
@@ -147,7 +148,6 @@ describe("subagent: wrapper spawn environment", () => {
     const wrapper = readFileSync(resolve(BOT_DIR, ".claude", "extensions", "subagent", "index.ts"), "utf8");
 
     assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(\)/);
-    assert.match(wrapper, /cwd:\s*opts\.cwd/);
     assert.doesNotMatch(wrapper, /env:\s*\{\s*\.{3}process\.env/);
   });
 
@@ -165,13 +165,25 @@ describe("subagent: wrapper spawn environment", () => {
         command: "pi",
         args: ["-p", "delegate"],
         cwd: callerCwd,
+        env,
         agentName: "worker",
       });
       child.emitClose(0);
       await promise;
 
       assert.equal(env[MINIME_WORKSPACE_ROOT_ENV], controlWorkspace);
-      assert.deepEqual(calls, [{ command: "pi", args: ["-p", "delegate"], cwd: callerCwd }]);
+      assert.deepEqual(calls, [
+        {
+          command: "pi",
+          args: ["-p", "delegate"],
+          options: {
+            cwd: callerCwd,
+            env,
+            shell: false,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        },
+      ]);
     } finally {
       if (oldWorkspace === undefined) {
         delete process.env[MINIME_WORKSPACE_ROOT_ENV];
@@ -347,7 +359,7 @@ class FakeChild implements SubagentChildLike {
 interface SpawnRecord {
   command: string;
   args: string[];
-  cwd?: string;
+  options: SubagentSpawnOptions;
 }
 
 function setupRunner() {
@@ -355,7 +367,7 @@ function setupRunner() {
   const calls: SpawnRecord[] = [];
   const warns: SubagentChildErrorWarn[] = [];
   const spawn: SubagentSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd });
+    calls.push({ command, args, options });
     return child;
   };
   return { child, calls, warns, spawn };
@@ -383,7 +395,18 @@ describe("subagent: runSubagentChild (mock spawn)", () => {
     child.emitClose(0);
     const result = await promise;
 
-    assert.deepEqual(calls, [{ command: "pi", args: ["--mode", "json", "-p"], cwd: "/work" }]);
+    assert.deepEqual(calls, [
+      {
+        command: "pi",
+        args: ["--mode", "json", "-p"],
+        options: {
+          cwd: "/work",
+          env: undefined,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      },
+    ]);
     assert.equal(result.exitCode, 0);
     assert.equal(result.aborted, false);
     assert.equal(getFinalOutput(result.messages), "done");

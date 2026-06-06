@@ -24,8 +24,7 @@ import type { CronJob, AgentConfig } from "./types.js";
 import { shouldSuppressNoReply } from "./no-reply.js";
 import {
   buildPiSpawnEnv,
-  PI_CRON_WRAPPER_RELPATHS,
-  resolvePiExtensionArgs,
+  resolveValidatedPiAgentWorkspaceCwd,
   shouldIncludePiChildEnvKey,
 } from "./pi-rpc-protocol.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
@@ -589,9 +588,8 @@ type PiSpawnSync = (
 export interface PiRunDeps {
   spawnSync: PiSpawnSync;
   buildAgentConfig: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => AgentConfig;
-  buildEnv: (agent: AgentConfig) => Record<string, string>;
+  buildEnv: () => Record<string, string>;
   assembleContext: typeof assemblePiContext;
-  resolveExtensionArgs: typeof resolvePiExtensionArgs;
 }
 
 function buildPiCronAgentConfigForRun(cron: CronJob, workspaceCwd: string, agentData?: CronAgentData): AgentConfig {
@@ -604,12 +602,7 @@ const defaultPiDeps: PiRunDeps = {
   buildAgentConfig: buildPiCronAgentConfigForRun,
   buildEnv: buildPiSpawnEnv,
   assembleContext: assemblePiContext,
-  resolveExtensionArgs: resolvePiExtensionArgs,
 };
-
-function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtensionArgs): string[] {
-  return resolveExtensionArgs({ relpaths: PI_CRON_WRAPPER_RELPATHS });
-}
 
 function hardenPiCronEnv(rawEnv: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
@@ -637,9 +630,10 @@ function runPi(
   }
 
   const agent = deps.buildAgentConfig(cron, workspaceCwd, agentData);
+  const validatedWorkspaceCwd = resolveValidatedPiAgentWorkspaceCwd(agent);
   const thinking = isCronPiThinking(agent.thinking) ? agent.thinking : "medium";
   const systemInstruction = buildCronSystemInstruction();
-  const env = hardenPiCronEnv(deps.buildEnv(agent));
+  const env = hardenPiCronEnv(deps.buildEnv());
   // Pi authenticates via ~/.pi/agent/auth.json, not legacy OAuth credentials.
   env.HOME ||= homedir();
   const args: string[] = [
@@ -668,10 +662,8 @@ function runPi(
   }
 
   args.push("--append-system-prompt", systemInstruction);
-  args.push(...resolvePiCronExtensionArgs(deps.resolveExtensionArgs));
-
   const result = deps.spawnSync(PI_BIN, args, {
-    cwd: workspaceCwd,
+    cwd: validatedWorkspaceCwd,
     timeout: cron.timeout ?? DEFAULT_TIMEOUT_MS,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,

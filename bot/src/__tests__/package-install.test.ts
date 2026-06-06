@@ -316,7 +316,7 @@ const defaultContract = workspaceContract.resolveWorkspaceContract({
   cwd: projectDir,
   env: {},
 });
-const defaultResult = validator.validateWorkspaceContract(defaultContract, { env: {} });
+const defaultResult = validator.validateWorkspaceContract(defaultContract);
 assert.equal(validator.workspaceValidationErrors(defaultResult).length, 0);
 
 const registeredTools = [];
