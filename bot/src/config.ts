@@ -400,14 +400,14 @@ function optionalConfigString(value: unknown, fieldName: string): string | undef
   return trimmed === "" ? undefined : trimmed;
 }
 
-function resolveConfiguredSopsFile(raw: RawConfig, configPath?: string): string | undefined {
+function resolveConfiguredSopsFile(raw: RawConfig, controlWorkspaceRoot: string): string | undefined {
   if (raw.secrets === undefined) return undefined;
   if (typeof raw.secrets !== "object" || raw.secrets === null || Array.isArray(raw.secrets)) {
     throw new Error("secrets must be an object");
   }
   const sopsFile = optionalConfigString(raw.secrets.sopsFile, "secrets.sopsFile");
   if (!sopsFile) return undefined;
-  return resolve(dirname(resolveConfigPath(configPath)), sopsFile);
+  return resolve(controlWorkspaceRoot, sopsFile);
 }
 
 function validateConfiguredSopsSource(
@@ -432,7 +432,8 @@ function findLegacyConfigKey(raw: object, keyPattern: RegExp): string | undefine
 
 export function loadTelegramToken(configPath?: string, options: LoadConfigOptions = {}): string {
   const raw: RawConfig = loadRawMergedConfig(configPath) as RawConfig;
-  const sopsFile = resolveConfiguredSopsFile(raw, configPath);
+  const workspaceRoot = resolveConfigWorkspaceRoot(configPath, options.workspaceRoot);
+  const sopsFile = resolveConfiguredSopsFile(raw, workspaceRoot);
   const legacyTelegramKey = findLegacyConfigKey(raw, LEGACY_TELEGRAM_SERVICE_KEY_RE);
   if (legacyTelegramKey) {
     throw new Error(
@@ -464,7 +465,7 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   if (!raw || typeof raw !== "object") {
     throw new Error("Config file is empty or invalid");
   }
-  const sopsFile = resolveConfiguredSopsFile(raw, configPath);
+  const sopsFile = resolveConfiguredSopsFile(raw, workspaceRoot);
 
   // Validate top-level defaults for migration clarity. Agents no longer inherit
   // defaultModel now that Pi is the only runtime.

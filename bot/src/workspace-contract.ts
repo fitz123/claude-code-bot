@@ -1,6 +1,5 @@
-import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const MINIME_WORKSPACE_ROOT_ENV = "MINIME_WORKSPACE_ROOT";
@@ -265,17 +264,4 @@ export function workspaceContractDiagnostics(
 
 export function resolveAgentWorkspaceCwd(controlWorkspaceRoot: string, workspaceCwd: string): string {
   return normalize(isAbsolute(workspaceCwd) ? workspaceCwd : resolve(controlWorkspaceRoot, workspaceCwd));
-}
-
-export function pathIsInsideOrEqual(parent: string, candidate: string): boolean {
-  const rel = relative(normalize(parent), normalize(candidate));
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-export function realPathIsInsideOrEqual(parent: string, candidate: string): boolean {
-  try {
-    return pathIsInsideOrEqual(realpathSync.native(parent), realpathSync.native(candidate));
-  } catch {
-    return false;
-  }
 }

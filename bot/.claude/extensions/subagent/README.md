@@ -179,7 +179,7 @@ Agents are markdown files with YAML frontmatter:
 name: my-agent
 description: What this agent does
 tools: read, grep, find, ls
-model: claude-haiku-4-5
+model: gpt-5.5
 ---
 
 System prompt for the agent goes here.
@@ -196,10 +196,10 @@ Later sources override earlier ones with the same name: user overrides bundled; 
 
 | Agent | Purpose | Model | Tools |
 |-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash, web_search, web_fetch |
-| `planner` | Implementation plans | Sonnet | read, grep, find, ls, web_search, web_fetch |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash, web_search, web_fetch |
-| `worker` | General-purpose | Sonnet | (all default) |
+| `scout` | Fast codebase recon | Codex default | read, grep, find, ls, bash, web_search, web_fetch |
+| `planner` | Implementation plans | Codex default | read, grep, find, ls, web_search, web_fetch |
+| `reviewer` | Code review | Codex default | read, grep, find, ls, bash, web_search, web_fetch |
+| `worker` | General-purpose | Codex default | (all default) |
 
 ## Workflow Prompts
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(scriptDir, "..");
-const repoRoot = resolve(packageRoot, "..");
+const repoRoot = process.argv[2] ? resolve(process.argv[2]) : resolve(packageRoot, "..");
 
 const skippedDirs = new Set([
   ".beads",
@@ -34,6 +34,7 @@ const allowedPaths = new Set([
   `bot${sep}scripts${sep}check-no-active-schema-guard-contract.mjs`,
   `bot${sep}src${sep}__tests__${sep}package-install.test.ts`,
   `bot${sep}src${sep}__tests__${sep}pi-rpc-protocol.test.ts`,
+  `bot${sep}src${sep}__tests__${sep}schema-guard-contract-check.test.ts`,
 ]);
 
 const bannedLinePatterns = [
@@ -45,6 +46,8 @@ const bannedLinePatterns = [
   /\breadWriteAllowlistSchema\b/,
   /\bwrite-allowlist\b/i,
   /\bimmutable core\b/i,
+  /\b(?:schema|write)\s+guard\b/i,
+  /\bguard extension\b/i,
 ];
 
 const staleSchemaRequirementPatterns = [

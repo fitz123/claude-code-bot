@@ -34,11 +34,11 @@ Three hooks are wired in `.claude/settings.json`:
 - Pi subagent child spawns load web-tools via `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS`; do not add A3 `subagent/index.ts` to child sessions.
 - Bundled scout/planner/reviewer agents allow `web_search` and `web_fetch`; worker has no explicit tools allowlist.
 - Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
-- Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Under ADR-081, Telegram/Discord/Tavily secret references are global control-workspace references; any per-agent Tavily cwd resolution is legacy until Task 4 replaces it.
+- Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Under ADR-081, Telegram, Discord, and Tavily secret references are global control-workspace references. Tavily resolves `<controlWorkspaceRoot>/config/secrets.sops.yaml` key `tavily.api_key` via `MINIME_WORKSPACE_ROOT`; it never reads agent cwd or receives plaintext through env/argv.
 - Workspace contract defaults live in `bot/src/workspace-contract.ts`: CLI `--workspace`, then `MINIME_WORKSPACE_ROOT`, then source-checkout fallback. Under ADR-081 this root is the control/app workspace. `MINIME_CONFIG_PATH` and `MINIME_CRONS_PATH` are control-workspace overrides. Relative agent `workspaceCwd` values resolve against the control workspace; absolute agent workspaces may live outside it after existence/directory validation.
 - Package extension artifacts are generated under `bot/dist/extensions/pi` by `npm run build` / `npm pack`; source development still uses `bot/.claude/extensions`.
 - Bot validation commands: `cd bot && npm test`, `npm run typecheck`, and `npm run validate-config`.
-- Package validation commands: `cd bot && npm run build`, `npm run workspace:validate -- --workspace ./test-fixtures/minimal-workspace`, and `npm pack --dry-run`.
+- Package validation commands: `cd bot && npm run build`, `npm run workspace:validate -- --workspace ./test-fixtures/minimal-workspace`, `npm run check:schema-guard-contract`, and `npm pack --dry-run`.
 - Sampler dry-run check: `cd bot && CODEX_QUOTA_TEXTFILE_DIR=/tmp/codex-quota-test CODEX_QUOTA_STATE_FILE=/tmp/codex-quota-test/state.json npx tsx scripts/codex-quota-sampler.ts --dry-run`.
 
 ## Skills

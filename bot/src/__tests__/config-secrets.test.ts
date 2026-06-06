@@ -3,8 +3,9 @@ import assert from "node:assert";
 import { writeFileSync, mkdtempSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadConfig } from "../config.js";
+import { loadConfig, loadTelegramToken } from "../config.js";
 import type { ExecFileSyncLike } from "../secrets.js";
+import { MINIME_CONFIG_PATH_ENV, MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 describe("config secret resolution: SOPS and env sources", () => {
   let tmpDir: string;
@@ -19,6 +20,8 @@ describe("config secret resolution: SOPS and env sources", () => {
     rmSync(tmpDir, { recursive: true, force: true });
     delete process.env.TEST_TELEGRAM_TOKEN_ENV;
     delete process.env.TEST_DISCORD_TOKEN_ENV;
+    delete process.env[MINIME_CONFIG_PATH_ENV];
+    delete process.env[MINIME_WORKSPACE_ROOT_ENV];
   });
 
   const minimalAgentsYaml = `
@@ -36,7 +39,7 @@ agents:
     return file;
   }
 
-  it("prefers telegramTokenSopsKey over env and resolves relative secrets.sopsFile from config dir", () => {
+  it("prefers telegramTokenSopsKey over env and resolves direct configPath SOPS fallback from the config dir", () => {
     const sopsFile = writeSopsPlaceholder();
     process.env.TEST_TELEGRAM_TOKEN_ENV = "tg-token-from-env";
     const calls: Array<{ file: string; args: readonly string[] }> = [];
@@ -62,6 +65,46 @@ bindings:
     assert.strictEqual(config.telegramToken, "tg-token-from-sops");
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(calls[0].file, "sops");
+    assert.deepStrictEqual(calls[0].args, [
+      "-d",
+      "--extract",
+      '["telegram"]["bot_token"]',
+      sopsFile,
+    ]);
+  });
+
+  it("loadTelegramToken resolves relative SOPS paths against the control workspace when config path is overridden", () => {
+    const controlWorkspace = join(tmpDir, "control-workspace");
+    const configDir = join(controlWorkspace, "settings");
+    const sopsDir = join(controlWorkspace, "config");
+    const sopsFile = join(sopsDir, "secrets.sops.yaml");
+    mkdirSync(configDir, { recursive: true });
+    mkdirSync(sopsDir, { recursive: true });
+    writeFileSync(sopsFile, "telegram:\n  bot_token: encrypted-placeholder\n");
+    writeFileSync(
+      join(configDir, "bot.yaml"),
+      `
+agents:
+  main:
+    workspaceCwd: /tmp/foo
+    model: gpt-5.5
+secrets:
+  sopsFile: config/secrets.sops.yaml
+telegramTokenSopsKey: telegram.bot_token
+`,
+    );
+    process.env[MINIME_WORKSPACE_ROOT_ENV] = controlWorkspace;
+    process.env[MINIME_CONFIG_PATH_ENV] = "settings/bot.yaml";
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+
+    const token = loadTelegramToken(undefined, {
+      secretExecFileSync: (file, args) => {
+        calls.push({ file, args });
+        return "tg-token-from-control-sops\n";
+      },
+    });
+
+    assert.strictEqual(token, "tg-token-from-control-sops");
     assert.deepStrictEqual(calls[0].args, [
       "-d",
       "--extract",

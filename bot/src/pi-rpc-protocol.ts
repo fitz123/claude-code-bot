@@ -366,11 +366,8 @@ export function buildPiSpawnArgs(
   return args;
 }
 
-export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
-  const contract = resolveWorkspaceContract();
-  validateAgentWorkspaceCwd(agent, contract);
-
-  return buildAllowedPiChildEnv(contract);
+export function buildPiSpawnEnv(): Record<string, string> {
+  return buildAllowedPiChildEnv(resolveWorkspaceContract());
 }
 
 export function buildPiSubagentChildSpawnEnv(): Record<string, string> {
@@ -441,7 +438,7 @@ const PI_STARTUP_STDERR_CAP = 64 * 1024;
 export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string): ChildProcess {
   const workspaceCwd = resolveValidatedPiAgentWorkspaceCwd(agent);
   const spawnAgent = { ...agent, workspaceCwd };
-  const env = buildPiSpawnEnv(spawnAgent);
+  const env = buildPiSpawnEnv();
   const child = spawn(PI_BIN, buildPiSpawnArgs(spawnAgent, resumeSessionId), {
     env,
     cwd: workspaceCwd,

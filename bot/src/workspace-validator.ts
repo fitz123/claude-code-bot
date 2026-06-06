@@ -22,10 +22,6 @@ export interface WorkspaceValidationResult {
   issues: WorkspaceValidationIssue[];
 }
 
-export interface ValidateWorkspaceOptions {
-  env?: NodeJS.ProcessEnv;
-}
-
 function issue(
   issues: WorkspaceValidationIssue[],
   severity: WorkspaceValidationSeverity,
@@ -101,9 +97,7 @@ export function workspaceValidationWarnings(
 
 export function validateWorkspaceContract(
   contract: ResolvedWorkspaceContract,
-  options: ValidateWorkspaceOptions = {},
 ): WorkspaceValidationResult {
-  const env = options.env ?? process.env;
   const issues: WorkspaceValidationIssue[] = [];
   let config: BotConfig | undefined;
   let crons: Array<Record<string, unknown>> | undefined;

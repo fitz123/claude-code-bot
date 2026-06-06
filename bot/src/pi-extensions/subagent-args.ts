@@ -55,13 +55,11 @@ export interface BuildSubagentSpawnArgsOptions {
    */
   systemPromptPath?: string;
   /**
-   * Pre-resolved `--extension <abs-path>` args to load into the child (e.g. the
-   * A1 write guard, so a delegated task cannot bypass the guard a parent session
-   * runs under). Appended verbatim BEFORE the positional task. Empty/absent →
-   * the child loads no explicit first-party extensions (e.g. when the kill-switch
-   * is set). The child still passes `--no-extensions` to block Pi's ambient
-   * discovery. The caller resolves these (`resolvePiExtensionArgs`) so this module
-   * stays pure/testable.
+   * Pre-resolved `--extension <abs-path>` args to load into the child. Appended
+   * verbatim BEFORE the positional task. Empty/absent means the child loads no
+   * explicit first-party extensions. The child still passes `--no-extensions` to
+   * block Pi's ambient discovery. The caller resolves these (`resolvePiExtensionArgs`)
+   * so this module stays pure/testable.
    */
   extensionArgs?: string[];
 }
@@ -294,10 +292,17 @@ export interface SubagentChildLike {
 }
 
 /** Injected spawn (real: `node:child_process.spawn`; tests: a fake). */
+export interface SubagentSpawnOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  shell: false;
+  stdio: ["ignore", "pipe", "pipe"];
+}
+
 export type SubagentSpawn = (
   command: string,
   args: string[],
-  options: { cwd?: string },
+  options: SubagentSpawnOptions,
 ) => SubagentChildLike;
 
 export interface SubagentRunResult extends SubagentResultLike {
@@ -316,6 +321,8 @@ export interface RunSubagentChildDeps {
   args: string[];
   /** Working directory for the child. */
   cwd?: string;
+  /** Allowlisted child environment. */
+  env?: Record<string, string>;
   /** Abort signal — when aborted, SIGTERM then (after a grace) SIGKILL. */
   signal?: AbortSignal;
   /** Streaming hook fired after each parsed message (drives onUpdate). */
@@ -405,7 +412,12 @@ export function runSubagentChild(deps: RunSubagentChildDeps): Promise<SubagentRu
       resolve(result);
     };
 
-    const child = deps.spawn(deps.command, deps.args, { cwd: deps.cwd });
+    const child = deps.spawn(deps.command, deps.args, {
+      cwd: deps.cwd,
+      env: deps.env,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     child.stdout?.on("data", (chunk) => {
       buffer += chunk.toString();
