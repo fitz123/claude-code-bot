@@ -39,10 +39,10 @@ Desired behavior:
 
 ### Task 3: Tests and validation
 
-- [ ] Update Pi extension loading tests to expect guard + web-tools for subagent children and no recursive subagent wrapper.
-- [ ] Add/adjust tests for subagent spawn args or bundled agent discovery so explicit allowlists expose web tools.
-- [ ] Run validation from `bot/`: `npm test`, `npm run lint`, `npm run build`.
-- [ ] Run repository checks: `git diff --check`, `gitleaks protect --staged --no-banner`.
+- [x] Update Pi extension loading tests to expect guard + web-tools for subagent children and no recursive subagent wrapper.
+- [x] Add/adjust tests for subagent spawn args or bundled agent discovery so explicit allowlists expose web tools.
+- [x] Run validation from `bot/`: `npm test`, `npm run lint`, `npm run build`.
+- [x] Run repository checks: `git diff --check`, `gitleaks protect --staged --no-banner`.
 
 ## Acceptance Criteria
 
