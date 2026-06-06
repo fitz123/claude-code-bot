@@ -429,6 +429,31 @@ describe("Pi extension loading (--extension)", () => {
     );
   });
 
+  it("post-retirement extension contract excludes guardian in parent, cron, and subagent child args", () => {
+    const parentArgs = resolvePiExtensionArgs(presentAll);
+    const subagentChildArgs = resolvePiExtensionArgs({
+      ...presentAll,
+      relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+    });
+    const cronArgs = resolvePiExtensionArgs({
+      ...presentAll,
+      relpaths: PI_CRON_WRAPPER_RELPATHS,
+    });
+
+    assert.deepStrictEqual(parentArgs, [
+      "--extension", wrapperAbs("web-tools.ts"),
+      "--extension", wrapperAbs("subagent/index.ts"),
+    ]);
+    assert.deepStrictEqual(subagentChildArgs, [
+      "--extension", wrapperAbs("web-tools.ts"),
+    ]);
+    assert.deepStrictEqual(cronArgs, []);
+    assert.doesNotMatch(
+      JSON.stringify({ parentArgs, subagentChildArgs, cronArgs }),
+      /guardian-protect-files/,
+    );
+  });
+
   it("the subagent-child wrapper subset is web-tools only, without subagent recursion", () => {
     assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], ["web-tools.ts"]);
     assert.deepStrictEqual([...PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS], ["web-tools.js"]);

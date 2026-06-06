@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -15,6 +16,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_ROOT = resolve(__dirname, "..", "..");
+const EXPECTED_BUNDLED_AGENT_FILES = ["planner.md", "reviewer.md", "scout.md", "worker.md"];
+const EXPECTED_BUNDLED_PROMPT_FILES = ["implement-and-review.md", "implement.md", "scout-and-plan.md"];
 
 interface PackedFile {
   path: string;
@@ -113,13 +116,14 @@ function assertPackFiles(files: readonly string[]): void {
     "dist/extensions/pi/web-tools.js",
     "dist/extensions/pi/subagent/agents.js",
     "dist/extensions/pi/subagent/index.js",
-    "dist/extensions/pi/subagent/agents/worker.md",
-    "dist/extensions/pi/subagent/prompts/implement.md",
     "scripts/deliver.sh",
+    ...EXPECTED_BUNDLED_AGENT_FILES.map((file) => `dist/extensions/pi/subagent/agents/${file}`),
+    ...EXPECTED_BUNDLED_PROMPT_FILES.map((file) => `dist/extensions/pi/subagent/prompts/${file}`),
   ]) {
     assert.ok(files.includes(expected), `expected npm pack to include ${expected}`);
   }
 
+  assert.ok(!files.some((file) => file.includes("guardian-protect-files")), "guard extension should not be packed");
   assert.ok(!files.some((file) => file.startsWith("src/")), "source TS should not be packed");
   assert.ok(!files.some((file) => file.startsWith(".claude/")), "source extension wrappers should not be packed");
   assert.ok(!files.some((file) => file.startsWith("test-fixtures/")), "workspace fixtures should not be packed");
@@ -212,7 +216,7 @@ describe("package artifact install", () => {
 
 const INSTALLED_ARTIFACT_CHECK = String.raw`
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -228,16 +232,52 @@ const agentWorkspace = join(workspace, "agent-workspace");
 const controlTavilySopsFile = join(workspace, "config", "secrets.sops.yaml");
 const importFile = (path) => import(pathToFileURL(path).href);
 const importPackageFile = (relpath) => importFile(join(packageDir, relpath));
+const expectedBundledAgentFiles = ${JSON.stringify(EXPECTED_BUNDLED_AGENT_FILES)};
+const expectedBundledPromptFiles = ${JSON.stringify(EXPECTED_BUNDLED_PROMPT_FILES)};
+
+function extensionPathsFromArgs(args) {
+  const paths = [];
+  for (let idx = 0; idx < args.length; idx += 2) {
+    assert.equal(args[idx], "--extension");
+    assert.equal(typeof args[idx + 1], "string");
+    paths.push(args[idx + 1]);
+  }
+  return paths;
+}
+
+function assertNoGuardContract(label, args) {
+  assert.doesNotMatch(JSON.stringify(args), /guardian-protect-files/, label);
+}
 
 const piRpc = await importPackageFile("dist/pi-rpc-protocol.js");
-const extensionArgs = piRpc.resolvePiExtensionArgs({ env: {} });
-const extensionPaths = extensionArgs.filter((arg) => arg !== "--extension");
+const parentExtensionArgs = piRpc.resolvePiExtensionArgs({ env: {} });
+const extensionPaths = extensionPathsFromArgs(parentExtensionArgs);
 assert.deepEqual(
   extensionPaths.map((path) => relative(artifactDir, path)),
   ["web-tools.js", "subagent/index.js"],
 );
+assertNoGuardContract("parent Pi extension args must not load the retired guard", parentExtensionArgs);
+
+const subagentChildExtensionArgs = piRpc.resolvePiExtensionArgs({
+  env: {},
+  relpaths: piRpc.PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+});
+assert.deepEqual(
+  extensionPathsFromArgs(subagentChildExtensionArgs).map((path) => relative(artifactDir, path)),
+  ["web-tools.js"],
+);
+assertNoGuardContract("subagent child extension args must not load the retired guard", subagentChildExtensionArgs);
+
+const cronExtensionArgs = piRpc.resolvePiExtensionArgs({
+  env: {},
+  relpaths: piRpc.PI_CRON_WRAPPER_RELPATHS,
+});
+assert.deepEqual(cronExtensionArgs, []);
+assertNoGuardContract("cron Pi extension args must not load the retired guard", cronExtensionArgs);
 
 for (const extensionPath of extensionPaths) {
+  assert.ok(extensionPath.startsWith(artifactDir + "/"), extensionPath);
+  assert.equal(extensionPath.startsWith(sourceBotRoot), false);
   const mod = await importFile(extensionPath);
   assert.equal(typeof mod.default, "function", extensionPath);
 }
@@ -296,6 +336,17 @@ writeFileSync(
 chmodSync(join(fakeBinDir, "sops"), 0o755);
 process.env.PATH = fakeBinDir + ":" + process.env.PATH;
 process.env.SOPS_ARGV_FILE = sopsArgvFile;
+
+const callerControlledCwd = join(projectDir, "caller-controlled-subagent-cwd");
+mkdirSync(callerControlledCwd, { recursive: true });
+process.chdir(callerControlledCwd);
+const subagentChildEnv = piRpc.buildPiSubagentChildSpawnEnv();
+assert.equal(process.cwd(), callerControlledCwd);
+assert.equal(subagentChildEnv.MINIME_WORKSPACE_ROOT, workspace);
+assert.equal(subagentChildEnv.TELEGRAM_BOT_TOKEN, undefined);
+assert.equal(subagentChildEnv.DISCORD_BOT_TOKEN, undefined);
+assert.equal(subagentChildEnv.TAVILY_API_KEY, undefined);
+
 process.chdir(agentWorkspace);
 
 const fetchCalls = [];
@@ -338,6 +389,11 @@ try {
 
 const agentsMod = await importFile(join(artifactDir, "subagent", "agents.js"));
 const discovery = agentsMod.discoverAgents(workspace, "project");
+const bundledAgentNames = discovery.agents
+  .filter((agent) => agent.source === "bundled")
+  .map((agent) => agent.name)
+  .sort();
+assert.deepEqual(bundledAgentNames, expectedBundledAgentFiles.map((file) => file.slice(0, -".md".length)).sort());
 const bundledWorker = discovery.agents.find((agent) => agent.name === "worker" && agent.source === "bundled");
 assert.ok(bundledWorker, "expected bundled worker agent from installed artifact");
 assert.ok(bundledWorker.filePath.startsWith(join(artifactDir, "subagent", "agents")));
@@ -346,6 +402,18 @@ assert.equal(bundledWorker.filePath.startsWith(sourceBotRoot), false);
 assert.equal(resourceHandlers.length, 1);
 const resources = resourceHandlers[0]();
 assert.deepEqual(resources.promptPaths, [join(artifactDir, "subagent", "prompts")]);
-assert.ok(existsSync(join(resources.promptPaths[0], "implement.md")));
-assert.ok(existsSync(join(artifactDir, "subagent", "agents", "worker.md")));
+assert.deepEqual(
+  readdirSync(join(artifactDir, "subagent", "agents")).filter((file) => file.endsWith(".md")).sort(),
+  expectedBundledAgentFiles,
+);
+assert.deepEqual(
+  readdirSync(resources.promptPaths[0]).filter((file) => file.endsWith(".md")).sort(),
+  expectedBundledPromptFiles,
+);
+for (const file of expectedBundledAgentFiles) {
+  assert.ok(existsSync(join(artifactDir, "subagent", "agents", file)), file);
+}
+for (const file of expectedBundledPromptFiles) {
+  assert.ok(existsSync(join(resources.promptPaths[0], file)), file);
+}
 `;

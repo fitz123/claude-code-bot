@@ -200,13 +200,13 @@ Safety baseline after retirement:
 
 ### Task 5: Keep extension/runtime package compatibility after guard removal
 
-- [ ] Ensure source checkout, built `dist`, and package-installed modes still load the remaining first-party Pi extensions.
-- [ ] Ensure subagent extension non-code resources (`agents/*.md`, `prompts/*.md`) are still packaged and discovered.
-- [ ] Ensure extension helpers do not depend on private workspace cwd or source-only paths.
-- [ ] Update package `files`/build scripts if removing guard changes artifact lists.
-- [ ] Add/keep install-fixture tests for `node_modules/.bin/minime-bot --help`, validator, web-tools wrapper loading, and subagent resource discovery.
-- [ ] Add an exact extension-list assertion for the post-retirement contract: no `guardian-protect-files` in parent, cron, or subagent child extension args; expected web/subagent wrappers still present where intended.
-- [ ] Add an exact subagent-child env assertion: web-enabled delegated children get the control `MINIME_WORKSPACE_ROOT` even when their `cwd` is caller-controlled.
+- [x] Ensure source checkout, built `dist`, and package-installed modes still load the remaining first-party Pi extensions.
+- [x] Ensure subagent extension non-code resources (`agents/*.md`, `prompts/*.md`) are still packaged and discovered.
+- [x] Ensure extension helpers do not depend on private workspace cwd or source-only paths.
+- [x] Update package `files`/build scripts if removing guard changes artifact lists.
+- [x] Add/keep install-fixture tests for `node_modules/.bin/minime-bot --help`, validator, web-tools wrapper loading, and subagent resource discovery.
+- [x] Add an exact extension-list assertion for the post-retirement contract: no `guardian-protect-files` in parent, cron, or subagent child extension args; expected web/subagent wrappers still present where intended.
+- [x] Add an exact subagent-child env assertion: web-enabled delegated children get the control `MINIME_WORKSPACE_ROOT` even when their `cwd` is caller-controlled.
 
 ### Task 6: Update validator contract
 
