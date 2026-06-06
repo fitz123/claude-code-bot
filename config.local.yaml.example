@@ -37,7 +37,7 @@ bindings:
 
 # Optional: Discord support
 # discord:
-#   tokenService: discord-bot-token
+#   tokenEnv: DISCORD_BOT_TOKEN
 #   bindings:
 #     - guildId: 'YOUR_GUILD_ID'
 #       agentId: main

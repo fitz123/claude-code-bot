@@ -58,15 +58,15 @@ If all configured sources fail or are empty, throw/report a sanitized error nami
 
 ### Task 1: Shared SOPS/env secret resolver module
 
-- [ ] Create `bot/src/secrets.ts` or equivalent.
-- [ ] Implement dot-path to SOPS extract expression conversion: `tavily.api_key` -> `["tavily"]["api_key"]`.
-- [ ] Reject unsafe path segments; allow only `[A-Za-z0-9_-]+` per segment.
-- [ ] Implement `readSopsSecret({ file, key, execFileSync? })` using `sops -d --extract <expr> <file>`.
-- [ ] Capture stdout in memory; suppress/capture stderr; never log values.
-- [ ] Treat missing binary/file/key, decrypt errors, and blank values as source failures.
-- [ ] Implement `resolveSecret({ sopsFile, sopsKey, envVar, fieldName })` with priority SOPS -> env.
-- [ ] Return sanitized aggregate errors when all configured sources fail.
-- [ ] Remove direct `security find-generic-password` calls from `bot/src` and Pi extension wrappers touched by this plan.
+- [x] Create `bot/src/secrets.ts` or equivalent.
+- [x] Implement dot-path to SOPS extract expression conversion: `tavily.api_key` -> `["tavily"]["api_key"]`.
+- [x] Reject unsafe path segments; allow only `[A-Za-z0-9_-]+` per segment.
+- [x] Implement `readSopsSecret({ file, key, execFileSync? })` using `sops -d --extract <expr> <file>`.
+- [x] Capture stdout in memory; suppress/capture stderr; never log values.
+- [x] Treat missing binary/file/key, decrypt errors, and blank values as source failures.
+- [x] Implement `resolveSecret({ sopsFile, sopsKey, envVar, fieldName })` with priority SOPS -> env.
+- [x] Return sanitized aggregate errors when all configured sources fail.
+- [x] Remove direct `security find-generic-password` calls from `bot/src` and Pi extension wrappers touched by this plan.
 
 ### Task 2: Config integration for Telegram/Discord
 

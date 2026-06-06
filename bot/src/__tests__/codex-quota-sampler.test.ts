@@ -170,7 +170,7 @@ agents:
   main:
     workspaceCwd: ${agentWorkspace}
     model: gpt-5.5
-telegramTokenService: fake-token
+telegramTokenEnv: FAKE_TELEGRAM_TOKEN
 bindings:
   - chatId: 111
     agentId: main

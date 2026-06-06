@@ -5,8 +5,7 @@
  * `tsc --noEmit` and the `npm test` glob — see `bot/src/pi-extensions/README.md`).
  * All request/parse/error logic lives in the unit-tested pure helper `tavily.ts`;
  * this file only:
- *  1. reads the Tavily API key from the macOS keychain ONCE at load
- *     (service `tavily-api-key`, account `minime`) — warn-logs if absent;
+ *  1. obtains the Tavily API key for this Pi process — warn-logs if absent;
  *  2. registers the `web_search` + `web_fetch` tools so the model can call them;
  *  3. delegates each `execute` to the pure helper and returns its `text`.
  *
@@ -19,7 +18,6 @@
  * Pi session never crashes over a web tool.
  */
 
-import { execFileSync } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   executeWebFetch,
@@ -31,21 +29,9 @@ import {
   type TavilyWarn,
 } from "../../src/pi-extensions/tavily.js";
 
-const KEYCHAIN_SERVICE = "tavily-api-key";
-const KEYCHAIN_ACCOUNT = "minime";
-
-/** Read the Tavily key from the macOS keychain; returns undefined if absent. */
+/** Read the Tavily key for this Pi process; returns undefined if absent. */
 function readTavilyApiKey(): string | undefined {
-  try {
-    const out = execFileSync(
-      "security",
-      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w"],
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-    return out || undefined;
-  } catch {
-    return undefined;
-  }
+  return undefined;
 }
 
 export default function (pi: ExtensionAPI): void {

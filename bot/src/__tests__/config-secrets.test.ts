@@ -1,18 +1,11 @@
-import { test, describe, it, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig } from "../config.js";
 
-/**
- * Tests for the env-var / Keychain secret resolver (resolveSecret) introduced
- * in PR feat/env-var-secrets. Covers the env path exclusively — Keychain path
- * is unchanged behavior and not testable here without a real macOS Keychain
- * entry (which would couple tests to host state).
- */
-
-describe("config secret resolution: env var + Keychain priority", () => {
+describe("config secret resolution: env var sources", () => {
   let tmpDir: string;
   let configPath: string;
 
@@ -51,13 +44,12 @@ bindings:
     assert.strictEqual(config.telegramToken, "tg-token-from-env");
   });
 
-  it("env wins over Keychain when both telegramTokenService and telegramTokenEnv set", () => {
-    process.env.TEST_TELEGRAM_TOKEN_ENV = "env-wins";
+  it("trims telegramToken values read from env", () => {
+    process.env.TEST_TELEGRAM_TOKEN_ENV = " env-value ";
     writeFileSync(
       configPath,
       minimalAgentsYaml +
         `
-telegramTokenService: this-keychain-service-would-fail-if-read
 telegramTokenEnv: TEST_TELEGRAM_TOKEN_ENV
 bindings:
   - chatId: 111
@@ -65,17 +57,16 @@ bindings:
     kind: dm
 `
     );
-    // If env did not win, Keychain lookup of nonexistent service would throw.
     const config = loadConfig(configPath);
-    assert.strictEqual(config.telegramToken, "env-wins");
+    assert.strictEqual(config.telegramToken, "env-value");
   });
 
-  it("can validate configured Telegram secret references without resolving Keychain", () => {
+  it("can validate configured Telegram env references without resolving values", () => {
     writeFileSync(
       configPath,
       minimalAgentsYaml +
         `
-telegramTokenService: this-keychain-service-would-fail-if-read
+telegramTokenEnv: TEST_TELEGRAM_TOKEN_ENV
 bindings:
   - chatId: 111
     agentId: main
@@ -85,7 +76,7 @@ bindings:
 
     assert.throws(
       () => loadConfig(configPath),
-      /Failed to read Keychain service/,
+      /env var 'TEST_TELEGRAM_TOKEN_ENV' failed \(unset\)/,
     );
 
     const config = loadConfig(configPath, { resolveSecrets: false });
@@ -106,14 +97,13 @@ bindings:
     kind: dm
 `
     );
-    // Empty env => skip env, no service => throws with helpful message
     assert.throws(
       () => loadConfig(configPath),
-      /telegramToken requires either a Keychain service name or an env var name/
+      /env var 'TEST_TELEGRAM_TOKEN_ENV' failed \(blank\)/
     );
   });
 
-  it("throws when bindings present but neither telegramTokenService nor telegramTokenEnv set", () => {
+  it("throws when bindings present but no Telegram token source is set", () => {
     writeFileSync(
       configPath,
       minimalAgentsYaml +
@@ -126,7 +116,7 @@ bindings:
     );
     assert.throws(
       () => loadConfig(configPath),
-      /Telegram bindings require telegramTokenService/
+      /Telegram bindings require telegramTokenEnv/
     );
   });
 
@@ -149,13 +139,13 @@ discord:
     assert.strictEqual(config.discord!.token, "dc-token-from-env");
   });
 
-  it("can validate configured Discord secret references without resolving Keychain", () => {
+  it("can validate configured Discord env references without resolving values", () => {
     writeFileSync(
       configPath,
       minimalAgentsYaml +
         `
 discord:
-  tokenService: this-keychain-service-would-fail-if-read
+  tokenEnv: TEST_DISCORD_TOKEN_ENV
   bindings:
     - guildId: "999"
       agentId: main
@@ -165,7 +155,7 @@ discord:
 
     assert.throws(
       () => loadConfig(configPath),
-      /Failed to read Keychain service/,
+      /env var 'TEST_DISCORD_TOKEN_ENV' failed \(unset\)/,
     );
 
     const config = loadConfig(configPath, { resolveSecrets: false });
@@ -173,7 +163,7 @@ discord:
     assert.equal(config.discord!.bindings.length, 1);
   });
 
-  it("throws when discord.tokenService AND tokenEnv both missing", () => {
+  it("throws when discord token sources are missing", () => {
     writeFileSync(
       configPath,
       minimalAgentsYaml +
@@ -187,7 +177,7 @@ discord:
     );
     assert.throws(
       () => loadConfig(configPath),
-      /discord requires either tokenService.*or tokenEnv/
+      /discord requires tokenEnv/
     );
   });
 
