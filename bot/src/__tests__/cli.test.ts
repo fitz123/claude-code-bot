@@ -98,6 +98,8 @@ describe("minime-bot CLI", () => {
     assert.equal(result.code, 0);
     assert.match(result.stdout, /minime-bot config validate --workspace <path>/);
     assert.match(result.stdout, /minime-bot workspace validate --workspace <path>/);
+    assert.match(result.stdout, /Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd\./);
+    assert.doesNotMatch(result.stdout, /current repo layout/);
     assert.equal(result.stderr, "");
   });
 

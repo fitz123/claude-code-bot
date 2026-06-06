@@ -50,7 +50,7 @@ const HELP_TEXT = `Usage:
   minime-bot workspace validate --workspace <path>
 
 Options:
-  --workspace <path>  Workspace root. Defaults to MINIME_WORKSPACE_ROOT, then the current repo layout.
+  --workspace <path>  Workspace root. Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd.
   -h, --help          Show this help text.
 `;
 
