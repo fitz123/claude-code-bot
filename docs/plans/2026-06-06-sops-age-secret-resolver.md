@@ -79,12 +79,12 @@ If all configured sources fail or are empty, throw/report a sanitized error nami
 
 ### Task 3: Tavily web-tools integration
 
-- [ ] Update `bot/.claude/extensions/web-tools.ts` to use SOPS key `tavily.api_key` from `config/secrets.sops.yaml` relative to the Pi session cwd (`process.cwd()`).
-- [ ] Do not use Keychain fallback in the extension.
-- [ ] Keep graceful registration: missing secrets must not prevent `web_search` / `web_fetch` registration.
-- [ ] Prefer lazy read/cache on first execute if that keeps extension startup simpler; otherwise load once from `process.cwd()` and cache for the Pi process lifetime.
-- [ ] Update missing-key user-facing text in `bot/src/pi-extensions/tavily.ts` to name SOPS configuration, not Keychain.
-- [ ] Ensure warnings are sanitized and never include secret values or command stderr containing plaintext.
+- [x] Update `bot/.claude/extensions/web-tools.ts` to use SOPS key `tavily.api_key` from `config/secrets.sops.yaml` relative to the Pi session cwd (`process.cwd()`).
+- [x] Do not use Keychain fallback in the extension.
+- [x] Keep graceful registration: missing secrets must not prevent `web_search` / `web_fetch` registration.
+- [x] Prefer lazy read/cache on first execute if that keeps extension startup simpler; otherwise load once from `process.cwd()` and cache for the Pi process lifetime.
+- [x] Update missing-key user-facing text in `bot/src/pi-extensions/tavily.ts` to name SOPS configuration, not Keychain.
+- [x] Ensure warnings are sanitized and never include secret values or command stderr containing plaintext.
 
 ### Task 4: Tests
 

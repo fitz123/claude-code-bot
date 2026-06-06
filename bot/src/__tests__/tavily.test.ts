@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildExtractRequest,
   buildSearchRequest,
@@ -19,6 +22,13 @@ import {
   type RunToolDeps,
   type TavilyWarn,
 } from "../pi-extensions/tavily.js";
+import {
+  readTavilyApiKeyFromSops,
+  tavilySopsFilePath,
+  TAVILY_SOPS_FILE_RELPATH,
+  TAVILY_SOPS_KEY,
+} from "../pi-extensions/tavily-secret.js";
+import type { ExecFileSyncLike } from "../secrets.js";
 
 const KEY = "tvly-test-key";
 
@@ -216,7 +226,8 @@ describe("tavily: executeWebSearch", () => {
     const res = await executeWebSearch({ query: "q" }, deps);
     assert.equal(res.ok, false);
     assert.match(res.text, /unavailable/);
-    assert.match(res.text, /tavily-api-key/);
+    assert.match(res.text, /SOPS key tavily\.api_key in config\/secrets\.sops\.yaml/);
+    assert.doesNotMatch(res.text, /keychain|Keychain|tavily-api-key|minime/);
     assert.equal(mock.calls.length, 0);
     assert.deepEqual(warns, [{ tool: "web_search", reason: "missing-key" }]);
   });
@@ -271,6 +282,8 @@ describe("tavily: executeWebFetch", () => {
     const res = await executeWebFetch({ url: "https://example.com" }, deps);
     assert.equal(res.ok, false);
     assert.match(res.text, /unavailable/);
+    assert.match(res.text, /SOPS key tavily\.api_key in config\/secrets\.sops\.yaml/);
+    assert.doesNotMatch(res.text, /keychain|Keychain|tavily-api-key|minime/);
     assert.equal(mock.calls.length, 0);
     assert.deepEqual(warns, [{ tool: "web_fetch", reason: "missing-key" }]);
   });
@@ -291,6 +304,59 @@ describe("tavily: executeWebFetch", () => {
     assert.match(res.text, /web_fetch failed/);
     assert.match(res.text, /HTTP 500/);
     assert.equal(warns[0].reason, "http-error");
+  });
+});
+
+describe("tavily: SOPS API key lookup", () => {
+  it("resolves config/secrets.sops.yaml relative to the Pi session cwd", () => {
+    assert.equal(tavilySopsFilePath("/workspace"), "/workspace/config/secrets.sops.yaml");
+  });
+
+  it("reads tavily.api_key from the workspace SOPS file", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "tavily-secret-test-"));
+    mkdirSync(join(tmpDir, "config"));
+    writeFileSync(join(tmpDir, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const execFileSync: ExecFileSyncLike = (file, args) => {
+      calls.push({ file, args });
+      return "tvly-from-sops\n";
+    };
+
+    try {
+      const value = readTavilyApiKeyFromSops({
+        cwd: tmpDir,
+        execFileSync,
+      });
+
+      assert.equal(value, "tvly-from-sops");
+      assert.deepEqual(calls, [{
+        file: "sops",
+        args: ["-d", "--extract", '["tavily"]["api_key"]', join(tmpDir, TAVILY_SOPS_FILE_RELPATH)],
+      }]);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined when the SOPS file is missing without invoking sops", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "tavily-secret-missing-test-"));
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const execFileSync: ExecFileSyncLike = (file, args) => {
+      calls.push({ file, args });
+      return "should-not-run\n";
+    };
+
+    try {
+      assert.equal(readTavilyApiKeyFromSops({ cwd: tmpDir, execFileSync }), undefined);
+      assert.equal(calls.length, 0);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the fixed SOPS file and key constants", () => {
+    assert.equal(TAVILY_SOPS_FILE_RELPATH, "config/secrets.sops.yaml");
+    assert.equal(TAVILY_SOPS_KEY, "tavily.api_key");
   });
 });
 

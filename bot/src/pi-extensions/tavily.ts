@@ -3,8 +3,8 @@
  *
  * Backs the two model-callable Pi tools `web_search` and `web_fetch` with the
  * Tavily API (`api.tavily.com`). The thin Pi wrapper at
- * `bot/.claude/extensions/web-tools.ts` reads the API key from the macOS
- * keychain once at load (service `tavily-api-key`, account `minime`), then
+ * `bot/.claude/extensions/web-tools.ts` reads the API key from the workspace
+ * SOPS file once at load, then
  * `pi.registerTool`s both tools, delegating each `execute` to
  * {@link executeWebSearch} / {@link executeWebFetch} here.
  *
@@ -22,6 +22,8 @@
  * so `tavily.test.ts` can exercise request shape, response parse, HTTP-error,
  * and missing-key paths with a mock fetch and never touch the network.
  */
+
+import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-secret.js";
 
 export const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
 export const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
@@ -89,7 +91,7 @@ export interface TavilyWarn {
 }
 
 export interface RunToolDeps {
-  /** Tavily API key, or undefined when the keychain lookup failed at load. */
+  /** Tavily API key, or undefined when the SOPS lookup failed at load. */
   apiKey: string | undefined;
   /** Injected fetch (defaults to global `fetch` in the wrapper). */
   fetchImpl: typeof fetch;
@@ -230,6 +232,12 @@ function errResult(text: string): WebToolResult {
   return { ok: false, text };
 }
 
+function missingKeyText(tool: "web_search" | "web_fetch"): string {
+  return `${tool} is unavailable: Tavily API key not configured (SOPS key ` +
+    `${TAVILY_SOPS_KEY} in ${TAVILY_SOPS_FILE_RELPATH}). Add the private ` +
+    "runtime SOPS file and restart the bot.";
+}
+
 /**
  * Run a built Tavily request through `fetchImpl`, returning the parsed JSON body
  * on a 2xx response. Throws on non-2xx (caller maps to a graceful result) and on
@@ -259,10 +267,7 @@ async function fetchTavilyJson(req: TavilyHttpRequest, fetchImpl: typeof fetch):
 export async function executeWebSearch(args: WebSearchArgs, deps: RunToolDeps): Promise<WebToolResult> {
   if (!deps.apiKey) {
     deps.warn?.({ tool: "web_search", reason: "missing-key" });
-    return errResult(
-      "web_search is unavailable: Tavily API key not configured (keychain service " +
-        "'tavily-api-key', account 'minime'). Set it and restart the bot.",
-    );
+    return errResult(missingKeyText("web_search"));
   }
 
   const query = typeof args.query === "string" ? args.query.trim() : "";
@@ -291,10 +296,7 @@ export async function executeWebSearch(args: WebSearchArgs, deps: RunToolDeps): 
 export async function executeWebFetch(args: WebFetchArgs, deps: RunToolDeps): Promise<WebToolResult> {
   if (!deps.apiKey) {
     deps.warn?.({ tool: "web_fetch", reason: "missing-key" });
-    return errResult(
-      "web_fetch is unavailable: Tavily API key not configured (keychain service " +
-        "'tavily-api-key', account 'minime'). Set it and restart the bot.",
-    );
+    return errResult(missingKeyText("web_fetch"));
   }
 
   const url = typeof args.url === "string" ? args.url.trim() : "";

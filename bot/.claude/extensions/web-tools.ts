@@ -28,10 +28,11 @@ import {
   type RunToolDeps,
   type TavilyWarn,
 } from "../../src/pi-extensions/tavily.js";
+import { readTavilyApiKeyFromSops } from "../../src/pi-extensions/tavily-secret.js";
 
 /** Read the Tavily key for this Pi process; returns undefined if absent. */
 function readTavilyApiKey(): string | undefined {
-  return undefined;
+  return readTavilyApiKeyFromSops({ cwd: process.cwd() });
 }
 
 export default function (pi: ExtensionAPI): void {
