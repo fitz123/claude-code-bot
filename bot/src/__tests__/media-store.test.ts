@@ -20,13 +20,13 @@ function resetMediaBase(): void {
 }
 
 describe("sessionMediaDir", () => {
-  it("returns deterministic path under /tmp/bot-media", () => {
-    assert.strictEqual(sessionMediaDir("chat123"), "/tmp/bot-media/chat123");
+  it("returns deterministic path under MEDIA_BASE", () => {
+    assert.strictEqual(sessionMediaDir("chat123"), join(MEDIA_BASE, "chat123"));
   });
 
   it("sanitizes unsafe characters in chatId", () => {
-    assert.strictEqual(sessionMediaDir("tg:12345"), "/tmp/bot-media/tg_12345");
-    assert.strictEqual(sessionMediaDir("../evil"), "/tmp/bot-media/___evil");
+    assert.strictEqual(sessionMediaDir("tg:12345"), join(MEDIA_BASE, "tg_12345"));
+    assert.strictEqual(sessionMediaDir("../evil"), join(MEDIA_BASE, "___evil"));
   });
 
   it("returns same path for same chatId", () => {
@@ -41,7 +41,7 @@ describe("ensureSessionMediaDir", () => {
   it("creates the session dir when absent and returns its path", () => {
     const dir = ensureSessionMediaDir("chat-a");
     assert.ok(existsSync(dir), "dir should exist after ensure");
-    assert.strictEqual(dir, "/tmp/bot-media/chat-a");
+    assert.strictEqual(dir, join(MEDIA_BASE, "chat-a"));
   });
 
   it("does NOT wipe existing files (protects early downloads)", () => {
@@ -61,7 +61,7 @@ describe("allocateMediaPath", () => {
 
   it("returns a UUID path inside the session dir", () => {
     const path = allocateMediaPath("chat-x", "photo", ".jpg");
-    assert.ok(path.startsWith("/tmp/bot-media/chat-x/photo-"));
+    assert.ok(path.startsWith(join(MEDIA_BASE, "chat-x", "photo-")));
     assert.ok(path.endsWith(".jpg"));
     assert.ok(existsSync(sessionMediaDir("chat-x")), "session dir should exist");
   });
@@ -75,8 +75,8 @@ describe("allocateMediaPath", () => {
   it("isolates sessions: paths differ per chatId", () => {
     const a = allocateMediaPath("chat-1", "photo", ".jpg");
     const b = allocateMediaPath("chat-2", "photo", ".jpg");
-    assert.ok(a.startsWith("/tmp/bot-media/chat-1/"));
-    assert.ok(b.startsWith("/tmp/bot-media/chat-2/"));
+    assert.ok(a.startsWith(`${join(MEDIA_BASE, "chat-1")}/`));
+    assert.ok(b.startsWith(`${join(MEDIA_BASE, "chat-2")}/`));
   });
 });
 

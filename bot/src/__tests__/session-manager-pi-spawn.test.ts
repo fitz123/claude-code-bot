@@ -436,7 +436,7 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
     getStateError = null;
-    // The media-preserved assertions write into /tmp/bot-media; clear each
+    // The media-preserved assertions write into the test media root; clear each
     // chat's dir between runs so a prior run's file can't mask a regression.
     try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }
     try { rmSync(sessionMediaDir("pi-inflight"), { recursive: true, force: true }); } catch { /* ignore */ }
