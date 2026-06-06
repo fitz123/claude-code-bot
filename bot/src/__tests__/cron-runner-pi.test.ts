@@ -421,6 +421,31 @@ describe("cron-runner runPi", () => {
     }
   });
 
+  it("fails closed before spawn when the Pi cron guard resolver returns no extension", () => {
+    const oldDisabled = process.env[PI_EXTENSIONS_DISABLED_ENV];
+
+    try {
+      delete process.env[PI_EXTENSIONS_DISABLED_ENV];
+      const ws = makeWorkspace();
+      const captures: SpawnCapture[] = [];
+      const deps = makeDeps(captures, {
+        resolveExtensionArgs: () => [],
+      });
+
+      assert.throws(
+        () => runPi(makeCron(), ws, deps),
+        /Pi cron extension resolver returned no guard extension/,
+      );
+      assert.strictEqual(captures.length, 0);
+    } finally {
+      if (oldDisabled === undefined) {
+        delete process.env[PI_EXTENSIONS_DISABLED_ENV];
+      } else {
+        process.env[PI_EXTENSIONS_DISABLED_ENV] = oldDisabled;
+      }
+    }
+  });
+
   it("throws classified Pi errors with bounded private diagnostics so main can use the FAIL path", () => {
     const ws = makeWorkspace();
     const captures: SpawnCapture[] = [];

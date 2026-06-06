@@ -641,6 +641,11 @@ function makeLiveChild(): FakeChild {
   };
 }
 
+function parseFirstStdinWrite(child: FakeChild): unknown {
+  assert.strictEqual(child.stdin.writes.length, 1);
+  return JSON.parse(child.stdin.writes[0].trim());
+}
+
 function fakeManager(
   hasSession: boolean,
   child: FakeChild,
@@ -657,8 +662,10 @@ describe("makeSteerFn (discord)", () => {
     const child = makeLiveChild();
     const steerFn = makeSteerFn(fakeManager(true, child));
     assert.strictEqual(steerFn("discord:chat-1", "main", "mid-turn text"), true);
-    assert.strictEqual(child.stdin.writes.length, 1);
-    assert.ok(child.stdin.writes[0].includes("mid-turn text"));
+    assert.deepStrictEqual(parseFirstStdinWrite(child), {
+      type: "steer",
+      message: "mid-turn text",
+    });
   });
 
   it("returns false when a live session is not actively processing", () => {
@@ -687,6 +694,16 @@ describe("makeSteerFn (discord)", () => {
     // hand the message to an idle Pi child and lose it; buffer instead.
     const child = makeLiveChild();
     const steerFn = makeSteerFn(fakeManager(true, child, null));
+    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
+    assert.strictEqual(child.stdin.writes.length, 0);
+  });
+
+  it("returns false when writing steer to Pi fails", () => {
+    const child = makeLiveChild();
+    child.stdin.write = () => {
+      throw new Error("EPIPE");
+    };
+    const steerFn = makeSteerFn(fakeManager(true, child));
     assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
     assert.strictEqual(child.stdin.writes.length, 0);
   });

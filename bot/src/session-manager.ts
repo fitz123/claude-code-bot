@@ -157,13 +157,20 @@ export class SessionManager {
   private store: SessionStore;
   private loadConfig: () => BotConfig;
   private logDir: string;
+  private startupTimeoutMs: number;
 
-  constructor(loadConfig: () => BotConfig, storePath?: string, logDir?: string) {
+  constructor(
+    loadConfig: () => BotConfig,
+    storePath?: string,
+    logDir?: string,
+    options?: { startupTimeoutMs?: number },
+  ) {
     this.loadConfig = loadConfig;
     // Validate config at boot — fail fast if config is broken
     loadConfig();
     this.store = new SessionStore(storePath);
     this.logDir = logDir ?? LOG_DIR;
+    this.startupTimeoutMs = options?.startupTimeoutMs ?? STARTUP_TIMEOUT_MS;
   }
 
   /**
@@ -216,7 +223,7 @@ export class SessionManager {
     // listeners synchronously on abort/return, and `close` ends the read when
     // the stream closes; a child 'exit' aborts promptly as a backstop.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), STARTUP_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), this.startupTimeoutMs);
     const onExit = () => controller.abort();
     child.once("exit", onExit);
     const splitter = new NewlineOnlyJsonlSplitter();
@@ -389,7 +396,7 @@ export class SessionManager {
     // anything else → crash-backoff.
     for (;;) {
       try {
-        await waitForSpawn(child, STARTUP_TIMEOUT_MS);
+        await waitForSpawn(child, this.startupTimeoutMs);
 
         // Prevent EPIPE from becoming uncaughtException when the subprocess
         // dies — wired before any capture write so a racing child death on the

@@ -139,14 +139,7 @@ export interface PlatformContext {
   preStreamTypingTimer?: ReturnType<typeof setInterval>;
 }
 
-// CLI Protocol types
-
-export interface StreamMessageUser {
-  type: "user";
-  message: { role: "user"; content: string };
-  parent_tool_use_id: null;
-  session_id: string;
-}
+// Pi-normalized stream event types
 
 export interface SystemInit {
   type: "system";

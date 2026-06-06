@@ -8,11 +8,9 @@
 
 ## Auto-load mechanism
 
-Workspace root `MEMORY.md` is auto-loaded into the agent's initial context via the `@MEMORY.md` line in `CLAUDE.md`. This is a workaround for [anthropics/claude-code#34146](https://github.com/anthropics/claude-code/issues/34146): the `autoMemoryDirectory` setting is documented to redirect auto-memory location, but in practice does NOT affect system-prompt injection — it only affects **writes**. System-prompt injection of MEMORY.md always reads from the default `~/.claude/projects/<encoded>/memory/MEMORY.md` path regardless of the setting.
+For Pi/Codex sessions, `bot/src/pi-context-assembler.ts` reads `CLAUDE.md`, expands standalone one-level `@<path>` imports such as `@MEMORY.md`, includes platform/custom rules, and passes the bundle to Pi with `--append-system-prompt` and `--no-context-files`.
 
-The workaround comes from the issue thread (see also [#36636](https://github.com/anthropics/claude-code/issues/36636)): a line containing exactly `@MEMORY.md` in `CLAUDE.md` causes Claude Code to inline workspace MEMORY.md content via the @-import mechanism. CLAUDE.md instructions take priority over the system prompt's hardcoded path.
-
-**Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, workspace `MEMORY.md` exists on disk but never enters the agent's initial context — your memory index becomes invisible to the agent.
+**Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, workspace `MEMORY.md` exists on disk but is not included in Pi session context — your memory index becomes invisible to the agent.
 
 ## Surfacing pending lint items
 

@@ -4,7 +4,7 @@
 # Or:    deliver.sh <chat_id> --thread <thread_id> [message]
 # Or:    echo "message" | deliver.sh <chat_id> [--thread <thread_id>]
 # Handles >4096 char messages by splitting at paragraph boundaries.
-# After each successful send, writes an echo JSON file to /tmp/bot-echo/<chatId>/
+# After each successful send, writes an echo JSON file to the private echo spool
 # so the bot can route the message to active agent sessions as context.
 
 set -euo pipefail
@@ -65,12 +65,24 @@ LOG_DIR="${LOG_DIR:-$HOME/.minime/logs}"
 LOG_FILE="${LOG_DIR}/cron-delivery.log"
 mkdir -p "$LOG_DIR"
 
-ECHO_DIR_BASE="/tmp/bot-echo"
+if [ -n "${ECHO_DIR_BASE:-}" ]; then
+  : # caller override, mainly for tests
+elif [ -n "${HOME:-}" ]; then
+  ECHO_DIR_BASE="$HOME/.minime/bot-echo"
+else
+  ECHO_DIR_BASE=""
+fi
 
 write_echo() {
   local chatId="$1" threadId="$2" text="$3"
+  [ -n "$ECHO_DIR_BASE" ] || return 0
   local echo_dir="$ECHO_DIR_BASE/$chatId"
+  [ ! -L "$ECHO_DIR_BASE" ] || return 0
+  mkdir -p "$ECHO_DIR_BASE" || return 0
+  chmod 700 "$ECHO_DIR_BASE" 2>/dev/null || return 0
+  [ ! -L "$echo_dir" ] || return 0
   mkdir -p "$echo_dir" || return 0
+  chmod 700 "$echo_dir" 2>/dev/null || return 0
   local fname
   fname="$(date +%s)-$$-$RANDOM.json"
   local escaped_text
@@ -84,7 +96,7 @@ write_echo() {
   local json
   json=$(printf '{"chatId":"%s","threadId":%s,"text":%s,"origin":"deliver.sh","timestamp":%s}' \
     "$chatId" "$threadId_json" "$escaped_text" "$(date +%s)")
-  printf '%s' "$json" > "$echo_dir/.$fname.tmp"
+  ( umask 077 && printf '%s' "$json" > "$echo_dir/.$fname.tmp" )
   mv "$echo_dir/.$fname.tmp" "$echo_dir/$fname" || return 0
 }
 

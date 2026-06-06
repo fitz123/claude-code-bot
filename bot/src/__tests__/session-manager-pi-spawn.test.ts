@@ -42,6 +42,7 @@ const piSpawnCaptures: PiSpawnCapture[] = [];
  * (capture must then fall back to the bot's local id).
  */
 let nextPiSessionId: string | null = "pi-generated-id";
+let suppressGetStateResponse = false;
 
 /**
  * When set, the mocked sendPiGetState throws this error — models the
@@ -191,6 +192,7 @@ mock.module("../pi-rpc-protocol.js", {
     },
     sendPiGetState(child: ChildProcess) {
       if (getStateError) throw getStateError;
+      if (suppressGetStateResponse) return;
       // capturePiSessionId reads child.stdout directly (abortable), so model Pi's
       // get_state reply by pushing the real JSONL record onto stdout. `null`
       // models a process that answers without a session id: end the stream so
@@ -267,6 +269,7 @@ describe("SessionManager Pi session-id capture + resume", () => {
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
+    suppressGetStateResponse = false;
     getStateError = null;
   });
 
@@ -348,6 +351,30 @@ describe("SessionManager Pi session-id capture + resume", () => {
       store.getSession("pi-noid")?.sessionId,
       session.sessionId,
       "the local id is persisted",
+    );
+
+    await manager.closeAll();
+  });
+
+  it("falls back to the bot's local id when get_state capture times out on an idle child", async () => {
+    suppressGetStateResponse = true;
+
+    const manager = new SessionManager(
+      () => makeConfig(),
+      TEST_STORE_PATH,
+      undefined,
+      { startupTimeoutMs: 20 },
+    );
+    const session = await manager.getOrCreateSession("pi-timeout", "pi");
+
+    assert.ok(session.sessionId.length > 0, "session keeps a usable local id");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, undefined, "fresh start: no resume id");
+
+    const store = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(
+      store.getSession("pi-timeout")?.sessionId,
+      session.sessionId,
+      "the local id is persisted after capture timeout",
     );
 
     await manager.closeAll();

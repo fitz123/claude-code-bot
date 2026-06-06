@@ -5,7 +5,7 @@ import { outboxDir, hasExited, type SessionManager } from "./session-manager.js"
 import { relayStream } from "./stream-relay.js";
 import { MessageQueue, type SteerFn } from "./message-queue.js";
 import { sendPiSteer } from "./pi-rpc-protocol.js";
-import { createTelegramAdapter, createTelegramApiAdapter } from "./telegram-adapter.js";
+import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
 import { allocateMediaPath, enforceMediaCap, releaseMediaPath, discardMediaPath } from "./media-store.js";
 import { isImageMimeType, imageExtensionForMime } from "./mime.js";
@@ -137,6 +137,49 @@ export function createApiErrorLoggingTransformer(opts?: { bindings?: TelegramBin
 export function sessionKey(chatId: number | string, topicId?: number): string {
   const base = String(chatId);
   return topicId !== undefined ? `${base}:${topicId}` : base;
+}
+
+export function parseTelegramEchoId(value: string, opts?: { allowNegative?: boolean }): number | undefined {
+  if (!/^-?\d+$/.test(value)) return undefined;
+  if (!opts?.allowNegative && value.startsWith("-")) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+export interface TelegramEchoRouteOptions {
+  chatId: string;
+  threadId?: string;
+  text: string;
+  bindings: TelegramBinding[];
+  sessionDefaults?: BotConfig["sessionDefaults"];
+  steerFn: SteerFn;
+}
+
+/**
+ * Route a deliver.sh echo as passive context only. Echoes may be steered into a
+ * currently processing Pi turn, but must never enqueue a normal prompt or start
+ * a session by themselves.
+ */
+export function routeTelegramEchoToActiveTurn(opts: TelegramEchoRouteOptions): boolean {
+  const numericChatId = parseTelegramEchoId(opts.chatId, { allowNegative: true });
+  if (numericChatId === undefined) return false;
+
+  const numericThreadId = opts.threadId === undefined
+    ? undefined
+    : parseTelegramEchoId(opts.threadId);
+  if (opts.threadId !== undefined && numericThreadId === undefined) return false;
+
+  const binding = resolveBinding(numericChatId, opts.bindings, numericThreadId);
+  if (!binding) return false;
+
+  if (binding.kind === "group") {
+    const requireMention = binding.requireMention ?? opts.sessionDefaults?.requireMention ?? true;
+    if (requireMention) return false;
+  }
+
+  const key = sessionKey(numericChatId, numericThreadId);
+  const framedText = `${ECHO_PREFIX} - context only, no reply needed]\n\n${opts.text}`;
+  return opts.steerFn(key, binding.agentId, framedText);
 }
 
 /**
@@ -1168,33 +1211,22 @@ export function createTelegramBot(
     log.error("telegram-bot", `Update that caused the error: ${JSON.stringify(err.ctx.update)}`);
   });
 
-  // Echo watcher: routes deliver.sh echo files into the same Pi-visible queue
-  // used by platform messages. The framed text requests no reply, but if the
-  // agent does respond or writes files, the API-backed adapter can deliver them.
+  // Echo watcher: routes deliver.sh echo files as passive context only. Echoes
+  // can steer into an active Pi turn, but they never enqueue a prompt or start a
+  // session by themselves.
   const echoWatcher = new EchoWatcher({
     handler: (chatId, threadId, text) => {
-      const numericChatId = parseInt(chatId, 10);
-      const numericThreadId = threadId ? parseInt(threadId, 10) : undefined;
-
-      const binding = resolveBinding(numericChatId, config.bindings, numericThreadId);
-      if (!binding) return;
-      // Simplified subset of shouldRespondInGroup: DMs always see all messages;
-      // groups check binding.requireMention with sessionDefaults fallback.
-      // Reply-to-bot and @mention checks are intentionally omitted — echo files
-      // lack message metadata (no entities, no reply context).
-      if (binding.kind === "group") {
-        const requireMention = binding.requireMention ?? config.sessionDefaults?.requireMention ?? true;
-        if (requireMention) return;
+      const delivered = routeTelegramEchoToActiveTurn({
+        chatId,
+        threadId,
+        text,
+        bindings: config.bindings,
+        sessionDefaults: config.sessionDefaults,
+        steerFn,
+      });
+      if (!delivered) {
+        log.debug("telegram-bot", `Dropped echo context for chat ${chatId}: no active eligible Pi turn`);
       }
-
-      const key = sessionKey(numericChatId, numericThreadId);
-      const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
-      messageQueue.enqueue(
-        key,
-        binding.agentId,
-        framedText,
-        createTelegramApiAdapter(bot.api, numericChatId, binding, numericThreadId),
-      );
     },
   });
 

@@ -1,5 +1,7 @@
 # Safe scripted bot restart + rule update — Round 1
 
+Status note (2026-06-06): historical plan. Current runtime contracts are Pi/Codex only; `provider: claude`, `engine: claude`, `fallbackModel`, `defaultFallbackModel`, `effort`, `maxTurns`, and `allowedTools` fail validation. Agents require explicit `model`; use `thinking`; auth is `pi /login` via `~/.pi/agent/auth.json`; LLM crons run Pi print mode only.
+
 ## Goal
 
 Give operators one supported, scripted entry point to restart the bot safely — covering both code/config restarts and on-disk-plist changes — and update the operational rule to point at it. Resolves fitz123/claude-code-bot#100.

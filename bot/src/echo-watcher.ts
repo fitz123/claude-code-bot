@@ -1,5 +1,5 @@
 /**
- * Echo watcher — polls /tmp/bot-echo/ for echo files written by deliver.sh,
+ * Echo watcher — polls the private bot echo spool for files written by deliver.sh,
  * parses them, and routes them through a platform-agnostic handler callback.
  *
  * No Telegram-specific imports — platform routing is done by the callback
@@ -7,16 +7,19 @@
  */
 
 import {
+  chmodSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   unlinkSync,
-  statSync,
 } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
+import { log } from "./logger.js";
 
 /** Base directory where deliver.sh writes echo JSON files. */
-export const ECHO_DIR_BASE = "/tmp/bot-echo";
+export const ECHO_DIR_BASE = join(homedir(), ".minime", "bot-echo");
 
 /**
  * Shared prefix for echo framing text.
@@ -26,7 +29,7 @@ export const ECHO_PREFIX = "[Bot echo";
 /**
  * Shape of the JSON echo files written by deliver.sh after each successful send.
  *
- * File location: `/tmp/bot-echo/<chatId>/<epoch>-<pid>-<random>.json`
+ * File location: `<ECHO_DIR_BASE>/<chatId>/<epoch>-<pid>-<random>.json`
  */
 export interface EchoMessage {
   /** Telegram chat ID (numeric string). */
@@ -62,15 +65,13 @@ export type EchoHandler = (
 /** Options for EchoWatcher constructor. */
 export interface EchoWatcherOptions {
   handler: EchoHandler;
-  /** Called once per poll cycle after all chat directories are processed — use to flush accumulated writes. */
-  onFlush?: () => void;
   pollIntervalMs?: number;
   /** Override the base directory to scan (defaults to ECHO_DIR_BASE). Useful for tests. */
   echoDir?: string;
 }
 
 /**
- * Polls `/tmp/bot-echo/` for echo JSON files written by `deliver.sh` and
+ * Polls the private echo spool for echo JSON files written by `deliver.sh` and
  * dispatches each message to the registered {@link EchoHandler}.
  *
  * Lifecycle:
@@ -78,22 +79,17 @@ export interface EchoWatcherOptions {
  * - {@link start}() — begin periodic polling via `setInterval`
  * - {@link stop}()  — clear the polling timer
  *
- * After all chat directories are processed in a poll cycle, the optional
- * `onFlush` callback fires so the caller can batch-write accumulated inject files.
- *
  * Uses polling (not `fs.watch`) to avoid macOS FSEvents edge cases with
  * nested directories.
  */
 export class EchoWatcher {
   private readonly handler: EchoHandler;
-  private readonly onFlush?: () => void;
   private readonly pollIntervalMs: number;
   private readonly echoDir: string;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: EchoWatcherOptions) {
     this.handler = opts.handler;
-    this.onFlush = opts.onFlush;
     this.pollIntervalMs = opts.pollIntervalMs ?? 2000;
     this.echoDir = opts.echoDir ?? ECHO_DIR_BASE;
   }
@@ -101,14 +97,14 @@ export class EchoWatcher {
   /** Start polling. Creates the echo base directory if needed. */
   start(): void {
     if (this.timer) return;
-    mkdirSync(this.echoDir, { recursive: true });
+    if (!this.ensureEchoDir()) return;
     this.timer = setInterval(() => this.pollAll(), this.pollIntervalMs);
     (this.timer as NodeJS.Timeout).unref();
   }
 
   /** Process all existing echo files once (drain on startup). */
   drain(): void {
-    mkdirSync(this.echoDir, { recursive: true });
+    if (!this.ensureEchoDir()) return;
     this.pollAll();
   }
 
@@ -117,6 +113,27 @@ export class EchoWatcher {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
+    }
+  }
+
+  private ensureEchoDir(): boolean {
+    try {
+      mkdirSync(this.echoDir, { recursive: true, mode: 0o700 });
+      const info = lstatSync(this.echoDir);
+      if (info.isSymbolicLink() || !info.isDirectory()) {
+        throw new Error("echo spool path is not a plain directory");
+      }
+      const uid = process.getuid?.();
+      if (uid !== undefined && info.uid !== uid) {
+        throw new Error("echo spool is not owned by the bot user");
+      }
+      if ((info.mode & 0o077) !== 0) {
+        chmodSync(this.echoDir, 0o700);
+      }
+      return true;
+    } catch (err) {
+      log.warn("echo-watcher", `Echo spool disabled: ${(err as Error).message}`);
+      return false;
     }
   }
 
@@ -132,16 +149,17 @@ export class EchoWatcher {
     for (const entry of entries) {
       const chatDir = join(this.echoDir, entry);
       try {
-        if (!statSync(chatDir).isDirectory()) continue;
+        const info = lstatSync(chatDir);
+        if (info.isSymbolicLink() || !info.isDirectory()) continue;
+        const uid = process.getuid?.();
+        if (uid !== undefined && info.uid !== uid) continue;
+        if ((info.mode & 0o077) !== 0) {
+          chmodSync(chatDir, 0o700);
+        }
       } catch {
         continue;
       }
       this.processDir(chatDir);
-    }
-    if (this.onFlush) {
-      try {
-        this.onFlush();
-      } catch { /* swallow — onFlush errors must not crash the poll timer */ }
     }
   }
 
@@ -158,6 +176,19 @@ export class EchoWatcher {
 
     for (const file of files) {
       const filePath = join(chatDir, file);
+      try {
+        const info = lstatSync(filePath);
+        if (info.isSymbolicLink() || !info.isFile()) {
+          try { unlinkSync(filePath); } catch { /* ignore */ }
+          continue;
+        }
+        const uid = process.getuid?.();
+        if (uid !== undefined && info.uid !== uid) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
 
       // Parse the echo file — skip and delete malformed files
       let msg: EchoMessage;

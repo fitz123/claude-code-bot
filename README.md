@@ -407,6 +407,8 @@ metricsPort: 9090
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
 
+For dashboard continuity, token, cost, and turn-duration metrics keep their legacy `bot_claude_*` names (`bot_claude_tokens_*`, `bot_claude_cost_usd_total`, `bot_claude_turn_duration_seconds`). In the Pi-only runtime these are metric names only: they record usage and duration reported by the active runtime, not a Claude subprocess. Pi retry/resume metrics remain under `bot_pi_*`.
+
 Cron runs also write best-effort Prometheus textfile metrics for node_exporter. These do not appear on the bot's `metricsPort` endpoint. Configure node_exporter with `--collector.textfile.directory=/opt/homebrew/var/node_exporter/textfile`, or override the directory with `CRON_HEALTH_TEXTFILE_DIR` for tests or alternate installs. Ensure the launchd cron user can create and write the directory. Each cron gets collision-resistant textfiles with the raw cron name escaped as the `cron` label:
 
 - `minime_cron_last_success_timestamp{cron="<name>"}` is updated only after successful runs and remains present after later failures.

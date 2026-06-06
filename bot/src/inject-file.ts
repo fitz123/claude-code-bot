@@ -54,14 +54,6 @@ export function writeInjectFile(dir: string, messages: string[]): void {
 }
 
 /**
- * Write echo messages to `pending-echo` (owned by EchoWatcher).
- * Separate from `pending` so echo writes never collide with user-message writes.
- */
-export function writeEchoInjectFile(dir: string, messages: string[]): void {
-  writeAtomicInjectFile(dir, "pending-echo", messages);
-}
-
-/**
  * Read the cumulative ack count from the hook's ack file.
  * Returns 0 if no ack file exists or on any error.
  */

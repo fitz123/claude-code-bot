@@ -55,7 +55,7 @@ export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] 
 
 /**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with NO extensions
- * (fast rollback to a bare, claude-parity spawn — see the plan's Rollback).
+ * (fast rollback to a bare Pi spawn).
  */
 export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
 
@@ -137,7 +137,7 @@ export function shouldIncludePiChildEnvKey(key: string): boolean {
  *
  * Loading is DELIBERATELY per-spawn rather than via Pi's auto-discovery dirs
  * (those are for `/reload`). Returns `[]` when `PI_EXTENSIONS_DISABLED=1` so the
- * spawn is a bare claude-parity command (fast rollback).
+ * spawn is a bare Pi command (fast rollback).
  *
  * FAIL-CLOSED: a configured wrapper missing on disk THROWS loudly instead of
  * silently dropping it — A1 is the write guard, so a silent skip would spawn an

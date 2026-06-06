@@ -75,65 +75,13 @@ describe("inject-message.sh hook", () => {
     assert.ok(result);
     assert.ok(result.additionalContext.includes("LIVE MESSAGE"));
     assert.ok(result.additionalContext.includes("Hello from user"));
-    assert.ok(!result.additionalContext.includes("CONTEXT UPDATE"));
 
     // pending file should be consumed
     assert.ok(!existsSync(join(TEST_DIR, "pending")));
     assert.ok(!existsSync(join(TEST_DIR, "pending.claimed")));
   });
 
-  it("handles pending-echo file with CONTEXT UPDATE framing", () => {
-    writeFileSync(
-      join(TEST_DIR, "pending-echo"),
-      "1\n[Bot echo — context only, no reply needed]\n\nTest echo message",
-      "utf-8",
-    );
-
-    const { exitCode, stdout } = runHook();
-    assert.strictEqual(exitCode, 0);
-
-    const result = parseHookOutput(stdout);
-    assert.ok(result);
-    assert.ok(result.additionalContext.includes("CONTEXT UPDATE"));
-    assert.ok(result.additionalContext.includes("Test echo message"));
-    assert.ok(!result.additionalContext.includes("LIVE MESSAGE"));
-
-    // pending-echo file should be consumed
-    assert.ok(!existsSync(join(TEST_DIR, "pending-echo")));
-    assert.ok(!existsSync(join(TEST_DIR, "pending-echo.claimed")));
-  });
-
-  it("handles both pending and pending-echo files together", () => {
-    writeFileSync(join(TEST_DIR, "pending"), "1\nUser says hi", "utf-8");
-    writeFileSync(
-      join(TEST_DIR, "pending-echo"),
-      "1\n[Bot echo — context only, no reply needed]\n\nCron sent a report",
-      "utf-8",
-    );
-
-    const { exitCode, stdout } = runHook();
-    assert.strictEqual(exitCode, 0);
-
-    const result = parseHookOutput(stdout);
-    assert.ok(result);
-    // Both framings should be present
-    assert.ok(result.additionalContext.includes("LIVE MESSAGE"));
-    assert.ok(result.additionalContext.includes("User says hi"));
-    assert.ok(result.additionalContext.includes("CONTEXT UPDATE"));
-    assert.ok(result.additionalContext.includes("Cron sent a report"));
-
-    // LIVE MESSAGE should come before CONTEXT UPDATE
-    const liveIdx = result.additionalContext.indexOf("LIVE MESSAGE");
-    const contextIdx = result.additionalContext.indexOf("CONTEXT UPDATE");
-    assert.ok(liveIdx < contextIdx, "LIVE MESSAGE should precede CONTEXT UPDATE");
-
-    // Both files should be consumed
-    assert.ok(!existsSync(join(TEST_DIR, "pending")));
-    assert.ok(!existsSync(join(TEST_DIR, "pending-echo")));
-  });
-
-  it("updates ack counter for pending but not for pending-echo", () => {
-    // First: process a pending file
+  it("updates ack counter for pending messages", () => {
     writeFileSync(join(TEST_DIR, "pending"), "2\nmsg1\n\n---\n\nmsg2", "utf-8");
     runHook();
 
@@ -141,19 +89,6 @@ describe("inject-message.sh hook", () => {
     const ack1 = readFileSync(join(TEST_DIR, "ack"), "utf-8").trim();
     assert.strictEqual(ack1, "2");
 
-    // Now process an echo file
-    writeFileSync(
-      join(TEST_DIR, "pending-echo"),
-      "1\n[Bot echo — context only, no reply needed]\n\nEcho msg",
-      "utf-8",
-    );
-    runHook();
-
-    // Ack should still be 2 (echo messages don't update ack)
-    const ack2 = readFileSync(join(TEST_DIR, "ack"), "utf-8").trim();
-    assert.strictEqual(ack2, "2");
-
-    // Process another pending file
     writeFileSync(join(TEST_DIR, "pending"), "1\nmsg3", "utf-8");
     runHook();
 
@@ -169,29 +104,5 @@ describe("inject-message.sh hook", () => {
     assert.strictEqual(exitCode, 0);
     // Should exit cleanly with no output (invalid count = no content)
     assert.strictEqual(stdout.trim(), "");
-  });
-
-  it("handles pending-echo file with invalid count", () => {
-    writeFileSync(join(TEST_DIR, "pending-echo"), "bad\necho content", "utf-8");
-
-    const { exitCode, stdout } = runHook();
-    assert.strictEqual(exitCode, 0);
-    assert.strictEqual(stdout.trim(), "");
-  });
-
-  it("handles multiple echo messages separated by ---", () => {
-    writeFileSync(
-      join(TEST_DIR, "pending-echo"),
-      "2\n[Bot echo — context only, no reply needed]\n\nFirst chunk\n\n---\n\n[Bot echo — context only, no reply needed]\n\nSecond chunk",
-      "utf-8",
-    );
-
-    const { exitCode, stdout } = runHook();
-    assert.strictEqual(exitCode, 0);
-
-    const result = parseHookOutput(stdout);
-    assert.ok(result);
-    assert.ok(result.additionalContext.includes("First chunk"));
-    assert.ok(result.additionalContext.includes("Second chunk"));
   });
 });
