@@ -70,12 +70,12 @@ If all configured sources fail or are empty, throw/report a sanitized error nami
 
 ### Task 2: Config integration for Telegram/Discord
 
-- [ ] Extend raw config typing with `secrets.sopsFile`, `telegramTokenSopsKey`, and `discord.tokenSopsKey`.
-- [ ] Resolve relative `secrets.sopsFile` against the directory containing the loaded config file.
-- [ ] Update `loadConfig(..., { resolveSecrets: false })` so any configured SOPS/env source yields `[configured]`.
-- [ ] Update validation errors to mention SOPS/env as supported sources.
-- [ ] Update `config.local.yaml.example` with commented SOPS fields and remove active Keychain guidance.
-- [ ] Remove or explicitly reject `telegramTokenService` / `discord.tokenService` in config validation with a migration error, unless a narrower deprecation strategy is needed for tests. Do not leave it as a working fallback.
+- [x] Extend raw config typing with `secrets.sopsFile`, `telegramTokenSopsKey`, and `discord.tokenSopsKey`.
+- [x] Resolve relative `secrets.sopsFile` against the directory containing the loaded config file.
+- [x] Update `loadConfig(..., { resolveSecrets: false })` so any configured SOPS/env source yields `[configured]`.
+- [x] Update validation errors to mention SOPS/env as supported sources.
+- [x] Update `config.local.yaml.example` with commented SOPS fields and remove active Keychain guidance.
+- [x] Remove or explicitly reject `telegramTokenService` / `discord.tokenService` in config validation with a migration error, unless a narrower deprecation strategy is needed for tests. Do not leave it as a working fallback.
 
 ### Task 3: Tavily web-tools integration
 

@@ -5,9 +5,12 @@
 # Only user-specific values need to be in config.local.yaml:
 #   agents.<name>.workspaceCwd, bindings with real chatIds, discord config.
 
-# Keychain service name for the Telegram bot token.
-# Store your token: security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_BOT_TOKEN'
-telegramTokenService: telegram-bot-token
+# Runtime token sources. SOPS is the canonical private-workspace backend; env
+# vars remain available as explicit non-Keychain deployment overrides.
+secrets:
+  sopsFile: config/secrets.sops.yaml
+telegramTokenSopsKey: telegram.bot_token
+# telegramTokenEnv: TELEGRAM_BOT_TOKEN
 logLevel: info
 
 # Agents must set explicit Pi/Codex models. The top-level defaultModel key is
@@ -75,9 +78,9 @@ metricsPort: 9091
 # adminChatId: 123456789
 
 # Discord support (optional — bot works Telegram-only without this section)
-# Store token: security add-generic-password -s 'discord-bot-token' -a 'minime' -w 'YOUR_TOKEN'
 # discord:
-#   tokenService: discord-bot-token
+#   tokenSopsKey: discord.bot_token
+#   tokenEnv: DISCORD_BOT_TOKEN
 #   bindings:
 #     - guildId: '1234567890'
 #       agentId: main

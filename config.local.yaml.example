@@ -9,6 +9,13 @@
 # compatibility but is no longer inherited by agents.
 # defaultModel: gpt-5.5
 
+# Optional: SOPS-backed runtime secrets. The SOPS file is a private deployment
+# artifact and should not be committed.
+# secrets:
+#   sopsFile: config/secrets.sops.yaml
+# telegramTokenSopsKey: telegram.bot_token
+# telegramTokenEnv: TELEGRAM_BOT_TOKEN   # optional non-Keychain deployment override
+
 agents:
   main:
     workspaceCwd: /Users/you/.minime/workspace   # absolute path to your agent workspace (~ not expanded)
@@ -37,7 +44,8 @@ bindings:
 
 # Optional: Discord support
 # discord:
-#   tokenEnv: DISCORD_BOT_TOKEN
+#   tokenSopsKey: discord.bot_token
+#   tokenEnv: DISCORD_BOT_TOKEN          # optional non-Keychain deployment override
 #   bindings:
 #     - guildId: 'YOUR_GUILD_ID'
 #       agentId: main
