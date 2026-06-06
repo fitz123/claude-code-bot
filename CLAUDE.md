@@ -20,9 +20,9 @@ To activate one, copy it into `.claude/rules/custom/`.
 
 ## Hooks
 
-Five hooks are wired in `.claude/settings.json`:
-- `protect-files.sh` — immutable-core deny-overlay: blocks all sessions from writing the 10 upstream-owned paths, plus cron/autonomous agents from modifying skill files (PreToolUse, Edit|Write)
-- `guardian.sh` — schema-enforced deny-by-default write-guard: blocks new files whose path is not in `schema.md`'s `write-allowlist` block (PreToolUse, Edit|Write); `WRITE_GUARD_BYPASS=1` to bypass
+Five hooks are wired in `.claude/settings.json`; the guard hooks are legacy/deferred source-checkout safeguards and are not the ADR-081 package-runtime contract:
+- `protect-files.sh` — legacy immutable-core deny-overlay for this Claude path; Task 2/Task 8 own public/private guard retirement cleanup (PreToolUse, Edit|Write)
+- `guardian.sh` — legacy schema write-guard for this Claude path; do not add new package/runtime reliance on `schema.md` or write-allowlist enforcement (PreToolUse, Edit|Write); `WRITE_GUARD_BYPASS=1` to bypass
 - `auto-stage.sh` — stages files after Edit/Write (PostToolUse)
 - `session-end-commit.sh` — commits staged changes on session exit (SessionEnd)
 - `session-start-recovery.sh` — recovers orphaned staged changes (SessionStart)
@@ -33,11 +33,11 @@ Five hooks are wired in `.claude/settings.json`:
 - `/status` is local-only: read quota data with `readQuotaStatus()` and never call Pi, Codex, the network, or Pi `get_state` from a status command.
 - Live Pi sessions stay on `transport: auto`; only `bot/scripts/codex-quota-sampler.ts` creates an isolated sampler cwd with `transport: "sse"`.
 - `bot/.claude/extensions/codex-usage.ts` is sampler-only and must not be added to the normal Pi RPC extension list.
-- Pi subagent child spawns load only A1 guard + A2 web-tools via `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS`; do not add A3 `subagent/index.ts` to child sessions. Pi crons use the separate A1-only `PI_CRON_WRAPPER_RELPATHS`.
+- Pre-retirement Pi subagent child spawns still load A1 guard + A2 web-tools via `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS`; ADR-081 retires A1 from the package contract while keeping web-tools where intended. Do not add A3 `subagent/index.ts` to child sessions.
 - Bundled scout/planner/reviewer agents allow `web_search` and `web_fetch`; worker has no explicit tools allowlist.
 - Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
-- Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Telegram/Discord SOPS files resolve relative to the bot config file, while Tavily uses `config/secrets.sops.yaml` relative to each Pi session `workspaceCwd` and should contain only `tavily.api_key`.
-- Workspace contract defaults live in `bot/src/workspace-contract.ts`: CLI `--workspace`, then `MINIME_WORKSPACE_ROOT`, then source-checkout fallback. `MINIME_CONFIG_PATH`, `MINIME_CRONS_PATH`, and `MINIME_SCHEMA_PATH` resolve relative to the workspace root; relative agent `workspaceCwd` values are resolved against that root and agent workspaces must stay inside it before runtime spawns.
+- Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Under ADR-081, Telegram/Discord/Tavily secret references are global control-workspace references; any per-agent Tavily cwd resolution is legacy until Task 4 replaces it.
+- Workspace contract defaults live in `bot/src/workspace-contract.ts`: CLI `--workspace`, then `MINIME_WORKSPACE_ROOT`, then source-checkout fallback. Under ADR-081 this root is the control/app workspace. `MINIME_CONFIG_PATH` and `MINIME_CRONS_PATH` are control-workspace overrides; `MINIME_SCHEMA_PATH` and agent-workspace containment are legacy guard-era behavior scheduled for removal. Relative agent `workspaceCwd` values resolve against the control workspace; absolute agent workspaces may live outside it after the containment guard is retired.
 - Package extension artifacts are generated under `bot/dist/extensions/pi` by `npm run build` / `npm pack`; source development still uses `bot/.claude/extensions`.
 - Bot validation commands: `cd bot && npm test`, `npm run typecheck`, and `npm run validate-config`.
 - Package validation commands: `cd bot && npm run build`, `npm run workspace:validate -- --workspace ./test-fixtures/minimal-workspace`, and `npm pack --dry-run`.

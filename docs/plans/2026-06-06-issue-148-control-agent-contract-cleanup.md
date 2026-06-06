@@ -1,7 +1,6 @@
 # Plan: Issue #148 continuation — control/agent workspace split, global Tavily, retire schema guard
 
-Draft location: outside public repo while PR #151 is under review.
-Move into public repo only after PR #151 is settled/green, likely as:
+Public repo location:
 `docs/plans/2026-06-06-issue-148-control-agent-contract-cleanup.md`
 
 GitHub issue: #148 / PR #151 follow-up continuation
@@ -33,6 +32,15 @@ Do not move or launch this plan until all are true:
    ```
    Required result: clean tree; no machine-local package dependency paths. `/tmp` in test scripts is okay, but no package dependency may point to `/tmp`.
 4. Governance is aligned: ADR-081 is recorded and supersedes ADR-073 plus ADR-080 schema/write-guard clauses.
+
+Task 0 reconciliation against final PR #151 branch:
+
+- Base branch verified: `issue-148-package-cli-workspace-contract` / `origin/issue-148-package-cli-workspace-contract` at `5894383`.
+- Continuation branch merged the final PR #151 tip at `d1a9582`; package branch later cherry-picked the same post-merge fix, so the continuation branch differs only by this plan before Task 0 edits.
+- Preflight result at `d1a9582`: clean tree, no machine-local `/tmp` package dependency paths in `bot/package.json` or `bot/package-lock.json`.
+- Final #151 fixture names still use `bot/test-fixtures/minimal-workspace`; this continuation may add/rename control-workspace-specific fixtures in later implementation tasks.
+- Final #151 active symbols still include `MINIME_SCHEMA_PATH_ENV`, `PI_GUARD_WORKSPACE_ROOT_ENV`, `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS`, `PI_CRON_WRAPPER_RELPATHS`, `guardian-protect-files`, and `realPathIsInsideOrEqual`; Tasks 1-7 own removal or replacement of those code/test references.
+- Public Claude-path guard artifacts remain physically present at launch. Ownership decision: Task 2 removes or rewrites active public hook/settings/guidance for the package-contract retirement, and Task 8 records private-production cleanup before deployment; until then current guidance must mark these artifacts legacy/deferred rather than package-runtime contract.
 
 ## Governance impact
 
@@ -136,12 +144,12 @@ Safety baseline after retirement:
 
 ### Task 0: Reconcile with final PR #151 and governance
 
-- [ ] Confirm PR #151 branch is clean and final enough to base this continuation on.
-- [ ] Re-run the preflight checks from this plan.
-- [ ] Update this plan's file/symbol names against the final PR #151 diff.
-- [ ] Verify ADR-081 is present and active in `reference/governance/decisions.md` before moving the plan into the public repo.
-- [ ] Update public `CLAUDE.md` / current operator guidance that still says agent workspaces must stay inside the control workspace.
-- [ ] Decide public-repo Claude-path guard ownership before launch: remove/update active public hook wiring/guidance in this run, or explicitly mark it legacy/deferred and include it in the private cleanup artifact.
+- [x] Confirm PR #151 branch is clean and final enough to base this continuation on.
+- [x] Re-run the preflight checks from this plan.
+- [x] Update this plan's file/symbol names against the final PR #151 diff.
+- [x] Verify ADR-081 is present and active in `reference/governance/decisions.md` before moving the plan into the public repo.
+- [x] Update public `CLAUDE.md` / current operator guidance that still says agent workspaces must stay inside the control workspace.
+- [x] Decide public-repo Claude-path guard ownership before launch: remove/update active public hook wiring/guidance in this run, or explicitly mark it legacy/deferred and include it in the private cleanup artifact.
 
 ### Task 1: Encode control-vs-agent workspace semantics
 
@@ -246,10 +254,10 @@ Run from `bot/` or the post-#151 equivalent package root:
 npm test
 npm run typecheck
 npm run build
-npm run workspace:validate -- --workspace ./test-fixtures/minimal-control-workspace
+npm run workspace:validate -- --workspace ./test-fixtures/minimal-workspace
 node dist/cli.js --help
-node dist/cli.js config validate --workspace ./test-fixtures/minimal-control-workspace
-node dist/cli.js workspace validate --workspace ./test-fixtures/minimal-control-workspace
+node dist/cli.js config validate --workspace ./test-fixtures/minimal-workspace
+node dist/cli.js workspace validate --workspace ./test-fixtures/minimal-workspace
 npm pack --dry-run
 ```
 
@@ -257,11 +265,11 @@ Package-installed fixture must also run:
 
 ```bash
 node_modules/.bin/minime-bot --help
-node_modules/.bin/minime-bot config validate --workspace <control-workspace-fixture>
-node_modules/.bin/minime-bot workspace validate --workspace <control-workspace-fixture>
+node_modules/.bin/minime-bot config validate --workspace <minimal-workspace-fixture>
+node_modules/.bin/minime-bot workspace validate --workspace <minimal-workspace-fixture>
 ```
 
-Deterministic removal gate must run and fail on active references outside an explicit legacy allowlist. Draft shape:
+After Task 7 adds it, the deterministic removal gate must run and fail on active references outside an explicit legacy allowlist. Draft shape:
 
 ```bash
 node scripts/check-no-active-schema-guard-contract.mjs
