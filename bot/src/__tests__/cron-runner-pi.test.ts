@@ -125,7 +125,7 @@ describe("cron-runner runPi", () => {
     const captures: SpawnCapture[] = [];
     let relpathsSeen: readonly string[] | undefined;
     const deps = makeDeps(captures, {
-      buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { effort: "high" }),
+      buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { thinking: "high" }),
       resolveExtensionArgs: (options) => {
         relpathsSeen = options?.relpaths;
         return ["--extension", "/fake/guardian-protect-files.ts"];
@@ -192,12 +192,12 @@ describe("cron-runner runPi", () => {
     }
   });
 
-  it("defaults --thinking to medium when effort is absent or unsupported", () => {
-    for (const effort of [undefined, "xhigh" as unknown as AgentConfig["effort"]]) {
+  it("defaults --thinking to medium when thinking is absent or unsupported", () => {
+    for (const thinking of [undefined, "turbo" as unknown as AgentConfig["thinking"]]) {
       const ws = makeWorkspace();
       const captures: SpawnCapture[] = [];
       const deps = makeDeps(captures, {
-        buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { effort }),
+        buildAgentConfig: (_cron, cwd) => makeAgent(cwd, { thinking }),
       });
 
       runPi(makeCron(), ws, deps);
@@ -239,6 +239,27 @@ describe("cron-runner runPi", () => {
     assert.ok(cronInstructionIdx < extensionIdx);
   });
 
+  it("suppresses flat context loading when context assembly throws", () => {
+    const ws = makeWorkspace();
+    const captures: SpawnCapture[] = [];
+    const deps = makeDeps(captures, {
+      assembleContext: () => {
+        throw new Error("artifact write failed");
+      },
+      resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
+    });
+
+    runPi(makeCron(), ws, deps);
+
+    const args = captures[0].args;
+    assert.ok(!args.includes("--system-prompt"));
+    assert.ok(args.includes("--no-context-files"));
+    const appendPrompts = flagValues(args, "--append-system-prompt");
+    assert.strictEqual(appendPrompts.length, 1);
+    assertCronSystemInstruction(appendPrompts[0]);
+    assert.ok(args.indexOf("--no-context-files") < args.indexOf("--append-system-prompt"));
+  });
+
   it("passes pre-resolved cron agent data into the Pi agent builder", () => {
     const ws = makeWorkspace();
     const captures: SpawnCapture[] = [];
@@ -246,13 +267,13 @@ describe("cron-runner runPi", () => {
       id: "main",
       workspaceCwd: ws,
       systemPrompt: "PERSONA_TOKEN",
-      effort: "low" as const,
+      thinking: "low" as const,
     };
     let seenAgentData: typeof agentData | undefined;
     const deps = makeDeps(captures, {
       buildAgentConfig: (_cron, cwd, data) => {
         seenAgentData = data as typeof agentData;
-        return makeAgent(cwd, { systemPrompt: data?.systemPrompt, effort: data?.effort });
+        return makeAgent(cwd, { systemPrompt: data?.systemPrompt, thinking: data?.thinking });
       },
     });
 
@@ -410,6 +431,31 @@ describe("cron-runner runPi", () => {
       assert.throws(
         () => runPi(makeCron(), ws, deps),
         /PI_EXTENSIONS_DISABLED=1 cannot disable the required Pi cron guard extension/,
+      );
+      assert.strictEqual(captures.length, 0);
+    } finally {
+      if (oldDisabled === undefined) {
+        delete process.env[PI_EXTENSIONS_DISABLED_ENV];
+      } else {
+        process.env[PI_EXTENSIONS_DISABLED_ENV] = oldDisabled;
+      }
+    }
+  });
+
+  it("fails closed before spawn when the Pi cron guard resolver returns no extension", () => {
+    const oldDisabled = process.env[PI_EXTENSIONS_DISABLED_ENV];
+
+    try {
+      delete process.env[PI_EXTENSIONS_DISABLED_ENV];
+      const ws = makeWorkspace();
+      const captures: SpawnCapture[] = [];
+      const deps = makeDeps(captures, {
+        resolveExtensionArgs: () => [],
+      });
+
+      assert.throws(
+        () => runPi(makeCron(), ws, deps),
+        /Pi cron extension resolver returned no guard extension/,
       );
       assert.strictEqual(captures.length, 0);
     } finally {

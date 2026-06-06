@@ -8,18 +8,13 @@ export interface AgentConfig {
   id: string;
   workspaceCwd: string;
   model: string;
-  fallbackModel?: string;
   systemPrompt?: string;
-  allowedTools?: string[];
-  maxTurns?: number;
-  effort?: "low" | "medium" | "high";
   thinking?: PiThinkingLevel;
   /**
-   * Which coding-agent backend dispatches this agent's sessions.
-   * Optional; semantically defaults to "claude" (the existing `claude -p` path).
-   * "pi" selects the Pi RPC + OpenAI Codex path (wired by a later plan).
+   * Compatibility field for old provider-aware configs.
+   * Omit it or set "pi"; "claude" is rejected during config validation.
    */
-  provider?: "claude" | "pi";
+  provider?: "pi";
 }
 
 export interface TopicOverride {
@@ -75,7 +70,7 @@ export interface CronJob {
   deliveryThreadId?: number;
   timeout?: number;
   enabled?: boolean;
-  engine?: "claude" | "pi";
+  engine?: "pi";
 }
 
 export interface SessionState {
@@ -144,14 +139,7 @@ export interface PlatformContext {
   preStreamTypingTimer?: ReturnType<typeof setInterval>;
 }
 
-// CLI Protocol types
-
-export interface StreamMessageUser {
-  type: "user";
-  message: { role: "user"; content: string };
-  parent_tool_use_id: null;
-  session_id: string;
-}
+// Pi-normalized stream event types
 
 export interface SystemInit {
   type: "system";
@@ -225,16 +213,3 @@ export type StreamLine =
   | ControlRequest
   | RateLimitEvent
   | ResultMessage;
-
-export interface CliCapabilities {
-  version: string;
-  flags: Set<string>;
-  hasStreamJson: boolean;
-  hasIncludePartialMessages: boolean;
-  hasFallbackModel: boolean;
-  hasAddDir: boolean;
-  hasAppendSystemPrompt: boolean;
-  hasDangerouslySkipPermissions: boolean;
-  hasMaxTurns: boolean;
-  hasTools: boolean;
-}

@@ -2,7 +2,7 @@
  * A1 — guardian + protect-files write guard (pure, testable core).
  *
  * Ports the workspace's file-write protection (the `protect-files.sh` +
- * `guardian.sh` PreToolUse hooks, which only run for the CLAUDE path) into a
+ * `guardian.sh` PreToolUse hooks, which only run in the original hook path) into a
  * provider-agnostic classifier so a Pi (`openai-codex`) session is guarded the
  * same way. The thin Pi wrapper at
  * `bot/.claude/extensions/guardian-protect-files.ts` calls {@link classifyToolCall}
@@ -739,13 +739,10 @@ function extractTargetDirFlag(args: string[]): string | undefined {
  * Returns deduped, non-empty target strings. Defense-in-depth on top of the
  * solid write/edit guarantee — not a full shell parser.
  *
- * Bash-redirect asymmetry (D16 — by design for v1): this Pi-path coverage has NO
- * claude-path counterpart. `guardian.sh` inspects only `tool_input.file_path`
- * (the Write/Edit target) and never parses bash, so on the claude path a redirect
- * like `echo x > unregistered/y` is UNGUARDED. The Pi path runs the same
- * deny-by-default allow-check over these extracted targets (so the redirect IS
- * blocked here); closing the claude-path gap is a tracked, deliberately deferred
- * known-gap (see guardian.sh's D16 comment + the design plan).
+ * Bash-redirect asymmetry (D16 — by design for v1): guardian.sh inspects only
+ * `tool_input.file_path` (the Write/Edit target) and never parses bash. The Pi
+ * guard runs the same deny-by-default allow-check over these extracted targets,
+ * so redirects are covered in the active runtime.
  */
 export function extractBashWriteTargets(command: string): string[] {
   const toks = lexShell(command);

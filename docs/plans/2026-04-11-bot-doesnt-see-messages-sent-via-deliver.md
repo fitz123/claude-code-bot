@@ -1,5 +1,7 @@
 # Bot Self-Message Visibility via Echo Directory
 
+Status note (2026-06-06): historical design, superseded by the Pi-only runtime cleanup. Current echo flow is `deliver.sh -> $HOME/.minime/bot-echo/<chatId>/...json -> EchoWatcher -> Telegram handler -> live Pi steer only`. Echo files are read from a private per-user spool, IDs are strictly parsed, and echoes never enqueue normal prompts or start sessions. If no eligible active Pi turn is processing, the echo context is dropped.
+
 ## Goal
 
 **What:** Make bot's own outgoing messages sent via `deliver.sh` (and by extension, cron jobs that use it) visible to active agent sessions in chats where `requireMention: false`.

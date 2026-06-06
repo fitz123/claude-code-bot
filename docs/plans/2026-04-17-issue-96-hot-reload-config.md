@@ -1,5 +1,7 @@
 # Hot-Reload Config Without Bot Restart (Issue #96)
 
+Status note (2026-06-06): historical plan. Current runtime contracts are Pi/Codex only; `provider: claude`, `engine: claude`, `fallbackModel`, `defaultFallbackModel`, `effort`, `maxTurns`, and `allowedTools` fail validation. Agents require explicit `model`; use `thinking`; auth is `pi /login` via `~/.pi/agent/auth.json`; LLM crons run Pi print mode only.
+
 **Date:** 2026-04-17
 **Repo:** `fitz123/claude-code-bot` (public) → merge to `~/.minime/workspace/`
 **Issue:** https://github.com/fitz123/claude-code-bot/issues/96

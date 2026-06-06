@@ -9,7 +9,6 @@ import {
   buildDiscordSourcePrefix,
   handleDiscordChatInputCommand,
   installDiscordErrorHandlers,
-  makeSteerFn,
 } from "../discord-bot.js";
 import { validateDiscordBinding } from "../config.js";
 import type { BotConfig, DiscordBinding, DiscordConfig } from "../types.js";
@@ -176,7 +175,7 @@ describe("Discord slash command status wiring", () => {
     const replies: Array<string | { content: string; ephemeral?: boolean }> = [];
     const config: BotConfig = {
       agents: {
-        main: { id: "main", workspaceCwd: "/tmp/test", model: "claude-opus-4-6" },
+        main: { id: "main", workspaceCwd: "/tmp/test", model: "gpt-5.5" },
       },
       bindings: [],
       sessionDefaults: {
@@ -202,8 +201,8 @@ describe("Discord slash command status wiring", () => {
           alive: true,
           agentId: "main",
           sessionId: "session-123",
-          provider: "claude",
-          model: "claude-opus-4-6",
+          provider: "pi",
+          model: "gpt-5.5",
           idleMs: 120_000,
           processingMs: null,
           lastSuccessAt: Date.now(),
@@ -621,75 +620,3 @@ describe("installDiscordErrorHandlers", () => {
 
 // Streaming control flag tests are in discord-adapter.test.ts
 // where they verify actual adapter behavior, not just type shapes.
-
-// --- makeSteerFn (provider pinned to the session, not config) ---
-
-interface FakeChild {
-  exitCode: number | null;
-  signalCode: NodeJS.Signals | null;
-  killed: boolean;
-  stdin: { destroyed: boolean; writes: string[]; write: (s: string) => void };
-}
-
-function makeLiveChild(): FakeChild {
-  const writes: string[] = [];
-  return {
-    exitCode: null,
-    signalCode: null,
-    killed: false,
-    stdin: { destroyed: false, writes, write: (s: string) => { writes.push(s); } },
-  };
-}
-
-function fakeManager(
-  provider: "claude" | "pi" | null,
-  child: FakeChild,
-  processingStartedAt: number | null = Date.now(),
-): Pick<SessionManager, "getActive"> {
-  return {
-    getActive: (_chatId: string) =>
-      (provider === null ? undefined : ({ child, provider, processingStartedAt } as unknown)) as never,
-  };
-}
-
-describe("makeSteerFn (discord)", () => {
-  it("steers (returns true) when the session is pinned provider:pi", () => {
-    const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager("pi", child));
-    // Only the session's pinned provider matters, so even a config snapshot
-    // claiming "claude" cannot mis-route this Pi session to the inject path.
-    assert.strictEqual(steerFn("discord:chat-1", "main", "mid-turn text"), true);
-    assert.strictEqual(child.stdin.writes.length, 1);
-    assert.ok(child.stdin.writes[0].includes("mid-turn text"));
-  });
-
-  it("falls to inject (returns false) when the session is pinned provider:claude", () => {
-    const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager("claude", child));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "mid-turn text"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-
-  it("returns false when there is no active session", () => {
-    const steerFn = makeSteerFn(fakeManager(null, makeLiveChild()));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-  });
-
-  it("returns false when the pinned-pi child has already exited", () => {
-    const child = makeLiveChild();
-    child.exitCode = 0;
-    const steerFn = makeSteerFn(fakeManager("pi", child));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-
-  it("returns false when a pinned-pi session is not actively processing (idle window after agent_end)", () => {
-    // processingStartedAt === null: session-manager has cleared it after
-    // agent_end but MessageQueue.busy may still be true. Steering here would
-    // hand the message to an idle Pi child and lose it; buffer instead.
-    const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager("pi", child, null));
-    assert.strictEqual(steerFn("discord:chat-1", "main", "x"), false);
-    assert.strictEqual(child.stdin.writes.length, 0);
-  });
-});

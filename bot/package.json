@@ -1,27 +1,27 @@
 {
   "name": "minime",
   "version": "2026.03.0",
-  "description": "Multi-agent Telegram and Discord bot powered by Claude Code, designed for Claude Max subscription users",
+  "description": "Multi-agent Telegram and Discord bot powered by Pi/Codex sessions",
   "main": "index.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/Fitz123/claude-code-bot.git"
   },
   "scripts": {
-    "test": "node --experimental-test-module-mocks --import tsx --test src/__tests__/*.test.ts",
+    "test": "MINIME_TEST_MEDIA_BASE=/tmp/bot-media-test node --experimental-test-module-mocks --import tsx --test src/__tests__/*.test.ts",
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "validate-config": "tsx src/config.ts --validate"
+    "typecheck": "tsc --noEmit",
+    "validate-config": "tsx src/config.ts --validate --no-resolve-secrets"
   },
   "keywords": [
     "telegram",
     "discord",
-    "claude",
-    "anthropic",
-    "claude-code",
+    "pi",
+    "codex",
+    "openai",
     "multi-agent",
-    "bot",
-    "max-subscription"
+    "bot"
   ],
   "author": "Nico Bailon",
   "license": "MIT",

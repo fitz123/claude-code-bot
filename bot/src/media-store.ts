@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { log } from "./logger.js";
 
-export const MEDIA_BASE = "/tmp/bot-media";
+const TEST_MEDIA_BASE = process.env.MINIME_TEST_MEDIA_BASE?.trim();
+
+export const MEDIA_BASE = TEST_MEDIA_BASE ? join(TEST_MEDIA_BASE, String(process.pid)) : "/tmp/bot-media";
 export const DEFAULT_MAX_MEDIA_BYTES = 200 * 1024 * 1024;
 
 /**

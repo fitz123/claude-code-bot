@@ -146,45 +146,35 @@ describe("validateSessionDefaults", () => {
   });
 });
 
-describe("validateAgent defaultModel inheritance", () => {
-  it("inherits defaultModel when agent has no model", () => {
-    const agent = validateAgent(
-      { workspaceCwd: "/tmp/x" },
-      "main",
-      "claude-opus-4-7",
+describe("validateAgent model validation", () => {
+  it("does not inherit defaultModel when agent has no model", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x" },
+        "main",
+        "gpt-5.5",
+      ),
+      /Agent "main" missing model \(Pi agents must set an explicit model; top-level defaultModel is no longer inherited by Pi agents\)/,
     );
-    assert.strictEqual(agent.model, "claude-opus-4-7");
-    assert.strictEqual(agent.fallbackModel, undefined);
-  });
-
-  it("inherits defaultFallbackModel when agent has no fallbackModel", () => {
-    const agent = validateAgent(
-      { workspaceCwd: "/tmp/x" },
-      "main",
-      "claude-opus-4-7",
-      "claude-sonnet-4-6",
-    );
-    assert.strictEqual(agent.model, "claude-opus-4-7");
-    assert.strictEqual(agent.fallbackModel, "claude-sonnet-4-6");
   });
 
   it("per-agent model overrides defaultModel", () => {
     const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", model: "claude-haiku-4-5-20251001" },
+      { workspaceCwd: "/tmp/x", model: "gpt-5.5" },
       "main",
-      "claude-opus-4-7",
+      "gpt-4.2",
     );
-    assert.strictEqual(agent.model, "claude-haiku-4-5-20251001");
+    assert.strictEqual(agent.model, "gpt-5.5");
   });
 
-  it("per-agent fallbackModel overrides defaultFallbackModel", () => {
-    const agent = validateAgent(
-      { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", fallbackModel: "claude-haiku-4-5-20251001" },
-      "main",
-      undefined,
-      "claude-sonnet-4-6",
+  it("rejects per-agent fallbackModel", () => {
+    assert.throws(
+      () => validateAgent(
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", fallbackModel: "gpt-5-mini" },
+        "main",
+      ),
+      /Agent "main" uses fallbackModel, but fallback models were removed with the Claude runtime/,
     );
-    assert.strictEqual(agent.fallbackModel, "claude-haiku-4-5-20251001");
   });
 
   it("throws when agent has no model and no defaultModel is set", () => {
@@ -205,13 +195,11 @@ describe("validateAgent defaultModel inheritance", () => {
     const agent = validateAgent(
       {
         workspaceCwd: "/tmp/x",
-        model: "claude-opus-4-7",
-        fallbackModel: "claude-sonnet-4-6",
+        model: "gpt-5.5",
       },
       "main",
     );
-    assert.strictEqual(agent.model, "claude-opus-4-7");
-    assert.strictEqual(agent.fallbackModel, "claude-sonnet-4-6");
+    assert.strictEqual(agent.model, "gpt-5.5");
   });
 
   it("throws when agent model is present but non-string (does not silently inherit)", () => {
@@ -219,29 +207,27 @@ describe("validateAgent defaultModel inheritance", () => {
       () => validateAgent(
         { workspaceCwd: "/tmp/x", model: 42 },
         "main",
-        "claude-opus-4-7",
+        "gpt-5.5",
       ),
       /Agent "main" has invalid model/,
     );
     assert.throws(
       () => validateAgent(
-        { workspaceCwd: "/tmp/x", model: ["claude-opus-4-7"] },
+        { workspaceCwd: "/tmp/x", model: ["gpt-5.5"] },
         "main",
-        "claude-opus-4-7",
+        "gpt-5.5",
       ),
       /Agent "main" has invalid model/,
     );
   });
 
-  it("throws when agent fallbackModel is present but non-string", () => {
+  it("throws when agent fallbackModel is present", () => {
     assert.throws(
       () => validateAgent(
-        { workspaceCwd: "/tmp/x", model: "claude-opus-4-7", fallbackModel: 99 },
+        { workspaceCwd: "/tmp/x", model: "gpt-5.5", fallbackModel: 99 },
         "main",
-        undefined,
-        "claude-sonnet-4-6",
       ),
-      /Agent "main" has invalid fallbackModel/,
+      /Agent "main" uses fallbackModel, but fallback models were removed with the Claude runtime/,
     );
   });
 });
@@ -269,7 +255,7 @@ agents:
     assert.throws(() => loadConfig(configPath), /Invalid defaultModel/);
   });
 
-  it("rejects non-string defaultFallbackModel with clear error", () => {
+  it("rejects defaultFallbackModel with a migration error", () => {
     const configPath = join(TEST_DIR, "config.yaml");
     writeFileSync(
       configPath,
@@ -279,10 +265,10 @@ defaultFallbackModel:
 agents:
   main:
     workspaceCwd: /tmp/x
-    model: claude-opus-4-7
+    model: gpt-5.5
 `,
     );
-    assert.throws(() => loadConfig(configPath), /Invalid defaultFallbackModel/);
+    assert.throws(() => loadConfig(configPath), /defaultFallbackModel was removed with the Claude runtime; remove defaultFallbackModel/);
   });
 
   it("fails when agent has no model and no defaultModel is set", () => {
@@ -298,27 +284,23 @@ agents:
     assert.throws(() => loadConfig(configPath), /Agent "main" missing model/);
   });
 
-  it("inherits top-level defaults end-to-end for agents without model/fallbackModel", () => {
-    // No telegramTokenService / bindings / discord → loadConfig reaches the
-    // "at least one platform" guard AFTER agent validation, proving the default
-    // inheritance wiring succeeded without needing Keychain access.
+  it("does not inherit top-level defaultModel end-to-end for agents without model", () => {
     const configPath = join(TEST_DIR, "config.yaml");
     writeFileSync(
       configPath,
       `
-defaultModel: claude-opus-4-7
-defaultFallbackModel: claude-sonnet-4-6
+defaultModel: gpt-5.5
 agents:
   inheritor:
     workspaceCwd: /tmp/x
   pinned:
     workspaceCwd: /tmp/y
-    model: claude-haiku-4-5-20251001
+    model: gpt-5.5
 `,
     );
     assert.throws(() => loadConfig(configPath), (e: unknown) => {
       const msg = (e as Error).message;
-      assert.match(msg, /At least one platform must be configured/);
+      assert.match(msg, /Agent "inheritor" missing model/);
       return true;
     });
   });
@@ -329,19 +311,20 @@ agents:
     writeFileSync(
       configPath,
       `
-defaultModel: claude-opus-4-6
+defaultModel: gpt-4.2
 agents:
   main:
     workspaceCwd: /tmp/x
+    model: gpt-5.5
 `,
     );
     writeFileSync(
       localPath,
       `
-defaultModel: claude-opus-4-7
+defaultModel: gpt-5.6
 `,
     );
-    // Agents validated OK (no missing-model error); fails at platform guard.
+    // Agents validated OK using their explicit model; fails at platform guard.
     assert.throws(() => loadConfig(configPath), /At least one platform must be configured/);
   });
 });

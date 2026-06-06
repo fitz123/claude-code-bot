@@ -37,7 +37,7 @@ describe("subagent: normalizeSubagentModel", () => {
   });
 
   it("passes an already-qualified provider/model through untouched", () => {
-    assert.equal(normalizeSubagentModel("anthropic/claude-sonnet-4-5"), "anthropic/claude-sonnet-4-5");
+    assert.equal(normalizeSubagentModel("custom-provider/custom-model"), "custom-provider/custom-model");
     assert.equal(normalizeSubagentModel("openai-codex/gpt-5.5"), "openai-codex/gpt-5.5");
   });
 });
@@ -50,6 +50,7 @@ describe("subagent: buildSubagentSpawnArgs", () => {
       "json",
       "-p",
       "--no-session",
+      "--no-extensions",
       "--provider",
       SUBAGENT_PROVIDER,
       "--model",
@@ -90,9 +91,10 @@ describe("subagent: buildSubagentSpawnArgs", () => {
     assert.equal(args[args.length - 1], "Task: delegate");
   });
 
-  it("omits --extension when no extensionArgs are given (kill-switch parity)", () => {
+  it("omits explicit --extension wrappers when no extensionArgs are given, but suppresses ambient discovery", () => {
     const args = buildSubagentSpawnArgs({}, "t", { extensionArgs: [] });
     assert.equal(args.includes("--extension"), false);
+    assert.equal(args.includes("--no-extensions"), true);
     assert.equal(args[args.length - 1], "Task: t");
   });
 });

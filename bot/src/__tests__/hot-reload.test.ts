@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { Readable, Writable } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import type { BotConfig } from "../types.js";
+import { NewlineOnlyJsonlSplitter, normalizePiModel, parsePiRecord } from "../pi-rpc-protocol.js";
 
 const TEST_DIR = "/tmp/minime-test-hot-reload";
 const TEST_STORE_PATH = `${TEST_DIR}/sessions.json`;
@@ -15,10 +16,10 @@ function cleanup() {
   }
 }
 
-/** Captured opts from mocked spawnClaudeSession calls. */
+/** Captured args from mocked spawnPiRpcSession calls. */
 interface CapturedSpawn {
   agent: { model: string; [key: string]: unknown };
-  [key: string]: unknown;
+  resumeSessionId?: string;
 }
 
 const spawnCaptures: CapturedSpawn[] = [];
@@ -60,17 +61,30 @@ function createAutoSpawnChild(): ChildProcess {
 }
 
 // ---------------------------------------------------------------------------
-// Mock cli-protocol BEFORE importing session-manager so the mock is in place
-// when session-manager's static import of cli-protocol resolves.
+// Mock pi-rpc-protocol BEFORE importing session-manager so the mock is in place
+// when session-manager's static import resolves.
 // ---------------------------------------------------------------------------
-mock.module("../cli-protocol.js", {
+mock.module("../pi-rpc-protocol.js", {
   namedExports: {
-    spawnClaudeSession(opts: CapturedSpawn) {
-      spawnCaptures.push(opts);
+    spawnPiRpcSession(agent: CapturedSpawn["agent"], resumeSessionId?: string) {
+      spawnCaptures.push({ agent, resumeSessionId });
       return createAutoSpawnChild();
     },
-    sendMessage() {},
-    async *readStream() {},
+    sendPiGetState(child: ChildProcess) {
+      child.stdout?.push(
+        JSON.stringify({
+          type: "response",
+          success: true,
+          data: { sessionId: `pi-session-${spawnCaptures.length}` },
+        }) + "\n",
+      );
+    },
+    sendPiPrompt() {},
+    sendPiSteer() {},
+    async *readPiStream() {},
+    normalizePiModel,
+    NewlineOnlyJsonlSplitter,
+    parsePiRecord,
   },
 });
 
@@ -118,18 +132,18 @@ describe("Hot-reload: mutable config loader", () => {
   });
 
   it("new session picks up changed model after config swap", async () => {
-    let currentModel = "claude-opus-4-6";
+    let currentModel = "gpt-5.5";
     const manager = new SessionManager(
       () => makeConfig(currentModel),
       TEST_STORE_PATH,
     );
 
-    // First session — spawned with opus-4-6
+    // First session — spawned with gpt-5.5
     await manager.getOrCreateSession("chat-reload", "main");
     assert.strictEqual(spawnCaptures.length, 1, "one spawn after first call");
     assert.strictEqual(
       spawnCaptures[0].agent.model,
-      "claude-opus-4-6",
+      "gpt-5.5",
       "first spawn uses original model",
     );
 
@@ -137,14 +151,14 @@ describe("Hot-reload: mutable config loader", () => {
     await manager.closeSession("chat-reload");
 
     // Swap model
-    currentModel = "claude-opus-4-7";
+    currentModel = "gpt-5.6";
 
-    // Second session — should spawn with opus-4-7
+    // Second session — should spawn with gpt-5.6
     await manager.getOrCreateSession("chat-reload", "main");
     assert.strictEqual(spawnCaptures.length, 2, "two spawns total");
     assert.strictEqual(
       spawnCaptures[1].agent.model,
-      "claude-opus-4-7",
+      "gpt-5.6",
       "second spawn uses updated model",
     );
 
@@ -152,7 +166,7 @@ describe("Hot-reload: mutable config loader", () => {
   });
 
   it("different chats in sequence reflect config changes", async () => {
-    let currentModel = "claude-opus-4-6";
+    let currentModel = "gpt-5.5";
     const manager = new SessionManager(
       () => makeConfig(currentModel),
       TEST_STORE_PATH,
@@ -160,12 +174,12 @@ describe("Hot-reload: mutable config loader", () => {
 
     // Spawn first chat with model A
     await manager.getOrCreateSession("chat-a", "main");
-    assert.strictEqual(spawnCaptures[0].agent.model, "claude-opus-4-6");
+    assert.strictEqual(spawnCaptures[0].agent.model, "gpt-5.5");
 
     // Swap model before spawning second chat
-    currentModel = "claude-opus-4-7";
+    currentModel = "gpt-5.6";
     await manager.getOrCreateSession("chat-b", "main");
-    assert.strictEqual(spawnCaptures[1].agent.model, "claude-opus-4-7");
+    assert.strictEqual(spawnCaptures[1].agent.model, "gpt-5.6");
 
     await manager.closeAll();
   });
@@ -187,7 +201,7 @@ describe("Hot-reload: config loader error propagation", () => {
     const manager = new SessionManager(
       () => {
         if (shouldThrow) throw new Error("YAML syntax error on line 42");
-        return makeConfig("claude-opus-4-6");
+        return makeConfig("gpt-5.5");
       },
       TEST_STORE_PATH,
     );
@@ -220,7 +234,7 @@ describe("Hot-reload: config loader error propagation", () => {
     const manager = new SessionManager(
       () => {
         if (shouldThrow) throw new Error("broken config");
-        return makeConfig("claude-opus-4-6");
+        return makeConfig("gpt-5.5");
       },
       TEST_STORE_PATH,
     );

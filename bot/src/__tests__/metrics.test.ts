@@ -105,6 +105,29 @@ describe("recordResultMetrics", () => {
   });
 });
 
+describe("legacy active-runtime metric compatibility", () => {
+  it("keeps legacy bot_claude names while describing active-runtime usage", async () => {
+    const body = await client.register.metrics();
+
+    assert.match(
+      body,
+      /# HELP bot_claude_tokens_input_total Total input tokens reported by the active agent runtime \(legacy metric name\)/,
+    );
+    assert.match(
+      body,
+      /# HELP bot_claude_tokens_output_total Total output tokens reported by the active agent runtime \(legacy metric name\)/,
+    );
+    assert.match(
+      body,
+      /# HELP bot_claude_cost_usd_total Total USD cost reported by the active agent runtime \(legacy metric name\)/,
+    );
+    assert.match(
+      body,
+      /# HELP bot_claude_turn_duration_seconds Turn duration reported by the active agent runtime in seconds \(legacy metric name\)/,
+    );
+  });
+});
+
 describe("recordTelegramApiError", () => {
   it("records error with method and code labels", async () => {
     recordTelegramApiError("editMessageText", 429);

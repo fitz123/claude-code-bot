@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { _resetPiContextCache } from "../pi-context-assembler.js";
@@ -34,16 +35,12 @@ import {
   sendPiSteer,
   type PiExtensionResolveOptions,
 } from "../pi-rpc-protocol.js";
-import { buildSpawnArgs } from "../cli-protocol.js";
 import type { AgentConfig, StreamLine } from "../types.js";
 
 const testAgent: AgentConfig = {
   id: "main",
   workspaceCwd: "/tmp/test-workspace",
   model: "gpt-5.5",
-  fallbackModel: "claude-sonnet-4-6",
-  maxTurns: 50,
-  effort: "high",
 };
 
 // Existing base-arg tests assert spawn-arg SHAPING (model/prompt/session) in
@@ -139,6 +136,7 @@ describe("buildPiSpawnArgs", () => {
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
+      "--no-extensions",
     ]);
   });
 
@@ -169,31 +167,30 @@ describe("buildPiSpawnArgs", () => {
     assert.strictEqual(args[idx + 1], "xhigh");
   });
 
-  it("does not include thinking for a non-pi agent", () => {
+  it("includes thinking when configured on an absent-provider Pi agent", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       thinking: "xhigh",
     }, undefined, NO_EXTENSIONS);
 
-    assert.ok(!args.includes("--thinking"));
+    const idx = args.indexOf("--thinking");
+    assert.notStrictEqual(idx, -1, "should include --thinking");
+    assert.strictEqual(args[idx + 1], "xhigh");
   });
 
-  it("does NOT invoke the context assembler for a non-pi agent (no context args)", () => {
-    // testAgent carries no `provider` (semantically claude). The assembler is
-    // gated on provider:"pi", so none of its CLI layers may appear — and the
-    // legacy `agent.systemPrompt → --append-system-prompt` branch is gone, so a
-    // config systemPrompt must NOT leak into the args either.
+  it("assembles context for an absent-provider Pi agent", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "You are precise.",
     }, undefined, NO_EXTENSIONS);
 
-    assert.ok(!args.includes("--system-prompt"));
-    assert.ok(!args.includes("--append-system-prompt"));
-    assert.ok(!args.includes("--no-context-files"));
+    assert.ok(args.includes("--system-prompt"));
+    assert.notStrictEqual(args[args.indexOf("--system-prompt") + 1], "You are precise.");
+    assert.ok(args.includes("--append-system-prompt"));
+    assert.ok(args.includes("--no-context-files"));
   });
 
-  it("omits Claude-only flags", () => {
+  it("omits removed-runtime flags", () => {
     const args = buildPiSpawnArgs({
       ...testAgent,
       systemPrompt: "persona",
@@ -347,9 +344,10 @@ describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
     assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
   });
 
-  it("degrades to a bare spawn (no context args) for an empty pi workspace", () => {
+  it("degrades to no context args for an empty pi workspace", () => {
     // No CLAUDE.md, no rules, no persona => assemblePiContext returns null =>
-    // none of the context CLI layers are emitted (fail-safe bare spawn).
+    // none of the context CLI layers are emitted. Extension auto-discovery is
+    // still suppressed by the spawn builder's unconditional --no-extensions.
     const ws = makePiWorkspace({});
     const args = buildPiSpawnArgs(piAgent(ws), undefined, NO_EXTENSIONS);
 
@@ -361,7 +359,35 @@ describe("buildPiSpawnArgs context assembly (provider: pi)", () => {
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
+      "--no-extensions",
     ]);
+  });
+
+  it("suppresses flat context loading when context artifact writes fail", () => {
+    const ws = makePiWorkspace({ claudeMd: "# Pi Agent\n\nBODY" });
+    writeFileSync(join(ws, ".tmp"), "i am a file, not a dir", "utf8");
+
+    const args = buildPiSpawnArgs(piAgent(ws, { id: "writefail" }), undefined, NO_EXTENSIONS);
+
+    assert.ok(!args.includes("--system-prompt"));
+    assert.ok(!args.includes("--append-system-prompt"));
+    assert.ok(args.includes("--no-context-files"));
+  });
+
+  it("suppresses flat context loading when CLAUDE.md is an escaping symlink", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-spawn-ctx-symlink-"));
+    fixtures.push(parent);
+    writeFileSync(join(parent, "CLAUDE.md"), "HOST_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    symlinkSync(join(parent, "CLAUDE.md"), join(ws, "CLAUDE.md"));
+
+    const args = buildPiSpawnArgs(piAgent(ws, { id: "escapesymlink" }), undefined, NO_EXTENSIONS);
+
+    assert.ok(args.includes("--append-system-prompt"), "sanitized bundle still delivered");
+    assert.ok(args.includes("--no-context-files"), "Pi must not flat-load the escaping symlink");
+    const bundlePath = args[args.indexOf("--append-system-prompt") + 1];
+    const bundle = readFileSync(bundlePath, "utf8");
+    assert.ok(!bundle.includes("HOST_SECRET_TOKEN"), "outside-workspace target was not inlined");
   });
 });
 
@@ -425,6 +451,7 @@ describe("Pi extension loading (--extension)", () => {
   it("buildPiSpawnArgs appends the resolved --extension paths after the model/prompt block", () => {
     const args = buildPiSpawnArgs(testAgent, undefined, presentAll);
 
+    assert.ok(args.includes("--no-extensions"), "ambient Pi extension discovery is always suppressed");
     // The three wrappers are present, one --extension flag each.
     assert.strictEqual(args.filter((a) => a === "--extension").length, 3);
     assert.ok(args.includes(wrapperAbs("guardian-protect-files.ts")));
@@ -435,7 +462,7 @@ describe("Pi extension loading (--extension)", () => {
     assert.ok(args.indexOf("--model") < args.indexOf("--extension"));
   });
 
-  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits all --extension args (bare claude-parity spawn)", () => {
+  it("kill-switch PI_EXTENSIONS_DISABLED=1 omits explicit wrappers but still disables ambient discovery", () => {
     const args = buildPiSpawnArgs(testAgent, undefined, {
       extensionsDir: FAKE_DIR,
       exists: () => true,
@@ -447,6 +474,7 @@ describe("Pi extension loading (--extension)", () => {
       "--mode", "rpc",
       "--provider", "openai-codex",
       "--model", "openai-codex/gpt-5.5",
+      "--no-extensions",
     ]);
   });
 
@@ -484,16 +512,6 @@ describe("Pi extension loading (--extension)", () => {
     assert.notStrictEqual(session, -1);
     assert.ok(lastExtension < session, "--extension args must precede --session");
     assert.strictEqual(args[session + 1], "pi-sess-resume");
-  });
-
-  it("regression: the Claude spawn path is unchanged — never emits --extension or the Pi provider", () => {
-    const claudeArgs = buildSpawnArgs({ agent: testAgent, sessionId: "claude-sess" });
-
-    assert.ok(!claudeArgs.includes("--extension"), "claude path must not gain --extension");
-    assert.ok(!claudeArgs.includes("openai-codex"), "claude path must not gain the Pi provider");
-    // Claude path keeps its own distinctive flags (proof we touched only Pi).
-    assert.ok(claudeArgs.includes("--add-dir"));
-    assert.ok(claudeArgs.includes("--permission-mode"));
   });
 
   // End-to-end smoke (real disk, no mocks): the resolver's fail-CLOSED contract
@@ -644,7 +662,7 @@ describe("buildPiSpawnEnv", () => {
     }
   });
 
-  it("scrubs the CLAUDECODE session marker (parity with the Claude path)", () => {
+  it("scrubs the legacy CLAUDECODE session marker", () => {
     const oldMarker = process.env.CLAUDECODE;
 
     try {

@@ -2,11 +2,11 @@ import { describe, it, before, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
 import { writeFileSync, mkdirSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { loadCronTask, getAgentWorkspace, resolveCronAgentData, buildPiCronAgentConfig, buildDeliverCommand, shellEscape, loadAdminChatId, handleDeliveryFailure, loadDefaultDelivery, resolveCronEngine, runOneShot, classifyPiResult, writeCronHealthMetric, runScript, main } from "../cron-runner.js";
+import { loadCronTask, getAgentWorkspace, resolveCronAgentData, buildPiCronAgentConfig, buildDeliverCommand, loadAdminChatId, handleDeliveryFailure, loadDefaultDelivery, resolveCronEngine, runOneShot, classifyPiResult, writeCronHealthMetric, runScript, main } from "../cron-runner.js";
 import type { CronAgentData, CronRunnerMainDeps, DeliveryDefaults } from "../cron-runner.js";
 import type { CronJob } from "../types.js";
 
-// We test the pure functions. runClaude and deliver require real claude/Telegram.
+// We test the pure functions. runPi and deliver require real Pi/Telegram unless stubbed.
 
 const TEST_DIR = join("/tmp", "cron-runner-test-" + Date.now());
 
@@ -26,29 +26,6 @@ function makeLlmCron(engine?: CronJob["engine"]): CronJob {
 }
 
 describe("cron-runner", () => {
-  describe("shellEscape", () => {
-    it("escapes simple strings", () => {
-      assert.strictEqual(shellEscape("hello"), "'hello'");
-    });
-
-    it("escapes strings with single quotes", () => {
-      assert.strictEqual(shellEscape("it's"), "'it'\\''s'");
-    });
-
-    it("escapes strings with spaces", () => {
-      assert.strictEqual(shellEscape("hello world"), "'hello world'");
-    });
-
-    it("escapes empty string", () => {
-      assert.strictEqual(shellEscape(""), "''");
-    });
-
-    it("escapes strings with special chars", () => {
-      assert.strictEqual(shellEscape("$VAR"), "'$VAR'");
-      assert.strictEqual(shellEscape("a;b"), "'a;b'");
-    });
-  });
-
   describe("buildDeliverCommand", () => {
     it("builds command without thread", () => {
       const cmd = buildDeliverCommand(111111111);
@@ -599,7 +576,7 @@ describe("cron-runner", () => {
       assert.strictEqual(cron.engine, undefined);
     });
 
-    it("parses engine: claude", () => {
+    it("rejects engine: claude with a migration error", () => {
       writeFileSync(CRONS_FILE, `crons:
   - name: claude-engine-task
     schedule: "0 * * * *"
@@ -608,8 +585,10 @@ describe("cron-runner", () => {
     deliveryChatId: 111111111
     engine: claude
 `);
-      const cron = loadCronTask("claude-engine-task", CRONS_FILE);
-      assert.strictEqual(cron.engine, "claude");
+      assert.throws(
+        () => loadCronTask("claude-engine-task", CRONS_FILE),
+        /Claude cron runtime was removed; remove engine or set engine: pi/,
+      );
     });
 
     it("parses engine: pi", () => {
@@ -634,7 +613,7 @@ describe("cron-runner", () => {
     deliveryChatId: 111111111
     engine: codex
 `);
-      assert.throws(() => loadCronTask("bad-engine-task", CRONS_FILE), /invalid 'engine' "codex"/);
+      assert.throws(() => loadCronTask("bad-engine-task", CRONS_FILE), /invalid 'engine' "codex" \(must be "pi" or omitted\)/);
     });
 
     it("ignores engine on script crons without changing script validation", () => {
@@ -689,10 +668,6 @@ describe("cron-runner", () => {
 
     function makeDispatchDeps(calls: string[]) {
       return {
-        runClaude: (cron: CronJob, workspaceCwd: string): string => {
-          calls.push(`claude:${cron.name}:${workspaceCwd}`);
-          return "claude-output";
-        },
         runPi: (cron: CronJob, workspaceCwd: string): string => {
           calls.push(`pi:${cron.name}:${workspaceCwd}`);
           return "pi-output";
@@ -700,22 +675,13 @@ describe("cron-runner", () => {
       };
     }
 
-    it("defaults omitted engine to Claude", () => {
+    it("defaults omitted engine to Pi", () => {
       const cron = makeLlmCron();
       const calls: string[] = [];
 
-      assert.strictEqual(resolveCronEngine(cron), "claude");
-      assert.strictEqual(runOneShot(cron, "/tmp/workspace", makeDispatchDeps(calls)), "claude-output");
-      assert.deepStrictEqual(calls, ["claude:default-engine-task:/tmp/workspace"]);
-    });
-
-    it("dispatches explicit Claude engine to Claude", () => {
-      const cron = makeLlmCron("claude");
-      const calls: string[] = [];
-
-      assert.strictEqual(resolveCronEngine(cron), "claude");
-      assert.strictEqual(runOneShot(cron, "/tmp/workspace", makeDispatchDeps(calls)), "claude-output");
-      assert.deepStrictEqual(calls, ["claude:claude-engine-task:/tmp/workspace"]);
+      assert.strictEqual(resolveCronEngine(cron), "pi");
+      assert.strictEqual(runOneShot(cron, "/tmp/workspace", makeDispatchDeps(calls)), "pi-output");
+      assert.deepStrictEqual(calls, ["pi:default-engine-task:/tmp/workspace"]);
     });
 
     it("dispatches explicit Pi engine to Pi", () => {
@@ -727,14 +693,17 @@ describe("cron-runner", () => {
       assert.deepStrictEqual(calls, ["pi:pi-engine-task:/tmp/workspace"]);
     });
 
-    it("falls back to Claude when CRON_PI_DISABLED=1", () => {
+    it("rejects the old CRON_PI_DISABLED fallback", () => {
       const cron = makeLlmCron("pi");
       const calls: string[] = [];
       process.env.CRON_PI_DISABLED = "1";
 
-      assert.strictEqual(resolveCronEngine(cron), "claude");
-      assert.strictEqual(runOneShot(cron, "/tmp/workspace", makeDispatchDeps(calls)), "claude-output");
-      assert.deepStrictEqual(calls, ["claude:pi-engine-task:/tmp/workspace"]);
+      assert.throws(() => resolveCronEngine(cron), /CRON_PI_DISABLED=1 is no longer supported/);
+      assert.throws(
+        () => runOneShot(cron, "/tmp/workspace", makeDispatchDeps(calls)),
+        /CRON_PI_DISABLED=1 is no longer supported/,
+      );
+      assert.deepStrictEqual(calls, []);
     });
   });
 
@@ -833,9 +802,9 @@ describe("cron-runner", () => {
   main:
     id: ignored-raw-id
     workspaceCwd: /tmp/main-workspace
-    model: claude-opus-4-6
+    model: openai-codex/gpt-5.5
     systemPrompt: "Use the main persona"
-    effort: high
+    thinking: high
 bindings: []
 `);
       writeFileSync(CRONS_FILE, `crons:
@@ -855,30 +824,114 @@ bindings: []
         provider: "pi",
         model: "openai-codex/gpt-5.5",
         systemPrompt: "Use the main persona",
-        effort: "high",
+        thinking: "high",
       });
     });
 
-    it("ignores non-string systemPrompt and unsupported effort values", () => {
+    it("ignores non-string systemPrompt", () => {
       writeFileSync(CONFIG_FILE, `agents:
   main:
     workspaceCwd: /tmp/main-workspace
-    model: claude-opus-4-6
+    model: openai-codex/gpt-5.5
     systemPrompt: 42
-    effort: xhigh
 bindings: []
 `);
 
       const agent = buildPiCronAgentConfig("main", CONFIG_FILE);
       assert.strictEqual(agent.systemPrompt, undefined);
-      assert.strictEqual(agent.effort, undefined);
+      assert.strictEqual(agent.thinking, undefined);
+    });
+
+    it("rejects unsupported thinking values through shared agent validation", () => {
+      writeFileSync(CONFIG_FILE, `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    thinking: turbo
+bindings: []
+`);
+
+      assert.throws(
+        () => buildPiCronAgentConfig("main", CONFIG_FILE),
+        /Agent "main" has invalid thinking "turbo"/,
+      );
+    });
+
+    it("rejects obsolete Claude-era fields through shared agent validation", () => {
+      const cases: Array<{ yaml: string; pattern: RegExp }> = [
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    provider: claude
+bindings: []
+`,
+          pattern: /Agent "main" uses provider "claude"/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    fallbackModel: gpt-5-mini
+bindings: []
+`,
+          pattern: /Agent "main" uses fallbackModel/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    effort: high
+bindings: []
+`,
+          pattern: /Agent "main" uses effort/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    maxTurns: 10
+bindings: []
+`,
+          pattern: /Agent "main" uses maxTurns/,
+        },
+        {
+          yaml: `agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+    allowedTools: ["Read"]
+bindings: []
+`,
+          pattern: /Agent "main" uses allowedTools/,
+        },
+        {
+          yaml: `defaultFallbackModel: gpt-5-mini
+agents:
+  main:
+    workspaceCwd: /tmp/main-workspace
+    model: openai-codex/gpt-5.5
+bindings: []
+`,
+          pattern: /defaultFallbackModel was removed with the Claude runtime/,
+        },
+      ];
+
+      for (const { yaml, pattern } of cases) {
+        writeFileSync(CONFIG_FILE, yaml);
+        assert.throws(() => buildPiCronAgentConfig("main", CONFIG_FILE), pattern);
+      }
     });
 
     it("getAgentWorkspace uses the same raw config resolution", () => {
       writeFileSync(CONFIG_FILE, `agents:
   worker:
     workspaceCwd: /tmp/worker-workspace
-    model: claude-opus-4-6
+    model: openai-codex/gpt-5.5
 bindings: []
 `);
 
@@ -893,7 +946,7 @@ bindings: []
       writeFileSync(CONFIG_FILE, `agents:
   main:
     workspaceCwd: /tmp/main-workspace
-    model: claude-opus-4-6
+    model: openai-codex/gpt-5.5
 bindings: []
 `);
 
@@ -906,7 +959,7 @@ bindings: []
     it("throws before spawn when workspaceCwd is missing", () => {
       writeFileSync(CONFIG_FILE, `agents:
   main:
-    model: claude-opus-4-6
+    model: openai-codex/gpt-5.5
 bindings: []
 `);
 
@@ -920,7 +973,7 @@ bindings: []
       writeFileSync(CONFIG_FILE, `agents:
   main:
     workspaceCwd: 42
-    model: claude-opus-4-6
+    model: openai-codex/gpt-5.5
 bindings: []
 `);
 
@@ -1054,7 +1107,7 @@ bindings: []
       adminLoads: number;
       workspaces: string[];
       scripts: string[];
-      oneShots: Array<{ cronName: string; workspaceCwd: string; engine: "claude" | "pi"; agentData?: CronAgentData }>;
+      oneShots: Array<{ cronName: string; workspaceCwd: string; engine: "pi"; agentData?: CronAgentData }>;
       deliveries: Array<{ chatId: number; message: string; threadId?: number }>;
       deliveryFailures: Array<{
         cronName: string;
@@ -1121,15 +1174,11 @@ bindings: []
         },
         resolveCronAgentData: (agentId: string) => {
           calls.workspaces.push(agentId);
-          return { id: agentId, workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", effort: "high" };
+          return { id: agentId, workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", thinking: "high" };
         },
         runScript: (scriptCron: CronJob) => {
           calls.scripts.push(scriptCron.name);
           return "script output";
-        },
-        runClaude: (llmCron: CronJob, workspaceCwd: string) => {
-          calls.oneShots.push({ cronName: llmCron.name, workspaceCwd, engine: "claude" });
-          return "llm output";
         },
         runPi: (llmCron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => {
           calls.oneShots.push({ cronName: llmCron.name, workspaceCwd, engine: "pi", agentData });
@@ -1189,9 +1238,6 @@ bindings: []
       deps.resolveCronAgentData = () => {
         throw new Error("script crons must not resolve an agent workspace");
       };
-      deps.runClaude = () => {
-        throw new Error("script crons must not use Claude dispatch");
-      };
       deps.runPi = () => {
         throw new Error("script crons must not use LLM dispatch");
       };
@@ -1224,7 +1270,7 @@ bindings: []
           cronName: cron.name,
           workspaceCwd: "/tmp/main-workspace",
           engine: "pi",
-          agentData: { id: "main", workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", effort: "high" },
+          agentData: { id: "main", workspaceCwd: "/tmp/main-workspace", systemPrompt: "persona", thinking: "high" },
         },
       ]);
       assert.deepStrictEqual(calls.deliveries, [
@@ -1233,17 +1279,17 @@ bindings: []
       assert.deepStrictEqual(calls.metrics, [
         { cronName: cron.name, exitCode: 0, success: true },
       ]);
-      assert.ok(calls.logs.some((entry) => entry.message === "LLM engine=pi returned 10 chars"));
+      assert.ok(calls.logs.some((entry) => entry.message === "Pi returned 10 chars"));
     });
 
-    it("uses real main dispatch kill-switch fallback for Pi crons", async () => {
+    it("sends cron FAIL notifications when the old Pi kill-switch is set", async () => {
       const oldCronPiDisabled = process.env.CRON_PI_DISABLED;
       const cron = makeMainCron({ engine: "pi" });
       const { calls, deps } = makeMainHarness(cron);
 
       try {
         process.env.CRON_PI_DISABLED = "1";
-        await main(deps);
+        await assertMainExits(deps, 1);
       } finally {
         if (oldCronPiDisabled === undefined) {
           delete process.env.CRON_PI_DISABLED;
@@ -1252,17 +1298,20 @@ bindings: []
         }
       }
 
-      assert.deepStrictEqual(calls.oneShots, [
-        { cronName: cron.name, workspaceCwd: "/tmp/main-workspace", engine: "claude" },
+      assert.deepStrictEqual(calls.oneShots, []);
+      assert.strictEqual(calls.deliveries.length, 1);
+      assert.match(calls.deliveries[0].message, /Cron FAIL: main-behavior-task/);
+      assert.match(calls.deliveries[0].message, /CRON_PI_DISABLED=1 is no longer supported/);
+      assert.deepStrictEqual(calls.metrics, [
+        { cronName: cron.name, exitCode: 1, success: false },
       ]);
-      assert.ok(calls.logs.some((entry) => entry.message === "LLM engine=claude returned 10 chars"));
     });
 
     it("keeps empty output as a successful skip without delivery", async () => {
       const cron = makeMainCron();
       const { calls, deps } = makeMainHarness(cron);
-      deps.runClaude = (llmCron: CronJob, workspaceCwd: string) => {
-        calls.oneShots.push({ cronName: llmCron.name, workspaceCwd, engine: "claude" });
+      deps.runPi = (llmCron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => {
+        calls.oneShots.push({ cronName: llmCron.name, workspaceCwd, engine: "pi", agentData });
         return "";
       };
 
@@ -1279,8 +1328,8 @@ bindings: []
     it("keeps LLM NO_REPLY output as a successful skip without delivery", async () => {
       const cron = makeMainCron();
       const { calls, deps } = makeMainHarness(cron);
-      deps.runClaude = (llmCron: CronJob, workspaceCwd: string) => {
-        calls.oneShots.push({ cronName: llmCron.name, workspaceCwd, engine: "claude" });
+      deps.runPi = (llmCron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => {
+        calls.oneShots.push({ cronName: llmCron.name, workspaceCwd, engine: "pi", agentData });
         return "All clean.\n\nNO_REPLY";
       };
 
@@ -1319,7 +1368,7 @@ bindings: []
     it("sends cron FAIL notifications and exits when execution fails", async () => {
       const cron = makeMainCron();
       const { calls, deps } = makeMainHarness(cron);
-      deps.runClaude = () => {
+      deps.runPi = () => {
         throw new Error("runner exploded");
       };
 
@@ -1342,7 +1391,7 @@ bindings: []
       deps.resolveCronAgentData = () => {
         throw new Error('Agent "missing" not found in config.yaml / config.local.yaml');
       };
-      deps.runClaude = () => {
+      deps.runPi = () => {
         throw new Error("LLM dispatch must not run without a workspace");
       };
 
@@ -1384,7 +1433,7 @@ bindings: []
     it("uses the admin fallback when cron FAIL notification delivery fails", async () => {
       const cron = makeMainCron();
       const { calls, deps } = makeMainHarness(cron);
-      deps.runClaude = () => {
+      deps.runPi = () => {
         throw new Error("runner exploded");
       };
       deps.deliver = (chatId: number, message: string, threadId?: number) => {
@@ -1469,6 +1518,40 @@ bindings: []
         deliveryChatId: 111111111,
       };
       assert.throws(() => runScript(cron), /no command/i);
+    });
+
+    it("scrubs legacy runtime environment for direct script execution", () => {
+      const legacyAnthropicEnv = "ANTHROPIC_" + "API_KEY";
+      const oldValues = {
+        token: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+        anthropic: process.env[legacyAnthropicEnv],
+        marker: process.env.CLAUDECODE,
+      };
+      try {
+        process.env.CLAUDE_CODE_OAUTH_TOKEN = "stale-token";
+        process.env[legacyAnthropicEnv] = "stale-anthropic-key";
+        process.env.CLAUDECODE = "nested-marker";
+        const cron: CronJob = {
+          name: "env-script",
+          schedule: "0 * * * *",
+          type: "script",
+          command: `printf 'token=%s\\nanthropic=%s\\nmarker=%s\\n' "\${CLAUDE_CODE_OAUTH_TOKEN-__unset__}" "\${ANTHROPIC_API_KEY-__unset__}" "\${CLAUDECODE-__unset__}"`,
+          agentId: "main",
+          deliveryChatId: 111111111,
+        };
+
+        assert.strictEqual(
+          runScript(cron),
+          "token=__unset__\nanthropic=__unset__\nmarker=__unset__",
+        );
+      } finally {
+        if (oldValues.token === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        else process.env.CLAUDE_CODE_OAUTH_TOKEN = oldValues.token;
+        if (oldValues.anthropic === undefined) delete process.env[legacyAnthropicEnv];
+        else process.env[legacyAnthropicEnv] = oldValues.anthropic;
+        if (oldValues.marker === undefined) delete process.env.CLAUDECODE;
+        else process.env.CLAUDECODE = oldValues.marker;
+      }
     });
   });
 });

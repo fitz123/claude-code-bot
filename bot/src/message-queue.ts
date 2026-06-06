@@ -1,12 +1,11 @@
 import type { PlatformContext } from "./types.js";
 import { log } from "./logger.js";
-import { injectDirForChat, writeInjectFile, readAckCount, cleanupInjectDir } from "./inject-file.js";
 
 export const DEFAULT_DEBOUNCE_MS = 3000;
 export const DEFAULT_QUEUE_CAP = 20;
 
 /**
- * Callback that sends combined text to Claude and relays the response.
+ * Callback that sends combined text to the active agent and relays the response.
  * Called by the queue when debounce expires or collect buffer drains.
  *
  * `onAgentOwnership` MUST be invoked once the agent has accepted the prompt
@@ -24,21 +23,6 @@ export type ProcessFn = (
 
 /** Fire-and-forget cleanup callback (e.g. delete a temp file after processing). */
 export type CleanupFn = () => void;
-
-/**
- * Provider-aware mid-turn delivery hook, consulted in the busy-turn branch
- * BEFORE the inject-file path.
- *
- * Returns `true` if the message was delivered live to the running session (the
- * Pi `steer` path): the queue then skips buffering it, since Pi has no inject
- * hook and no ack mechanism — buffering would re-deliver the message as a
- * followup when the turn drains.
- *
- * Returns `false` for the claude path (or when no live Pi child is available):
- * the queue falls back to the inject-file mechanism (PreToolUse hook). Omitting
- * the hook entirely ⇒ always the inject-file path (claude behavior unchanged).
- */
-export type SteerFn = (chatId: string, agentId: string, text: string) => boolean;
 
 interface ChatQueueState {
   /** Messages pending debounce timer (pre-send) */
@@ -61,21 +45,8 @@ interface ChatQueueState {
   /** Drop-only cleanup callbacks for collected messages (see pendingDropCleanups). */
   collectDropCleanups: CleanupFn[];
 
-  /** Deferred cleanups for messages consumed by hook mid-turn (temp files still in use) */
-  deferredCleanups: CleanupFn[];
-
   /** Whether a message is currently being processed */
   busy: boolean;
-
-  /**
-   * Number of mid-turn messages steered live to the provider during the
-   * current turn (Pi path). Reset to 0 at each turn start. Bounds live steers
-   * by `queueCap` so an authorized-chat flood cannot push unbounded messages
-   * into the Pi child's stdin / work queue — the same protection the claude
-   * collect buffer provides. Overflow falls through to the (also capped)
-   * collect-buffer path and is delivered as a followup or dropped.
-   */
-  steerCount: number;
 
   /** Latest platform context for sending responses */
   latestPlatform: PlatformContext | null;
@@ -83,10 +54,6 @@ interface ChatQueueState {
   /** Agent ID for this chat */
   agentId: string;
 
-  /** Cumulative count of messages confirmed consumed by inject hook */
-  injectConsumed: number;
-  /** Last ack count read from hook's ack file */
-  injectLastAck: number;
 }
 
 /**
@@ -109,9 +76,9 @@ export function buildCollectPrompt(texts: string[]): string {
  * Per-chat message queue with pre-send debounce and mid-turn collect.
  *
  * Pre-send debounce: messages arriving within debounceMs are concatenated
- * into a single prompt before sending to Claude.
+ * into a single prompt before sending to the agent.
  *
- * Mid-turn collect: messages arriving while Claude is processing are buffered
+ * Mid-turn collect: messages arriving while the agent is processing are buffered
  * and delivered as a combined followup when the current turn completes.
  */
 export class MessageQueue {
@@ -119,16 +86,14 @@ export class MessageQueue {
   private debounceMs: number;
   private queueCap: number;
   private processFn: ProcessFn;
-  private steerFn: SteerFn | null;
 
   constructor(
     processFn: ProcessFn,
-    options?: { debounceMs?: number; queueCap?: number; steerFn?: SteerFn },
+    options?: { debounceMs?: number; queueCap?: number },
   ) {
     this.processFn = processFn;
     this.debounceMs = options?.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.queueCap = options?.queueCap ?? DEFAULT_QUEUE_CAP;
-    this.steerFn = options?.steerFn ?? null;
   }
 
   private getState(chatId: string, agentId: string): ChatQueueState {
@@ -142,13 +107,9 @@ export class MessageQueue {
         collectBuffer: [],
         collectCleanups: [],
         collectDropCleanups: [],
-        deferredCleanups: [],
         busy: false,
-        steerCount: 0,
         latestPlatform: null,
         agentId,
-        injectConsumed: 0,
-        injectLastAck: 0,
       };
       this.queues.set(chatId, state);
     }
@@ -181,62 +142,14 @@ export class MessageQueue {
     state.latestPlatform = platform;
 
     if (state.busy) {
-      // Refresh ack state before cap check so consumed messages free up space
-      this.refreshAck(chatId, state);
-
-      // Compact: remove entries already consumed by inject hook to bound array growth.
-      // Without this, arrays grow unbounded during long turns with continuous message flow.
-      // Cleanups are deferred — temp files may still be in use by the active turn
-      // (e.g. Claude reading an image path delivered via additionalContext).
-      if (state.injectConsumed > 0) {
-        const consumed = state.injectConsumed;
-        state.collectBuffer.splice(0, consumed);
-        const consumedCleanups = state.collectCleanups.splice(0, consumed);
-        // Drop cleanups for hook-consumed messages are dropped: the agent owns the file.
-        state.collectDropCleanups.splice(0, consumed);
-        state.deferredCleanups.push(...consumedCleanups);
-        state.injectConsumed = 0;
-      }
-
-      // Provider-aware mid-turn delivery. For Pi, deliver the message live via
-      // `steer` and do NOT buffer it: Pi has no inject hook + no ack, so a
-      // buffered message would be re-delivered as a followup on drain. For the
-      // claude path (or when no live Pi child is available) steerFn returns
-      // false and we fall through to the inject-file mechanism below.
-      //
-      // Cap live steers per turn at `queueCap`: an unbounded steer path would
-      // remove the flood protection the claude collect buffer provides (each
-      // steer writes to the Pi child's stdin / work queue). Past the cap we do
-      // NOT consult steerFn — we fall through to the (also capped) collect
-      // buffer, which delivers the overflow as a followup or drops it. The
-      // claude path never increments steerCount (steerFn returns false), so it
-      // is unaffected by this guard.
-      if (
-        this.steerFn &&
-        state.steerCount < this.queueCap &&
-        this.steerFn(chatId, state.agentId, text)
-      ) {
-        state.steerCount++;
-        // Defer the turn-scoped cleanup: the steered text may reference a temp
-        // file the agent still reads this turn (runs when the turn drains).
-        // Drop the persistent-media drop-cleanup — the agent now owns the file,
-        // exactly like a hook-consumed inject message.
-        if (cleanup) state.deferredCleanups.push(cleanup);
-        log.debug(
-          "message-queue",
-          `Steered mid-turn message for ${chatId} (provider delivery)`,
-        );
-        return;
-      }
-
-      // Mid-turn collect: buffer the message
+      // Mid-turn collect: buffer user messages for reliable follow-up delivery.
+      // Pi `steer` has no usable delivery acknowledgement in the stream, so a
+      // normal user prompt must not be removed from the queue just because a
+      // steer command was written to stdin.
       if (state.collectBuffer.length < this.queueCap) {
         state.collectBuffer.push(text);
         state.collectCleanups.push(cleanup ?? (() => {}));
         state.collectDropCleanups.push(dropCleanup ?? (() => {}));
-
-        // Write inject file so PreToolUse hook can deliver mid-turn
-        this.writeInject(chatId, state);
 
         log.debug(
           "message-queue",
@@ -291,8 +204,6 @@ export class MessageQueue {
     const dropCleanups = state.pendingDropCleanups.splice(0);
     state.debounceTimer = null;
     state.busy = true;
-    // New turn → fresh per-turn steer budget.
-    state.steerCount = 0;
 
     const combinedText = texts.length === 1 ? texts[0] : texts.join("\n\n");
 
@@ -340,10 +251,6 @@ export class MessageQueue {
     }
     if (queueCleared) return;
 
-    // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
-    for (const fn of state.deferredCleanups) fn();
-    state.deferredCleanups = [];
-
     state.busy = false;
 
     // Drain collect buffer if messages arrived during processing
@@ -357,37 +264,8 @@ export class MessageQueue {
     const state = this.queues.get(chatId);
     if (!state || state.collectBuffer.length === 0) return;
 
-    // Dedup: remove messages already consumed by the inject hook mid-turn
-    const consumed = this.finalizeInject(chatId, state);
-    if (consumed > 0) {
-      state.collectBuffer.splice(0, consumed);
-      const consumedCleanups = state.collectCleanups.splice(0, consumed);
-      state.collectDropCleanups.splice(0, consumed);
-      for (const fn of consumedCleanups) fn();
-      log.debug("message-queue", `Deduped ${consumed} inject-consumed message(s) for ${chatId}`);
-    }
-
-    // If all messages were consumed by hook, just run cleanups and return
-    if (state.collectBuffer.length === 0) {
-      const cleanups = state.collectCleanups.splice(0);
-      state.collectDropCleanups.splice(0);
-      for (const fn of cleanups) fn();
-      return;
-    }
-
     // Loop to drain messages that arrive during processing (avoids recursion)
     while (state.collectBuffer.length > 0) {
-      // Dedup messages consumed by hook during previous drain iteration
-      const loopConsumed = this.finalizeInject(chatId, state);
-      if (loopConsumed > 0) {
-        state.collectBuffer.splice(0, loopConsumed);
-        const loopCleanups = state.collectCleanups.splice(0, loopConsumed);
-        state.collectDropCleanups.splice(0, loopConsumed);
-        for (const fn of loopCleanups) fn();
-        log.debug("message-queue", `Deduped ${loopConsumed} inject-consumed message(s) for ${chatId} (drain loop)`);
-      }
-      if (state.collectBuffer.length === 0) break;
-
       const collected = state.collectBuffer.splice(0);
       const cleanups = state.collectCleanups.splice(0);
       // Hold drop cleanups locally for exactly this batch. If processFn
@@ -399,8 +277,6 @@ export class MessageQueue {
       const prompt = buildCollectPrompt(collected);
 
       state.busy = true;
-      // New turn → fresh per-turn steer budget.
-      state.steerCount = 0;
       log.debug(
         "message-queue",
         `Draining ${collected.length} collected message(s) for ${chatId}`,
@@ -436,10 +312,6 @@ export class MessageQueue {
       }
       if (queueCleared) return;
 
-      // Run deferred cleanups from mid-turn compaction (temp files safe to delete now)
-      for (const fn of state.deferredCleanups) fn();
-      state.deferredCleanups = [];
-
       state.busy = false;
     }
   }
@@ -470,11 +342,8 @@ export class MessageQueue {
       for (const fn of state.pendingDropCleanups) fn();
       for (const fn of state.collectCleanups) fn();
       for (const fn of state.collectDropCleanups) fn();
-      for (const fn of state.deferredCleanups) fn();
       this.queues.delete(chatId);
     }
-    // Clean up inject files (safe even if no state)
-    try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
   }
 
   /**
@@ -501,8 +370,6 @@ export class MessageQueue {
       for (const fn of state.pendingDropCleanups) fn();
       for (const fn of state.collectCleanups) fn();
       for (const fn of state.collectDropCleanups) fn();
-      for (const fn of state.deferredCleanups) fn();
-      try { cleanupInjectDir(injectDirForChat(chatId)); } catch { /* ignore */ }
     }
     this.queues.clear();
   }
@@ -535,76 +402,6 @@ export class MessageQueue {
       !state.debounceTimer
     ) {
       this.queues.delete(chatId);
-    }
-  }
-
-  /**
-   * Refresh injectConsumed from the hook's ack file.
-   * Called before cap checks to ensure consumed messages free up buffer space.
-   */
-  private refreshAck(chatId: string, state: ChatQueueState): void {
-    try {
-      const dir = injectDirForChat(chatId);
-      const ackCount = readAckCount(dir);
-      if (ackCount > state.injectLastAck) {
-        state.injectConsumed += ackCount - state.injectLastAck;
-        state.injectLastAck = ackCount;
-      }
-    } catch {
-      // Non-critical — stale count just means slightly conservative cap check
-    }
-  }
-
-  /**
-   * Write un-consumed collect buffer messages to the inject file.
-   * Called each time a mid-turn message is enqueued.
-   */
-  private writeInject(chatId: string, state: ChatQueueState): void {
-    try {
-      const dir = injectDirForChat(chatId);
-
-      // Check for new ack updates from hook (messages consumed since last check)
-      this.refreshAck(chatId, state);
-
-      // Write all un-consumed messages to inject file
-      const toInject = state.collectBuffer.slice(state.injectConsumed);
-      if (toInject.length > 0) {
-        writeInjectFile(dir, toInject);
-      }
-    } catch (err) {
-      log.warn("message-queue", `Inject file write failed for ${chatId}: ${(err as Error).message}`);
-    }
-  }
-
-  /**
-   * Finalize inject state before draining: read final ack, clean up files, reset state.
-   * Returns the number of messages confirmed consumed by hook.
-   */
-  private finalizeInject(chatId: string, state: ChatQueueState): number {
-    try {
-      const dir = injectDirForChat(chatId);
-
-      // Read final ack count from hook
-      const ackCount = readAckCount(dir);
-      if (ackCount > state.injectLastAck) {
-        state.injectConsumed += ackCount - state.injectLastAck;
-      }
-
-      const consumed = state.injectConsumed;
-
-      // Clean up inject files (pending file may still exist if hook didn't fire)
-      cleanupInjectDir(dir);
-
-      // Reset inject state for next turn
-      state.injectConsumed = 0;
-      state.injectLastAck = 0;
-
-      return consumed;
-    } catch (err) {
-      log.warn("message-queue", `Inject finalize failed for ${chatId}: ${(err as Error).message}`);
-      state.injectConsumed = 0;
-      state.injectLastAck = 0;
-      return 0;
     }
   }
 }

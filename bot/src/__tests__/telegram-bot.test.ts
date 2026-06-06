@@ -1,7 +1,7 @@
 process.env.TZ = "UTC";
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, createDraftSkipAutoRetryTransformer, extractMediaInfo, extensionForMedia, formatMediaMeta, createTelegramBot, extractChatContext, formatChatContextForLog, createApiErrorLoggingTransformer, resolveBindingLabel, BINDING_LABEL_NONE, BINDING_LABEL_UNBOUND, makeSteerFn } from "../telegram-bot.js";
+import { resolveBinding, isAuthorized, sessionKey, isImageMimeType, imageExtensionForMime, buildSourcePrefix, shouldRespondInGroup, BOT_COMMANDS, isStaleMessage, buildReplyContext, buildForwardContext, extensionForDocument, formatFileSize, formatDocumentMeta, buildReactionContext, AUTO_RETRY_OPTIONS, createDraftSkipAutoRetryTransformer, extractMediaInfo, extensionForMedia, formatMediaMeta, createTelegramBot, extractChatContext, formatChatContextForLog, createApiErrorLoggingTransformer, resolveBindingLabel, BINDING_LABEL_NONE, BINDING_LABEL_UNBOUND, makeSteerFn, parseTelegramEchoId, routeTelegramEchoToActiveTurn } from "../telegram-bot.js";
 import client from "prom-client";
 import { telegramApiCalls, telegramApiErrors } from "../metrics.js";
 import type { TelegramBinding, BotConfig } from "../types.js";
@@ -184,11 +184,11 @@ describe("isImageMimeType", () => {
     assert.strictEqual(isImageMimeType("video/mp4"), false);
   });
 
-  it("returns false for image/svg+xml (unsupported by Claude vision)", () => {
+  it("returns false for image/svg+xml (unsupported image relay type)", () => {
     assert.strictEqual(isImageMimeType("image/svg+xml"), false);
   });
 
-  it("returns false for image/tiff (unsupported by Claude vision)", () => {
+  it("returns false for image/tiff (unsupported image relay type)", () => {
     assert.strictEqual(isImageMimeType("image/tiff"), false);
   });
 });
@@ -1311,7 +1311,7 @@ describe("command handler wiring", () => {
   const handlerConfig: BotConfig = {
     telegramToken: "test:fake-token-for-handler-tests",
     agents: {
-      main: { id: "main", workspaceCwd: "/tmp/test", model: "claude-opus-4-6" },
+      main: { id: "main", workspaceCwd: "/tmp/test", model: "gpt-5.5" },
     },
     bindings: [
       { chatId: testChatId, agentId: "main", kind: "dm" as const },
@@ -1336,6 +1336,7 @@ describe("command handler wiring", () => {
       closeAll: async () => {},
       resolveStoredSession: () => ({ resume: false }),
       getActiveCount: () => 1,
+      getActive: () => undefined,
       getSessionHealth: (key: string) => {
         calls.push(`getSessionHealth:${key}`);
         return {
@@ -1343,8 +1344,8 @@ describe("command handler wiring", () => {
           alive: true,
           agentId: "main",
           sessionId: "session-123",
-          provider: "claude",
-          model: "claude-opus-4-6",
+          provider: "pi",
+          model: "gpt-5.5",
           idleMs: 120_000,
           processingMs: null,
           lastSuccessAt: Date.now(),
@@ -1428,6 +1429,151 @@ describe("command handler wiring", () => {
     assert.ok(mockSM.calls.includes("getSessionHealth:111111111"));
     assert.ok(!mockSM.calls.includes("sendSessionMessage"));
     assert.ok(!mockSM.calls.includes("getOrCreateSession"));
+  });
+
+  it("drops idle echo context without enqueueing or opening a session", () => {
+    const mockSM = createMockSessionManager();
+    const { messageQueue, echoWatcher } = createTelegramBot(handlerConfig, mockSM);
+
+    (echoWatcher as unknown as { handler: (chatId: string, threadId: string | undefined, text: string) => void })
+      .handler(String(testChatId), undefined, "cron said hello");
+
+    assert.strictEqual(messageQueue.getPendingCount(String(testChatId)), 0);
+    assert.ok(!mockSM.calls.includes("sendSessionMessage"));
+    assert.ok(!mockSM.calls.includes("getOrCreateSession"));
+  });
+});
+
+describe("telegram echo routing", () => {
+  it("strictly parses echo ids", () => {
+    assert.strictEqual(parseTelegramEchoId("123"), 123);
+    assert.strictEqual(parseTelegramEchoId("-100", { allowNegative: true }), -100);
+    assert.strictEqual(parseTelegramEchoId("-100"), undefined);
+    assert.strictEqual(parseTelegramEchoId("123abc", { allowNegative: true }), undefined);
+    assert.strictEqual(parseTelegramEchoId("9007199254740992", { allowNegative: true }), undefined);
+  });
+
+  it("steers valid echo context into an active eligible turn", () => {
+    const calls: Array<{ chatId: string; agentId: string; text: string }> = [];
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "111111111",
+      text: "cron said hello",
+      bindings: testBindings,
+      sessionDefaults: { requireMention: true } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId, text) => {
+        calls.push({ chatId, agentId, text });
+        return true;
+      },
+    });
+
+    assert.strictEqual(delivered, true);
+    assert.deepStrictEqual(calls, [{
+      chatId: "111111111",
+      agentId: "main",
+      text: "[Bot echo - context only, no reply needed]\n\ncron said hello",
+    }]);
+  });
+
+  it("rejects malformed echo chat and thread ids before steering", () => {
+    let steerCalls = 0;
+    const base = {
+      text: "cron said hello",
+      bindings: testBindings,
+      sessionDefaults: { requireMention: false } as BotConfig["sessionDefaults"],
+      steerFn: () => {
+        steerCalls++;
+        return true;
+      },
+    };
+
+    assert.strictEqual(routeTelegramEchoToActiveTurn({ ...base, chatId: "111111111abc" }), false);
+    assert.strictEqual(routeTelegramEchoToActiveTurn({ ...base, chatId: "111111111", threadId: "42abc" }), false);
+    assert.strictEqual(steerCalls, 0);
+  });
+
+  it("does not route group echoes when mention is required", () => {
+    let steerCalls = 0;
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "-1009999999999",
+      text: "cron said hello",
+      bindings: testBindings,
+      sessionDefaults: { requireMention: true } as BotConfig["sessionDefaults"],
+      steerFn: () => {
+        steerCalls++;
+        return true;
+      },
+    });
+
+    assert.strictEqual(delivered, false);
+    assert.strictEqual(steerCalls, 0);
+  });
+
+  it("routes topic echoes to the topic binding and topic session key", () => {
+    const bindings: TelegramBinding[] = [
+      { chatId: -100999, agentId: "general", kind: "group", label: "General", requireMention: false },
+      { chatId: -100999, topicId: 20, agentId: "ops-topic", kind: "group", label: "Ops", requireMention: false },
+    ];
+    const calls: Array<{ chatId: string; agentId: string; text: string }> = [];
+
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "-100999",
+      threadId: "20",
+      text: "topic cron said hello",
+      bindings,
+      sessionDefaults: { requireMention: true } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId, text) => {
+        calls.push({ chatId, agentId, text });
+        return true;
+      },
+    });
+
+    assert.strictEqual(delivered, true);
+    assert.deepStrictEqual(calls, [{
+      chatId: "-100999:20",
+      agentId: "ops-topic",
+      text: "[Bot echo - context only, no reply needed]\n\ntopic cron said hello",
+    }]);
+  });
+
+  it("routes group echoes when requireMention is disabled for the binding", () => {
+    const bindings: TelegramBinding[] = [
+      { chatId: -100999, agentId: "group-agent", kind: "group", label: "Group", requireMention: false },
+    ];
+    const calls: Array<{ chatId: string; agentId: string }> = [];
+
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "-100999",
+      text: "group cron said hello",
+      bindings,
+      sessionDefaults: { requireMention: true } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId) => {
+        calls.push({ chatId, agentId });
+        return true;
+      },
+    });
+
+    assert.strictEqual(delivered, true);
+    assert.deepStrictEqual(calls, [{ chatId: "-100999", agentId: "group-agent" }]);
+  });
+
+  it("returns false when no active eligible turn accepts the echo", () => {
+    const calls: Array<{ chatId: string; agentId: string; text: string }> = [];
+
+    const delivered = routeTelegramEchoToActiveTurn({
+      chatId: "111111111",
+      text: "cron said hello",
+      bindings: testBindings,
+      sessionDefaults: { requireMention: false } as BotConfig["sessionDefaults"],
+      steerFn: (chatId, agentId, text) => {
+        calls.push({ chatId, agentId, text });
+        return false;
+      },
+    });
+
+    assert.strictEqual(delivered, false);
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].chatId, "111111111");
+    assert.strictEqual(calls[0].agentId, "main");
   });
 });
 
@@ -1836,7 +1982,7 @@ describe("createApiErrorLoggingTransformer — call counter", () => {
   });
 });
 
-// --- makeSteerFn (provider pinned to the session, not config) ---
+// --- makeSteerFn (Telegram echo context delivery) ---
 
 interface FakeChild {
   exitCode: number | null;
@@ -1855,54 +2001,69 @@ function makeLiveChild(): FakeChild {
   };
 }
 
+function parseFirstStdinWrite(child: FakeChild): unknown {
+  assert.strictEqual(child.stdin.writes.length, 1);
+  return JSON.parse(child.stdin.writes[0].trim());
+}
+
 function fakeManager(
-  provider: "claude" | "pi" | null,
+  hasSession: boolean,
   child: FakeChild,
   processingStartedAt: number | null = Date.now(),
 ): Pick<SessionManager, "getActive"> {
   return {
     getActive: (_chatId: string) =>
-      (provider === null ? undefined : ({ child, provider, processingStartedAt } as unknown)) as never,
+      (hasSession ? ({ child, processingStartedAt } as unknown) : undefined) as never,
   };
 }
 
 describe("makeSteerFn", () => {
-  it("steers (returns true) when the session is pinned provider:pi", () => {
+  it("steers echo context when a live Pi session is processing", () => {
     const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager("pi", child));
-    // agentId param is whatever — only the session's pinned provider matters,
-    // so even a config snapshot claiming "claude" cannot mis-route this.
-    assert.strictEqual(steerFn("chat-1", "main", "mid-turn text"), true);
-    assert.strictEqual(child.stdin.writes.length, 1);
-    assert.ok(child.stdin.writes[0].includes("mid-turn text"));
+    const steerFn = makeSteerFn(fakeManager(true, child));
+    assert.strictEqual(steerFn("chat-1", "main", "echo context"), true);
+    assert.deepStrictEqual(parseFirstStdinWrite(child), {
+      type: "steer",
+      message: "echo context",
+    });
   });
 
-  it("falls to inject (returns false) when the session is pinned provider:claude", () => {
+  it("returns false when a live session is not actively processing", () => {
     const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager("claude", child));
-    assert.strictEqual(steerFn("chat-1", "main", "mid-turn text"), false);
+    const steerFn = makeSteerFn(fakeManager(true, child, null));
+    assert.strictEqual(steerFn("chat-1", "main", "echo context"), false);
     assert.strictEqual(child.stdin.writes.length, 0);
   });
 
   it("returns false when there is no active session", () => {
-    const steerFn = makeSteerFn(fakeManager(null, makeLiveChild()));
+    const steerFn = makeSteerFn(fakeManager(false, makeLiveChild()));
     assert.strictEqual(steerFn("chat-1", "main", "x"), false);
   });
 
-  it("returns false when the pinned-pi child has already exited", () => {
+  it("returns false when the Pi child has already exited", () => {
     const child = makeLiveChild();
     child.exitCode = 0;
-    const steerFn = makeSteerFn(fakeManager("pi", child));
+    const steerFn = makeSteerFn(fakeManager(true, child));
     assert.strictEqual(steerFn("chat-1", "main", "x"), false);
     assert.strictEqual(child.stdin.writes.length, 0);
   });
 
-  it("returns false when a pinned-pi session is not actively processing (idle window after agent_end)", () => {
+  it("returns false in the idle window after agent_end", () => {
     // processingStartedAt === null: session-manager has cleared it after
     // agent_end but MessageQueue.busy may still be true. Steering here would
     // hand the message to an idle Pi child and lose it; buffer instead.
     const child = makeLiveChild();
-    const steerFn = makeSteerFn(fakeManager("pi", child, null));
+    const steerFn = makeSteerFn(fakeManager(true, child, null));
+    assert.strictEqual(steerFn("chat-1", "main", "x"), false);
+    assert.strictEqual(child.stdin.writes.length, 0);
+  });
+
+  it("returns false when writing steer to Pi fails", () => {
+    const child = makeLiveChild();
+    child.stdin.write = () => {
+      throw new Error("EPIPE");
+    };
+    const steerFn = makeSteerFn(fakeManager(true, child));
     assert.strictEqual(steerFn("chat-1", "main", "x"), false);
     assert.strictEqual(child.stdin.writes.length, 0);
   });

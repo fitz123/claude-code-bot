@@ -28,11 +28,10 @@ describe("config secret resolution: env var + Keychain priority", () => {
   });
 
   const minimalAgentsYaml = `
-defaultModel: opus
 agents:
   main:
     workspaceCwd: /tmp/foo
-    maxTurns: 10
+    model: gpt-5.5
 `;
 
   it("reads telegramToken from env var when telegramTokenEnv set", () => {

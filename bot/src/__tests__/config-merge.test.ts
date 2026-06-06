@@ -67,16 +67,15 @@ describe("mergeDeep", () => {
 agents:
   main:
     workspaceCwd: /tmp/minime-workspace
-    model: claude-opus-4-6
-    fallbackModel: claude-sonnet-4-6
-    maxTurns: 250
+    model: gpt-5.5
+    thinking: high
 `) as Record<string, unknown>;
     const local = { agents: { main: { workspaceCwd: "/real/workspace" } } };
     const merged = mergeDeep(base, local as Record<string, unknown>);
     const agents = merged.agents as Record<string, Record<string, unknown>>;
     assert.strictEqual(agents.main.workspaceCwd, "/real/workspace");  // overridden
-    assert.strictEqual(agents.main.model, "claude-opus-4-6");         // preserved
-    assert.strictEqual(agents.main.maxTurns, 250);                    // preserved
+    assert.strictEqual(agents.main.model, "gpt-5.5");                 // preserved
+    assert.strictEqual(agents.main.thinking, "high");                 // preserved
   });
 
   it("local bindings array replaces base bindings entirely", () => {
@@ -203,8 +202,8 @@ describe("loadRawMergedConfig", () => {
 agents:
   main:
     workspaceCwd: /tmp/default
-    model: claude-opus-4-6
-    maxTurns: 250
+    model: gpt-5.5
+    thinking: high
 `);
     writeFileSync(localPath, `
 agents:
@@ -214,7 +213,7 @@ agents:
     const result = loadRawMergedConfig(configPath);
     const agents = result.agents as Record<string, Record<string, unknown>>;
     assert.strictEqual(agents.main.workspaceCwd, "/real/workspace");  // overridden
-    assert.strictEqual(agents.main.model, "claude-opus-4-6");         // preserved
-    assert.strictEqual(agents.main.maxTurns, 250);                    // preserved
+    assert.strictEqual(agents.main.model, "gpt-5.5");                 // preserved
+    assert.strictEqual(agents.main.thinking, "high");                 // preserved
   });
 });

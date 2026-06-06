@@ -1,6 +1,6 @@
 # Minime
 
-Multi-platform bot (Telegram + Discord) that routes messages to Claude Code CLI subprocesses. Each chat/channel gets its own persistent Claude Code session. Runs on Max subscription (no API keys).
+Multi-platform bot (Telegram + Discord) that routes messages to Pi/Codex coding-agent sessions. Each chat/channel gets its own persistent Pi RPC session, and scheduled LLM crons run through Pi print mode.
 
 <p align="center">
   <img src="assets/demo-cron.gif" width="300" alt="Autonomous cron heartbeat: system status, calendar, GitHub PRs, prioritized tasks">
@@ -43,10 +43,10 @@ Telegram Cloud          Discord Gateway
          │  - resume on     │
          │    respawn       │
          └────────┬─────────┘
-                  │ spawns claude -p (stream-json)
+                  │ spawns pi --mode rpc
                   ▼
          ┌──────────────────┐
-         │  Claude Code CLI │
+         │  Pi RPC Runtime  │
          │  - per-agent     │
          │    workspace     │
          │  - model from    │
@@ -54,16 +54,16 @@ Telegram Cloud          Discord Gateway
          └────────┬─────────┘
                   │
                   ▼
-            Anthropic API
+            OpenAI Codex
 ```
 
 Both platforms share one Session Manager and use the same stream-relay logic via the `PlatformContext` interface. Each platform provides an adapter that handles platform-specific message I/O (Telegram: grammY Context, Discord: discord.js Channel).
 
-**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while a `claude` session is processing are collected (up to 20) and delivered as a combined followup after the current turn completes; a `pi` session instead has each mid-turn message steered into it live via the Pi RPC channel (see [Provider backends](#provider-backends)).
+**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while a session is processing are collected (up to 20) and delivered as reliable follow-up prompts after the current turn completes. Passive echo context and shutdown notices can still be steered best-effort into an active Pi turn.
 
 **Context injection:** Each message includes metadata — current time, chat type (DM/group/topic), topic name, sender username, and emoji reactions. The agent knows where it is, when it is, and who it's talking to. Reactions are delivered as messages so the agent can respond to a thumbs-up or a ❤️ without the user typing anything.
 
-**Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot coding-agent session with the cron's prompt. LLM crons use Claude by default and can opt into Pi print mode per cron.
+**Cron jobs** run separately via launchd plists. Each plist calls `run-cron.sh <task-name>`, which invokes `cron-runner.ts` to spawn a one-shot Pi print-mode run with the cron's prompt.
 
 **Config:** `config.yaml` defines agents (workspace + model) and bindings (chatId/channelId -> agentId). User-specific overrides live in `config.local.yaml` (gitignored, deep-merged over `config.yaml`). At least one platform (Telegram or Discord) must be configured. Tokens are read from macOS Keychain at runtime.
 
@@ -74,8 +74,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 - macOS (launchd required for bot service management)
 - Node.js 20+ and npm
 - `jq` — required by hook scripts (`brew install jq`)
-- [Claude Code CLI](https://claude.ai/code) with Max subscription
-- Optional for `engine: pi` crons or Pi-backed agents: the `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
+- The `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
 - A Telegram bot token from [@BotFather](https://t.me/BotFather) (or Discord bot token)
 
 ### Steps
@@ -119,15 +118,13 @@ Create `.claude/settings.local.json` with required settings:
 security add-generic-password -s 'telegram-bot-token' -a 'minime' -w 'YOUR_TOKEN_HERE'
 ```
 
-**4. Store Claude Code OAuth token in Keychain**
+**4. Initialize Pi auth**
 
 ```bash
-claude setup-token
-# Copy the token, then store it:
-security add-generic-password -s 'claude-code-oauth-token' -a 'minime' -w 'YOUR_OAUTH_TOKEN'
+pi /login
 ```
 
-The bot reads this token at startup via `start-bot.sh` and Claude-engine crons read it via `run-cron.sh` when available — it does not use `claude auth login`. Pi-engine crons can run without `CLAUDE_CODE_OAUTH_TOKEN`; Pi uses its own `~/.pi/agent/auth.json`.
+Run this as the same user that owns the launchd jobs. Pi manages its own auth in `~/.pi/agent/auth.json`; the bot does not store coding-agent credentials in Keychain.
 
 **5. Create launchd service**
 
@@ -209,8 +206,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    |-------|------|----------|-------------|
    | `name` | string | yes | Unique identifier for the cron job |
    | `schedule` | string | yes | 5-field cron expression, local timezone |
-   | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs a one-shot coding-agent backend; `"script"` runs a shell command |
-   | `engine` | `"claude"` or `"pi"` | no | LLM backend for one-shot crons. Omit for `"claude"`; set `"pi"` to use Pi print mode. Ignored for script crons |
+   | `type` | `"llm"` or `"script"` | no | `"llm"` (default) runs a one-shot Pi print-mode backend; `"script"` runs a shell command |
+   | `engine` | `"pi"` | no | Optional compatibility field for LLM crons. Omit or set `"pi"`. Ignored for script crons |
    | `prompt` | string | for llm | Prompt sent to the selected LLM cron engine |
    | `command` | string | for script | Shell command to execute |
    | `agentId` | string | yes | Must match an agent in `config.yaml` or `config.local.yaml` |
@@ -219,7 +216,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
    | `timeout` | number | no | Per-cron timeout in ms (default: 900000 = 15 min) |
    | `enabled` | boolean | no | Set `false` to disable without deleting (default: `true`) |
 
-   Minimal Pi LLM example:
+   Minimal LLM example:
    ```yaml
    crons:
      - name: read-only-example
@@ -230,16 +227,12 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
        prompt: "Summarize read-only status and include NO_REPLY if there is nothing notable."
    ```
 
-   Pi cron rollout guidance:
+   Pi cron behavior:
 
-   - `engine: pi` is opt-in per LLM cron. It is independent of the agent's `provider`, `model`, `fallbackModel`, `maxTurns`, and `allowedTools`: Pi crons always spawn `pi -p` with `--no-session --no-extensions`, the fixed model `openai-codex/gpt-5.5`, the agent `systemPrompt`/workspace context, and only the explicit A1 guard extension. Agent `effort` maps to `--thinking`; unsupported or absent effort defaults to `medium`.
-   - `engine: pi` requires the `pi` binary on the launchd cron `PATH` and Pi auth at `~/.pi/agent/auth.json` for the launchd user. Run `pi /login` as that user before enabling Pi crons.
-   - Keep browser/MCP/tool-dependent crons on Claude until Pi has equivalent browser/MCP/tool coverage for the cron path.
-   - Keep dangerous state-mutating crons on Claude until Pi has had enough soak coverage for that class of work.
-   - The safest first Pi subset is selected by criteria, not by private cron names: read-only, non-browser, non-secret, non-mutating, low blast-radius, and either visibly delivered or covered by cron-health metrics.
-   - Per-cron rollback: remove `engine: pi` or set `engine: claude`, then regenerate and reload that cron's plist.
-   - Global rollback: set `CRON_PI_DISABLED=1` in the launchd cron environment to force all LLM crons back to Claude. Put it in generated cron plists or export it from `bot/scripts/run-cron.sh`, then unload/reload the affected cron plists because launchd caches plist environment variables.
-   - Production flips are post-merge operator work after restart and observation; they are not part of the public PR.
+   - LLM crons always run Pi print mode with `pi -p --no-session --no-extensions`, fixed model `openai-codex/gpt-5.5`, the agent `systemPrompt`/workspace context, and only the explicit A1 guard extension.
+   - Agent `thinking` maps to `--thinking`; absent values default to `medium`, and invalid configured values fail validation.
+   - The `pi` binary must be on the launchd cron `PATH`, and Pi auth must exist at `~/.pi/agent/auth.json` for the launchd user. Run `pi /login` as that user before enabling LLM crons.
+   - Set `enabled: false`, convert the cron to `type: script`, or unload the cron plist to stop a problematic cron. Engine values other than `pi` are rejected.
 
    Cron result handling:
 
@@ -269,7 +262,7 @@ To remove: `launchctl bootout gui/$(id -u)/ai.minime.cron.<name>`, delete from `
      new-agent:
        id: new-agent
        workspaceCwd: /Users/YOU/.minime/workspace-new
-       model: claude-opus-4-6
+       model: gpt-5.5
 
    bindings:
      - chatId: 123456789
@@ -334,11 +327,11 @@ If neither is set when Telegram bindings are present (or for Discord config), th
 
 The bot maintains persistent context across sessions through a memory system rooted at the workspace.
 
-- `MEMORY.md` at the workspace root is a curated index of memory files. Keep it concise — Claude Code loads it into the agent's initial context on every session.
+- `MEMORY.md` at the workspace root is a curated index of memory files. Keep it concise — the Pi context assembler loads it into the agent's initial context on every session.
 - `memory/auto/` holds typed memory files (`user`, `feedback`, `project`, `reference`) with frontmatter, written by the agent or the `memory-consolidation` nightly cron.
 - `memory/diary/` holds narrative digests from consolidation runs.
 
-`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. This is the upstream-recommended workaround for [anthropics/claude-code#34146](https://github.com/anthropics/claude-code/issues/34146): the `autoMemoryDirectory` setting only redirects memory *writes*, not the system-prompt injection that loads `MEMORY.md` into context. An explicit `@MEMORY.md` @-import in `CLAUDE.md` forces Claude Code to inline the workspace `MEMORY.md` instead of reading from its hardcoded default path.
+`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. `CLAUDE.md` remains the workspace context entry point even though Pi/Codex is now the runtime; the Pi context assembler follows that import and includes the workspace memory index.
 
 **Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, your workspace `MEMORY.md` will not be auto-loaded and the agent will start every session with no memory index. See [.claude/rules/platform/memory-protocol.md](.claude/rules/platform/memory-protocol.md) for the full protocol.
 
@@ -346,43 +339,38 @@ The bot maintains persistent context across sessions through a memory system roo
 
 ### Provider backends
 
-Each agent runs through a coding-agent backend selected by the optional per-agent `provider` field in `config.yaml`:
+Interactive agents run through Pi RPC + OpenAI Codex. The optional per-agent `provider` field remains only as a compatibility field:
 
 | `provider` | Backend | Status |
 |---|---|---|
-| `claude` (default, omit) | `claude -p` / Agent SDK | Active — the path every agent uses today |
-| `pi` | Pi RPC + OpenAI Codex (`pi --mode rpc`) | Dispatch wired — runs end-to-end; no agent flipped to `pi` yet |
+| omitted | Pi RPC + OpenAI Codex (`pi --mode rpc`) | Supported |
+| `pi` | Pi RPC + OpenAI Codex (`pi --mode rpc`) | Supported |
 
 ```yaml
 agents:
   main:
     id: main
-    # ...
-    # provider: claude   # or "pi"; omit to default to "claude"
+    workspaceCwd: /Users/YOU/.minime/workspace
+    model: gpt-5.5
+    # provider: pi
+    # thinking: high
 ```
 
-A `pi` agent must set an explicit, Pi-appropriate `model` (e.g. `model: gpt-5.5`). Unlike a `claude` agent it does **not** inherit the top-level `defaultModel` — that value is Claude-oriented (e.g. `opus`) and the Pi spawn path would otherwise prefix it into a nonsensical `openai-codex/opus` string. The bot refuses to start if a `pi` agent omits `model`.
+Each agent must set an explicit Pi-appropriate `model` (for example, `model: gpt-5.5`). The top-level `defaultModel` key is accepted for old config overlays but is no longer inherited by agents. The bot refuses to start if an agent omits `model`.
 
-Pi agents may also set `thinking`, which is passed as Pi `--thinking`. Allowed
-values are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Claude agents
-continue to use `effort: low|medium|high`; `thinking` is only for `provider: pi`.
+Agents may also set `thinking`, which is passed as Pi `--thinking`. Allowed values are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`.
 
-Pi support is rolling out incrementally. The protocol layer is the typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) — a newline-only JSONL splitter, spawn/send helpers, and a `parsePiEvent` translator that maps Pi RPC events into the bot's existing `StreamLine` shapes — plus the Pi Prometheus metrics listed under [Monitoring](#monitoring). **Session dispatch is now wired**: the [Session Manager](#architecture) branches on `agent.provider`, so a chat bound to a `pi` agent spawns via Pi RPC, streams to Telegram/Discord, persists and resumes its session across restarts, and is steerable mid-turn — while the `claude` path stays byte-identical. Specifically, this stage adds:
+The typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) handles JSONL splitting, spawn/send helpers, and event translation into the bot's existing stream relay shapes. The Session Manager spawns Pi RPC, streams responses to Telegram/Discord, persists and resumes session IDs across restarts, and sends user prompts with `followUp` semantics so they queue instead of being rejected if Pi is still busy.
 
-- a multi-turn translator fix — only Pi's `agent_end` event terminates a turn (`turn_end` is a per-turn boundary), so a tool-using response delivers its final answer instead of truncating;
-- `get_state` session-id capture — the bot reads the Pi-generated session id after spawn, persists it, and resumes via `--session <uuid>`;
-- graceful resume-recovery — a stored id that Pi reports as `No session found matching` is discarded for exactly one fresh start (logged + counted via `bot_pi_session_resume_discarded_total`) instead of crash-looping the chat; any other startup failure keeps the existing crash-backoff and preserves the stored id and chat media;
-- Pi mid-turn steer — a message arriving while Pi is mid-turn is delivered via the Pi RPC steer channel (the `claude` path keeps its `inject-message.sh` file mechanism).
-
-No agent ships on `provider: pi` by default; flipping one is a deliberate per-deployment step. The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; like the Claude path, the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
+The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
 
 #### Pi extensions (A1-A3)
 
-Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions reach capability parity with the `claude` path. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs (those are for `/reload`). The `claude` path is unaffected: [bot/src/cli-protocol.ts](bot/src/cli-protocol.ts) is byte-identical.
+Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--no-extensions`, then loads three first-party extensions so Pi sessions reach parity with the workspace guard, web-tools, and subagent capabilities expected by deployed agents. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs.
 
 | Extension | Wrapper | What it does |
 |---|---|---|
-| **A1 guard** | `bot/.claude/extensions/guardian-protect-files.ts` | A `tool_call` handler that blocks edit/write and bash redirects (`>`, `>>`, `tee`, `mv`, `cp`) into the 10-path immutable core of upstream-owned paths (`bot/`, `.claude/hooks/`, `.claude/rules/platform/`, `.claude/skills/workspace-health/scripts/`, `.github/workflows/`, `.githooks/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`) and `..` traversal escapes. It also drives the **schema-enforced deny-by-default** write-guard: it parses the workspace `schema.md` ```` ```write-allowlist ```` block and blocks any write/edit/bash target whose workspace-relative path is not in it (deny-overlay > allow > default-deny). Directory entries (trailing slash) match as prefixes; the four file entries match root-only-exact (`README.md` blocks the root file but not `docs/README.md`). A missing/empty block fails **closed** (immutable core still blocks; everything else is denied with an actionable "add it to `schema.md`" message). Path matching canonicalizes `.`/`..`/`//` and is case-insensitive (APFS). Bypass one session with `PI_EXTENSIONS_DISABLED=1`. |
+| **A1 guard** | `bot/.claude/extensions/guardian-protect-files.ts` | A `tool_call` handler that blocks edit/write and bash redirects (`>`, `>>`, `tee`, `mv`, `cp`) into the 10-path immutable core of upstream-owned paths (`bot/`, `.claude/hooks/`, `.claude/rules/platform/`, `.claude/skills/workspace-health/scripts/`, `.github/workflows/`, `.githooks/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`) and `..` traversal escapes. It also drives the **schema-enforced deny-by-default** write-guard: it parses the workspace `schema.md` ```` ```write-allowlist ```` block and blocks any write/edit/bash target whose workspace-relative path is not in it (deny-overlay > allow > default-deny). Directory entries (trailing slash) match as prefixes; the four file entries match root-only-exact (`README.md` blocks the root file but not `docs/README.md`). A missing/empty block fails **closed** (immutable core still blocks; everything else is denied with an actionable "add it to `schema.md`" message). Path matching canonicalizes `.`/`..`/`//` and is case-insensitive (APFS). Disable first-party wrappers with `PI_EXTENSIONS_DISABLED=1`; ambient discovery remains disabled. |
 | **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read once at load from macOS Keychain (`security find-generic-password -s tavily-api-key -a minime -w`). A missing key warn-logs but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
 | **A3 subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Each child spawn also loads the A1 guard (so a delegated task cannot bypass it), honoring the same kill-switch. Child errors warn-log. |
 
@@ -392,12 +380,12 @@ Every `pi --mode rpc` spawn loads three first-party extensions so Pi sessions re
 security add-generic-password -s 'tavily-api-key' -a 'minime' -w 'YOUR_TAVILY_KEY'
 ```
 
-**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with **no** extensions — a bare, claude-parity command. This is the fast rollback path for Pi RPC sessions (no code change, no merge). With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session). Pi crons are stricter: `engine: pi` crons require A1 and fail closed if `PI_EXTENSIONS_DISABLED=1`; use `CRON_PI_DISABLED=1` or set the cron back to `engine: claude` for cron rollback.
+**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with no explicit first-party wrappers; the spawn still passes `--no-extensions`, so ambient discovery does not load other extensions. With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session). Pi crons are stricter: LLM crons require A1 and fail closed if `PI_EXTENSIONS_DISABLED=1`.
 
 **Rollback:**
 
-- **Fast RPC rollback (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi RPC chat spawns drop all three extensions immediately.
-- **Fast cron rollback:** set `CRON_PI_DISABLED=1` in the cron launchd environment, or change individual crons from `engine: pi` to `engine: claude` and reload the cron plists.
+- **Disable Pi extensions (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi RPC chat spawns drop all three first-party wrappers immediately while still blocking ambient extension discovery.
+- **Cron rollback:** set `enabled: false`, unload the cron plist, or change the job to `type: script` and reload its plist. LLM crons only run through Pi.
 - **Code:** `git revert <merge-commit>` in this repo → `git fetch upstream && git merge upstream/main` in the workspace → `bot/scripts/restart-bot.sh`.
 
 ### Logging
@@ -419,18 +407,20 @@ metricsPort: 9090
 
 See [bot/src/metrics.ts](bot/src/metrics.ts) for the full list of exported metrics.
 
+For dashboard continuity, token, cost, and turn-duration metrics keep their legacy `bot_claude_*` names (`bot_claude_tokens_*`, `bot_claude_cost_usd_total`, `bot_claude_turn_duration_seconds`). In the Pi-only runtime these are metric names only: they record usage and duration reported by the active runtime, not a Claude subprocess. Pi retry/resume metrics remain under `bot_pi_*`.
+
 Cron runs also write best-effort Prometheus textfile metrics for node_exporter. These do not appear on the bot's `metricsPort` endpoint. Configure node_exporter with `--collector.textfile.directory=/opt/homebrew/var/node_exporter/textfile`, or override the directory with `CRON_HEALTH_TEXTFILE_DIR` for tests or alternate installs. Ensure the launchd cron user can create and write the directory. Each cron gets collision-resistant textfiles with the raw cron name escaped as the `cron` label:
 
 - `minime_cron_last_success_timestamp{cron="<name>"}` is updated only after successful runs and remains present after later failures.
 - `minime_cron_last_exit_code{cron="<name>"}` is updated on every run.
 
-The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`, same buckets as the Claude turn histogram for direct comparison), the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter), and `bot_pi_session_resume_discarded_total` (label `agent_id`, incremented once per graceful resume-recovery — a stored Pi session id Pi could not find, discarded for one fresh start). They read zero until an agent runs with `provider: pi`.
+The Pi RPC provider (see [Provider backends](#provider-backends)) registers its own metrics: `bot_pi_turn_duration_seconds` (histogram, label `agent_id`), the retry counters `bot_pi_retry_total`, `bot_pi_429_total`, `bot_pi_overload_total`, and `bot_pi_retry_unknown_total` (every retry increments `bot_pi_retry_total` plus exactly one signal-specific counter), and `bot_pi_session_resume_discarded_total` (label `agent_id`, incremented once per graceful resume-recovery — a stored Pi session id Pi could not find, discarded for one fresh start).
 
 #### Codex quota sampler
 
 Telegram and Discord `/status` use the same compact local renderer. The normal
 healthy output shows session count, uptime, agent/provider, model,
-thinking/effort, processing-or-idle state, and session id. It omits noisy
+thinking, processing-or-idle state, and session id. It omits noisy
 diagnostics such as RSS memory, PID, restart count, and last success unless those
 values are actionable: dead process, non-zero restarts, or missing/stale last
 success.
@@ -649,34 +639,21 @@ git pull
 
 Your `config.local.yaml` is deep-merged over `config.yaml` at startup, so you only need to keep what differs from the defaults.
 
+## Upgrading to Pi-only Runtime
+
+Run `pi /login` as the launchd user and ensure `pi` is on the launchd `PATH`.
+
+For every agent, set an explicit `model` and replace `effort` with `thinking`. Remove `provider: claude`, `fallbackModel`, `defaultFallbackModel`, `maxTurns`, and `allowedTools`; those fields now fail validation instead of being treated as runtime controls.
+
+For LLM crons, remove `engine: claude`; omit `engine` or set `engine: pi`. `CRON_PI_DISABLED=1` no longer rolls back to Claude. Disable or unload the cron, or convert it to `type: script`.
+
+Remove Claude OAuth / Claude Code env setup. Pi auth is read from `~/.pi/agent/auth.json`, and bot wrappers scrub inherited `CLAUDE_CODE_*`, `ANTHROPIC_*`, and `CLAUDECODE` values.
+
 ## Similar Projects
 
-### Why this exists
+### Project lineage
 
-Most Telegram bots for Claude use the [Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview), which requires API keys and falls under Anthropic's Commercial Terms. Anthropic [explicitly prohibits](https://code.claude.com/docs/en/legal-and-compliance) using Max/Pro subscription OAuth tokens through the Agent SDK:
-
-> OAuth authentication (used with Free, Pro, and Max plans) is intended exclusively for Claude Code and Claude.ai. Using OAuth tokens in any other product, tool, or service -- including the Agent SDK -- is not permitted.
-
-This bot spawns the original `claude -p` binary directly. Same CLI you run in your terminal. Max subscription, no API keys, no per-token billing.
-
-### ToS compliance on Max subscription
-
-| Project | Engine | Max-compliant |
-|---------|--------|---------------|
-| **claude-code-bot** (this) | CLI binary (`claude -p`) | Yes |
-| [PleasePrompto/ductor](https://github.com/PleasePrompto/ductor) | CLI binary (subprocess) | Yes |
-| [Anthropic Official Plugin](https://github.com/anthropics/claude-plugins-official) | MCP extension of active CC session | Yes |
-| [RichardAtCT/claude-code-telegram](https://github.com/RichardAtCT/claude-code-telegram) | Agent SDK (`claude_agent_sdk`) | No |
-| [earlyaidopters/claudeclaw](https://github.com/earlyaidopters/claudeclaw) | Agent SDK (`@anthropic-ai/claude-agent-sdk`) | No |
-| [linuz90/claude-telegram-bot](https://github.com/linuz90/claude-telegram-bot) | Agent SDK (`@anthropic-ai/claude-agent-sdk`) | No |
-| [NachoSEO/claudegram](https://github.com/NachoSEO/claudegram) | Agent SDK (`@anthropic-ai/claude-agent-sdk`) | No |
-| [openclaw/openclaw](https://github.com/openclaw/openclaw) | Own agent runtime | No (API keys) |
-| [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) | Claude Code in Docker | No (API keys) |
-| [mtzanidakis/praktor](https://github.com/mtzanidakis/praktor) | Agent SDK in Docker | No (API keys) |
-| [six-ddc/ccbot](https://github.com/six-ddc/ccbot) | tmux bridge (CLI in tmux) | Yes |
-| [chenhg5/cc-connect](https://github.com/chenhg5/cc-connect) | Bridge/proxy | Depends on agent |
-
-Four projects run the actual CLI binary on a Max subscription without API keys: this bot, ductor, ccbot, and the official plugin.
+Minime started as a Telegram/Discord bridge for Claude Code and later moved to Pi/Codex as the single supported runtime. The current architecture keeps the same multi-chat session manager, launchd cron isolation, workspace guardrails, and memory conventions while delegating interactive sessions and LLM crons to Pi.
 
 ### vs Anthropic Official Plugin
 
@@ -694,7 +671,7 @@ It's a remote control for your terminal session, not an autonomous bot.
 
 [ccbot](https://github.com/six-ddc/ccbot) runs Claude Code inside tmux and bridges it to Telegram via two channels: JSONL transcript polling for content, and terminal scraping for interactive UI.
 
-What ccbot does better: tool use visibility (which tool was called, what it returned), thinking content as expandable blockquotes, and interactive permission handling — approve or deny tool calls from Telegram via inline keyboard. These are real advantages that `claude -p` stream-json cannot provide today.
+What ccbot does better: tool use visibility (which tool was called, what it returned), thinking content as expandable blockquotes, and interactive permission handling — approve or deny tool calls from Telegram via inline keyboard.
 
 The trade-off is fragility. Hardcoded regex patterns match Claude Code's terminal UI text — prompt wordings, spinner characters, chrome separators. Any Claude Code TUI update can silently break detection. Input goes through `send_keys()` with empirical timing delays. Two polling loops (JSONL at 2s + terminal scrape at 1s per window) add overhead that scales linearly with sessions.
 
@@ -715,6 +692,6 @@ No cron system, no multi-agent, no workspace management, no Discord. Single-user
 | Workspace health | Filesystem guardian hooks + structural audits | Agent health with exponential backoff |
 | Memory consolidation | Nightly summarization cron | File sync |
 | Platforms | Telegram + Discord | Telegram + Matrix |
-| Multi-CLI support | Claude Code | Claude Code, Codex, Gemini |
+| Runtime support | Pi/Codex | Claude Code, Codex, Gemini |
 
-Neither project is strictly better than the other — feature sets are comparable. Ductor covers more CLIs and has deeper crash recovery (in-flight turn tracking, process registry, stream coalescing). We're significantly simpler: a thin TypeScript wrapper around `claude -p` that delegates complexity to the OS (launchd for process isolation, filesystem hooks for workspace protection) rather than reimplementing it in application code.
+Neither project is strictly better than the other — feature sets are comparable. Ductor covers more CLIs and has deeper crash recovery (in-flight turn tracking, process registry, stream coalescing). Minime is narrower: a TypeScript wrapper around Pi/Codex sessions that delegates process isolation to launchd and workspace protection to filesystem hooks and Pi extensions.

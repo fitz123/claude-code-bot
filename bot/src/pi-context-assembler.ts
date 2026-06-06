@@ -1,13 +1,16 @@
 import {
+  chmodSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { AgentConfig } from "./types.js";
 import { log } from "./logger.js";
 
@@ -18,15 +21,16 @@ import { log } from "./logger.js";
  * `.claude/rules/` auto-load, no memory recall (verified in
  * `@earendil-works/pi-coding-agent` resource-loader/system-prompt). Without help,
  * an agent's CLAUDE.md `@`-imports and rule files silently vanish under Pi. This
- * module assembles the SAME context a Claude Code session loads, from the agent's
- * LIVE workspace files (zero drift), and hands it to Pi via CLI args:
+ * module assembles the same workspace context convention from the agent's LIVE
+ * workspace files (zero drift), and hands it to Pi via CLI args:
  *   --system-prompt          → the persona (REPLACES Pi's base prompt)
  *   --append-system-prompt   → the context bundle (APPENDED)
  *   --no-context-files       → so Pi does not ALSO load CLAUDE.md/AGENTS.md (no double context)
  *
- * Everything here is FAIL-SAFE: a missing/unreadable source is warned + skipped,
- * never thrown. A total failure returns null so the caller degrades to a bare Pi
- * spawn rather than crashing it. Wiring into the spawn path is in pi-rpc-protocol.ts.
+ * Missing/unreadable sources are warned + skipped. Artifact-write failures are
+ * deliberately allowed to throw so callers can fail closed by passing
+ * `--no-context-files` without artifact args. Wiring into the spawn path is in
+ * pi-rpc-protocol.ts.
  *
  * Deterministic bundle order (see {@link assembleBundle}):
  *   1. CLAUDE.md body with every `@<path>` line removed.
@@ -66,6 +70,29 @@ function safeArtifactAgentId(agentId: string): string {
   return `${stem || "agent"}-${hash}`;
 }
 
+function ensurePrivateArtifactDir(path: string): void {
+  try {
+    mkdirSync(path, { recursive: true, mode: 0o700 });
+  } catch (err) {
+    if ((err as { code?: string }).code !== "EEXIST") {
+      throw err;
+    }
+  }
+  const stat = lstatSync(path);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Refusing to use ${path}: it is a symlink`);
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(`Refusing to use ${path}: not a directory`);
+  }
+  if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+    throw new Error(`Refusing to use ${path}: owned by uid ${stat.uid}, expected ${process.getuid()}`);
+  }
+  if ((stat.mode & 0o777) !== 0o700) {
+    chmodSync(path, 0o700);
+  }
+}
+
 /**
  * A standalone `@<path>` import line: optional leading whitespace, `@`, a single
  * non-whitespace path token, optional trailing whitespace, nothing else. This is
@@ -84,10 +111,10 @@ const IMPORT_LINE = /^[ \t]*@(\S+)[ \t]*\r?$/;
  * The fixed `## Memory access` directive (verbatim). MEMORY.md itself reaches the
  * bundle as a `## MEMORY.md` section (it is a CLAUDE.md `@`-import) = the index;
  * the corpus under `memory/auto/*` is read ON DEMAND, not inlined. Auto-recall
- * like the Claude harness is not yet available under Pi (a tracked fast-follow).
+ * like the legacy harness is not yet available under Pi (a tracked fast-follow).
  */
 const MEMORY_ACCESS_DIRECTIVE =
-  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the Claude harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
+  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the legacy harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
 
 /** Read a file, returning null on ANY error (fail-safe: missing/unreadable → skip). */
 function safeReadFile(path: string): string | null {
@@ -98,11 +125,67 @@ function safeReadFile(path: string): string | null {
   }
 }
 
+function isResolvedPathContained(baseReal: string, targetReal: string): boolean {
+  const rel = relative(baseReal, targetReal);
+  return rel === "" || !(rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel));
+}
+
+function resolveContainedRealPath(targetPath: string, baseDir: string): { realPath: string | null; escaped: boolean } {
+  try {
+    const baseReal = realpathSync(baseDir);
+    const targetReal = realpathSync(targetPath);
+    if (!isResolvedPathContained(baseReal, targetReal)) {
+      return { realPath: targetReal, escaped: true };
+    }
+    return { realPath: targetReal, escaped: false };
+  } catch {
+    return { realPath: null, escaped: false };
+  }
+}
+
+/** Read a file only if its resolved target stays under the intended base dir. */
+function safeReadContainedFile(targetPath: string, baseDir: string): { content: string | null; escaped: boolean } {
+  const resolved = resolveContainedRealPath(targetPath, baseDir);
+  if (resolved.escaped || resolved.realPath === null) {
+    return { content: null, escaped: resolved.escaped };
+  }
+  return { content: safeReadFile(resolved.realPath), escaped: false };
+}
+
+function sourceSignature(path: string, baseDir: string): string {
+  const resolved = resolveContainedRealPath(path, baseDir);
+  if (resolved.escaped) {
+    try {
+      const st = lstatSync(path);
+      return `${path}:escaped:${st.mtimeMs}:${st.size}`;
+    } catch {
+      return `${path}:escaped`;
+    }
+  }
+  if (resolved.realPath === null) {
+    return `${path}:missing`;
+  }
+  try {
+    const st = statSync(resolved.realPath);
+    return `${path}->${resolved.realPath}:${st.mtimeMs}:${st.size}`;
+  } catch {
+    return `${path}:missing`;
+  }
+}
+
 /** List `*.md` files in a dir as absolute paths, sorted by name. Missing dir → []. */
-function listMarkdown(dir: string): string[] {
+function listMarkdown(dir: string, baseDir: string): string[] {
+  const resolved = resolveContainedRealPath(dir, baseDir);
+  if (resolved.escaped) {
+    log.warn("pi-context", `markdown directory resolves outside the workspace, skipping: ${dir}`);
+    return [];
+  }
+  if (resolved.realPath === null) {
+    return [];
+  }
   let names: string[];
   try {
-    names = readdirSync(dir);
+    names = readdirSync(resolved.realPath);
   } catch {
     return [];
   }
@@ -188,7 +271,14 @@ export function expandImports(
       continue;
     }
     const abs = resolve(baseDir, relpath);
-    const content = safeReadFile(abs);
+    const { content, escaped } = safeReadContainedFile(abs, baseDir);
+    if (escaped) {
+      log.warn(
+        "pi-context",
+        `@-import resolves outside the workspace, skipping: "${relpath}"`,
+      );
+      continue;
+    }
     if (content === null) {
       log.warn("pi-context", `@-import not readable, skipping: ${abs}`);
       continue;
@@ -224,8 +314,12 @@ export function collectRules(workspaceCwd: string): ContextSection[] {
   const out: ContextSection[] = [];
   for (const sub of ["platform", "custom"] as const) {
     const dir = join(workspaceCwd, ".claude", "rules", sub);
-    for (const abs of listMarkdown(dir)) {
-      const content = safeReadFile(abs);
+    for (const abs of listMarkdown(dir, workspaceCwd)) {
+      const { content, escaped } = safeReadContainedFile(abs, workspaceCwd);
+      if (escaped) {
+        log.warn("pi-context", `rule file resolves outside the workspace, skipping: ${abs}`);
+        continue;
+      }
       if (content === null) {
         log.warn("pi-context", `rule file not readable, skipping: ${abs}`);
         continue;
@@ -245,7 +339,9 @@ interface BundleResult {
    * stripped. The import case matters even when EVERY import failed to read: a
    * bare spawn would let Pi flat-load the original CLAUDE.md and surface the
    * literal `@<path>` lines (exactly what this assembler exists to strip), so the
-   * stripped bundle is strictly better and we must suppress flat loading.
+   * stripped bundle is strictly better and we must suppress flat loading. An
+   * escaping CLAUDE.md symlink also counts: a bare spawn could flat-load the same
+   * outside-workspace target we refused to read.
    *
    * False means the bundle is only the fixed memory directive over a CLAUDE.md
    * that had no body and no imports (or no CLAUDE.md at all) — nothing worth
@@ -257,8 +353,11 @@ interface BundleResult {
 /** Assemble the deterministic context bundle (order 1-5 above) from live files. */
 function assembleBundle(workspaceCwd: string): BundleResult {
   const claudeMdPath = join(workspaceCwd, "CLAUDE.md");
-  const rawBody = safeReadFile(claudeMdPath);
-  if (rawBody === null) {
+  const { content: rawBody, escaped } = safeReadContainedFile(claudeMdPath, workspaceCwd);
+  if (escaped) {
+    log.warn("pi-context", `CLAUDE.md resolves outside the workspace, skipping: ${claudeMdPath}`);
+  }
+  if (rawBody === null && !escaped) {
     log.warn("pi-context", `CLAUDE.md not found at ${claudeMdPath} — bundling rules only`);
   }
 
@@ -285,7 +384,7 @@ function assembleBundle(workspaceCwd: string): BundleResult {
   // a bare spawn would flat-load the original CLAUDE.md with its literal `@<path>`
   // lines intact, so the stripped bundle + `--no-context-files` is strictly better.
   const hasContent =
-    trimmedBody !== "" || sections.length > 0 || rules.length > 0 || importLineCount > 0;
+    trimmedBody !== "" || sections.length > 0 || rules.length > 0 || importLineCount > 0 || escaped;
   return { bundle: `${parts.join("\n\n")}\n`, hasContent };
 }
 
@@ -317,8 +416,8 @@ export function resolvePersona(agent: AgentConfig): string | null {
 }
 
 /**
- * An output-style slug must be a single path segment — Claude resolves output
- * styles by NAME, never by path. Reject any slug containing a path separator so a
+ * An output-style slug must be a single path segment. Output styles resolve by
+ * NAME, never by path. Reject any slug containing a path separator so a
  * settings.local.json value like `"../../../../etc/passwd"` cannot escape
  * `.claude/output-styles/` and pull an arbitrary file into the `--system-prompt`.
  */
@@ -329,7 +428,11 @@ function isSafeOutputStyleSlug(slug: string): boolean {
 /** Read the output-style markdown referenced by settings.local.json, or null. */
 function readOutputStyleContent(workspaceCwd: string): string | null {
   const settingsPath = join(workspaceCwd, ".claude", "settings.local.json");
-  const raw = safeReadFile(settingsPath);
+  const { content: raw, escaped: settingsEscaped } = safeReadContainedFile(settingsPath, workspaceCwd);
+  if (settingsEscaped) {
+    log.warn("pi-context", `settings.local.json resolves outside the workspace, skipping: ${settingsPath}`);
+    return null;
+  }
   if (raw === null) {
     return null;
   }
@@ -348,7 +451,11 @@ function readOutputStyleContent(workspaceCwd: string): string | null {
     return null;
   }
   const stylePath = join(workspaceCwd, ".claude", "output-styles", `${slug}.md`);
-  const content = safeReadFile(stylePath);
+  const { content, escaped: styleEscaped } = safeReadContainedFile(stylePath, workspaceCwd);
+  if (styleEscaped) {
+    log.warn("pi-context", `output-style "${slug}" resolves outside the workspace, skipping: ${stylePath}`);
+    return null;
+  }
   if (content === null) {
     log.warn("pi-context", `output-style "${slug}" not found at ${stylePath}`);
     return null;
@@ -359,22 +466,25 @@ function readOutputStyleContent(workspaceCwd: string): string | null {
 /**
  * Atomically write a bundle/persona artifact to a STABLE per-agent path under
  * `<workspaceCwd>/.tmp/`: `pi-context-<safe-agent-id>.<kind>.md`. Write a staging file
- * (`<path>.tmp.<pid>`) then `renameSync` over the final path, so a concurrent
- * reader never sees a half-written file. Stable path ⇒ no accumulation, no cleanup
- * job. Returns the final path. May throw (e.g. unwritable `.tmp/`) — the caller
- * (assemblePiContext) wraps it in the fail-safe.
+ * then `renameSync` over the final path, so a concurrent reader never sees a
+ * half-written file. Stable path ⇒ no accumulation, no cleanup job. The `.tmp`
+ * dir and artifact files are private because they contain assembled system
+ * context. Returns the final path. May throw (e.g. unwritable `.tmp/`) — the
+ * caller (assemblePiContext) wraps it in the fail-safe.
  */
 export function writeTempArtifact(
   workspaceCwd: string,
   agentId: string,
   kind: PiArtifactKind,
   content: string,
+  opts?: { stagingSuffix?: string },
 ): string {
   const tmpDir = join(workspaceCwd, ".tmp");
-  mkdirSync(tmpDir, { recursive: true });
+  ensurePrivateArtifactDir(tmpDir);
   const finalPath = join(tmpDir, `pi-context-${safeArtifactAgentId(agentId)}.${kind}.md`);
-  const stagingPath = `${finalPath}.tmp.${process.pid}`;
-  writeFileSync(stagingPath, content, "utf8");
+  const stagingSuffix = opts?.stagingSuffix ?? `${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}`;
+  const stagingPath = `${finalPath}.tmp.${stagingSuffix}`;
+  writeFileSync(stagingPath, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
   renameSync(stagingPath, finalPath);
   return finalPath;
 }
@@ -413,11 +523,11 @@ const cache = new Map<string, CacheEntry>();
  */
 function computeManifestSignature(agent: AgentConfig): string {
   const workspaceCwd = agent.workspaceCwd;
-  const files: string[] = [];
+  const files: Array<{ path: string; baseDir: string }> = [];
 
   const claudeMdPath = join(workspaceCwd, "CLAUDE.md");
-  files.push(claudeMdPath);
-  const body = safeReadFile(claudeMdPath);
+  files.push({ path: claudeMdPath, baseDir: workspaceCwd });
+  const { content: body } = safeReadContainedFile(claudeMdPath, workspaceCwd);
   if (body !== null) {
     const baseDir = dirname(claudeMdPath);
     for (const relpath of partitionImports(body).importRelpaths) {
@@ -426,23 +536,33 @@ function computeManifestSignature(agent: AgentConfig): string {
       // otherwise the signature covers a path outside the workspace that is never
       // part of the bundle. Single containment rule, both sides.
       if (isContainedImport(baseDir, relpath)) {
-        files.push(resolve(baseDir, relpath));
+        files.push({ path: resolve(baseDir, relpath), baseDir });
       }
     }
   }
 
   for (const sub of ["platform", "custom"] as const) {
-    files.push(...listMarkdown(join(workspaceCwd, ".claude", "rules", sub)));
+    const dir = join(workspaceCwd, ".claude", "rules", sub);
+    files.push({ path: dir, baseDir: workspaceCwd });
+    files.push(
+      ...listMarkdown(dir, workspaceCwd).map((path) => ({
+        path,
+        baseDir: workspaceCwd,
+      })),
+    );
   }
 
   const settingsPath = join(workspaceCwd, ".claude", "settings.local.json");
-  files.push(settingsPath);
-  const settingsRaw = safeReadFile(settingsPath);
+  files.push({ path: settingsPath, baseDir: workspaceCwd });
+  const { content: settingsRaw } = safeReadContainedFile(settingsPath, workspaceCwd);
   if (settingsRaw !== null) {
     try {
       const slug = (JSON.parse(settingsRaw) as { outputStyle?: unknown }).outputStyle;
       if (typeof slug === "string" && slug.trim() !== "" && isSafeOutputStyleSlug(slug)) {
-        files.push(join(workspaceCwd, ".claude", "output-styles", `${slug}.md`));
+        files.push({
+          path: join(workspaceCwd, ".claude", "output-styles", `${slug}.md`),
+          baseDir: workspaceCwd,
+        });
       }
     } catch {
       // Non-JSON settings yield no persona path; the settings file's own stat
@@ -450,14 +570,9 @@ function computeManifestSignature(agent: AgentConfig): string {
     }
   }
 
-  const parts = files.sort().map((path) => {
-    try {
-      const st = statSync(path);
-      return `${path}:${st.mtimeMs}:${st.size}`;
-    } catch {
-      return `${path}:missing`;
-    }
-  });
+  const parts = files
+    .sort((a, b) => a.path.localeCompare(b.path) || a.baseDir.localeCompare(b.baseDir))
+    .map(({ path, baseDir }) => sourceSignature(path, baseDir));
   // The config systemPrompt is not a file — fold it in directly.
   parts.push(`systemPrompt:${agent.systemPrompt ?? ""}`);
   return parts.join("|");
@@ -467,67 +582,56 @@ function computeManifestSignature(agent: AgentConfig): string {
  * Assemble the full Pi context for an agent and return the artifact paths, or null
  * to signal "no extra context — bare spawn".
  *
- * Returns null when there is nothing meaningful to inject (no CLAUDE.md body, no
- * imports, no rules, AND no persona) or when assembly fails outright — either way
- * the caller spawns Pi without the context args rather than crashing the spawn.
- *
  * Caches by a source-file manifest: an unchanged source set skips the re-read +
  * re-assemble of the source tree, but STILL re-writes the `.tmp/` artifacts from
  * the cached content so the files on disk always match what the assembler produced
  * (and so a deleted artifact is transparently recreated).
+ *
+ * Returns null only for a genuinely empty workspace with no persona. If artifact
+ * writing fails after content was assembled, this throws; Pi callers must catch
+ * and add `--no-context-files` so Pi does not fall back to flat context loading.
  */
 export function assemblePiContext(agent: AgentConfig): PiContextArtifacts | null {
-  try {
-    const signature = computeManifestSignature(agent);
-    const cached = cache.get(agent.id);
+  const signature = computeManifestSignature(agent);
+  const cached = cache.get(agent.id);
 
-    let bundle: string;
-    let persona: string | null;
-    if (cached && cached.signature === signature) {
-      // Source manifest unchanged: reuse the assembled content (skip the expensive
-      // re-read + re-parse of every source file) but fall through to RE-WRITE the
-      // artifacts below. A cache entry only exists for a non-empty assembly, so the
-      // content here is guaranteed meaningful — no empty-workspace re-check needed.
-      bundle = cached.bundle;
-      persona = cached.persona;
-    } else {
-      const assembled = assembleBundle(agent.workspaceCwd);
-      const resolvedPersona = resolvePersona(agent);
-      if (!assembled.hasContent && resolvedPersona === null) {
-        // Empty workspace — let Pi fall back to its own (flat) context loading
-        // instead of forcing an empty bundle + --no-context-files.
-        cache.delete(agent.id);
-        return null;
-      }
-      bundle = assembled.bundle;
-      persona = resolvedPersona;
+  let bundle: string;
+  let persona: string | null;
+  if (cached && cached.signature === signature) {
+    // Source manifest unchanged: reuse the assembled content (skip the expensive
+    // re-read + re-parse of every source file) but fall through to RE-WRITE the
+    // artifacts below. A cache entry only exists for a non-empty assembly, so the
+    // content here is guaranteed meaningful — no empty-workspace re-check needed.
+    bundle = cached.bundle;
+    persona = cached.persona;
+  } else {
+    const assembled = assembleBundle(agent.workspaceCwd);
+    const resolvedPersona = resolvePersona(agent);
+    if (!assembled.hasContent && resolvedPersona === null) {
+      // Empty workspace — let Pi fall back to its own (flat) context loading
+      // instead of forcing an empty bundle + --no-context-files.
+      cache.delete(agent.id);
+      return null;
     }
-
-    // Always (re-)write the artifacts — on a cache hit too. This keeps the on-disk
-    // bundle/persona faithful to the cached content even if a prior session or an
-    // external process overwrote them, and recreates an artifact that was deleted.
-    const appendSystemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "bundle", bundle);
-    let systemPromptPath: string | undefined;
-    if (persona !== null) {
-      systemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "persona", persona);
-    }
-
-    const result: PiContextArtifacts =
-      systemPromptPath !== undefined
-        ? { systemPromptPath, appendSystemPromptPath }
-        : { appendSystemPromptPath };
-    cache.set(agent.id, { signature, bundle, persona });
-    return result;
-  } catch (err) {
-    // Belt-and-suspenders: every file op above is already fail-safe, but a write
-    // (e.g. an unwritable `.tmp/`) could still throw. Degrade to a bare spawn.
-    log.error(
-      "pi-context",
-      `context assembly failed for agent "${agent.id}", falling back to a bare spawn: ${(err as Error).message}`,
-    );
-    cache.delete(agent.id);
-    return null;
+    bundle = assembled.bundle;
+    persona = resolvedPersona;
   }
+
+  // Always (re-)write the artifacts — on a cache hit too. This keeps the on-disk
+  // bundle/persona faithful to the cached content even if a prior session or an
+  // external process overwrote them, and recreates an artifact that was deleted.
+  const appendSystemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "bundle", bundle);
+  let systemPromptPath: string | undefined;
+  if (persona !== null) {
+    systemPromptPath = writeTempArtifact(agent.workspaceCwd, agent.id, "persona", persona);
+  }
+
+  const result: PiContextArtifacts =
+    systemPromptPath !== undefined
+      ? { systemPromptPath, appendSystemPromptPath }
+      : { appendSystemPromptPath };
+  cache.set(agent.id, { signature, bundle, persona });
+  return result;
 }
 
 /** Test-only: clear the per-agent manifest cache. */

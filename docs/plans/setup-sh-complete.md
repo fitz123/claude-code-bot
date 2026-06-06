@@ -1,5 +1,7 @@
 # Transparent Installation — No Magic
 
+Status note (2026-06-06): historical plan. Current runtime contracts are Pi/Codex only; `provider: claude`, `engine: claude`, `fallbackModel`, `defaultFallbackModel`, `effort`, `maxTurns`, and `allowedTools` fail validation. Agents require explicit `model`; use `thinking`; auth is `pi /login` via `~/.pi/agent/auth.json`; LLM crons run Pi print mode only.
+
 ## Goal
 
 A user cloning the repo should get a running bot by following clear, numbered steps in README. No setup.sh, no interactive wizard, no magic. Every step is visible and understood: clone → npm install → copy examples → fill in config → store tokens in Keychain → create plist → start. Currently: example files are in the wrong place (bot/ instead of root), config.ts resolves config.yaml inconsistently with crons.yaml, README lacks installation guide, directory structure is incomplete (.gitkeep missing for memory subdirs), and no bot plist template exists.

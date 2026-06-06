@@ -20,9 +20,9 @@ crons:
   # Your own crons:
   # - name: daily-briefing
   #   schedule: "0 9 * * *"           # 9:00 AM daily
-  #   engine: pi                       # optional for LLM crons; omit/defaults to claude
-  #                                    # separate from agent provider; uses fixed Pi model, workspaceCwd,
-  #                                    # optional systemPrompt, and effort->--thinking only
+  #   engine: pi                       # optional for LLM crons; omit/defaults to Pi
+  #                                    # uses fixed Pi model, workspaceCwd,
+  #                                    # optional systemPrompt, and thinking
   #   prompt: >
   #     Give me a brief summary of what I should focus on today.
   #   agentId: main

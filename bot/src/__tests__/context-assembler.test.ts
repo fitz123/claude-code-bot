@@ -1,11 +1,15 @@
 import { describe, it, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -26,9 +30,29 @@ import type { AgentConfig } from "../types.js";
 // The verbatim memory directive — pinned here so a wording drift in the module
 // fails this test (it is part of the deterministic bundle contract, D7).
 const MEMORY_DIRECTIVE =
-  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the Claude harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
+  "MEMORY.md above is the index of long-term memory. When a topic matches an entry, use the read tool to load the specific `memory/auto/<name>.md` on demand. (Auto-recall like the legacy harness is not yet available under Pi — read deliberately by index; a memory_search tool is a tracked fast-follow.)";
 
 const created: string[] = [];
+
+function withPatchedGetuid<T>(uid: number, fn: () => T): T {
+  const original = process.getuid;
+  Object.defineProperty(process, "getuid", {
+    value: () => uid,
+    configurable: true,
+  });
+  try {
+    return fn();
+  } finally {
+    if (original === undefined) {
+      Reflect.deleteProperty(process, "getuid");
+    } else {
+      Object.defineProperty(process, "getuid", {
+        value: original,
+        configurable: true,
+      });
+    }
+  }
+}
 
 after(() => {
   for (const dir of created) {
@@ -60,7 +84,7 @@ function makeWorkspace(spec: WorkspaceSpec): string {
   return ws;
 }
 
-/** A realistic fixture: CLAUDE.md with an import + a MEMORY.md import, two rules,
+/** A realistic fixture: CLAUDE.md with imports, two rules,
  *  a settings.local.json + an output-style file. */
 function fullFixture(): string {
   return makeWorkspace({
@@ -71,6 +95,7 @@ function fullFixture(): string {
       "",
       "@import.md",
       "@MEMORY.md",
+      "@.claude/skills/workspace-health/SKILL.md",
       "",
       "## Trailing",
       "",
@@ -79,6 +104,7 @@ function fullFixture(): string {
     files: {
       "import.md": "IMPORTED_BODY_TOKEN",
       "MEMORY.md": "MEMORY_INDEX_TOKEN",
+      ".claude/skills/workspace-health/SKILL.md": "SKILL_CONTEXT_TOKEN",
       ".claude/rules/platform/x.md": "PLATFORM_RULE_TOKEN",
       ".claude/rules/custom/y.md": "CUSTOM_RULE_TOKEN",
       ".claude/settings.local.json": JSON.stringify({ outputStyle: "persona-style" }),
@@ -105,26 +131,6 @@ function captureWarn<T>(fn: () => T): { value: T; warnings: string[] } {
   }
 }
 
-/** Like captureWarn but ALSO captures log.error — for the fail-safe outer-catch path. */
-function captureWarnError<T>(fn: () => T): { value: T; warnings: string[]; errors: string[] } {
-  const warnings: string[] = [];
-  const errors: string[] = [];
-  const origWarn = log.warn;
-  const origError = log.error;
-  log.warn = (_tag: string, message: string) => {
-    warnings.push(message);
-  };
-  log.error = (_tag: string, message: string) => {
-    errors.push(message);
-  };
-  try {
-    return { value: fn(), warnings, errors };
-  } finally {
-    log.warn = origWarn;
-    log.error = origError;
-  }
-}
-
 describe("buildBundle — deterministic order (D7)", () => {
   it("assembles body, imports (in order), platform rules, custom rules, memory directive", () => {
     const ws = fullFixture();
@@ -133,16 +139,18 @@ describe("buildBundle — deterministic order (D7)", () => {
     const iBody = bundle.indexOf("INTRO_BODY_TOKEN");
     const iImport = bundle.indexOf("## import.md");
     const iMemorySection = bundle.indexOf("## MEMORY.md");
+    const iSkill = bundle.indexOf("## .claude/skills/workspace-health/SKILL.md");
     const iPlatform = bundle.indexOf("## .claude/rules/platform/x.md");
     const iCustom = bundle.indexOf("## .claude/rules/custom/y.md");
     const iMemAccess = bundle.indexOf("## Memory access");
 
-    for (const [name, idx] of Object.entries({ iBody, iImport, iMemorySection, iPlatform, iCustom, iMemAccess })) {
+    for (const [name, idx] of Object.entries({ iBody, iImport, iMemorySection, iSkill, iPlatform, iCustom, iMemAccess })) {
       assert.ok(idx >= 0, `${name} should be present in the bundle`);
     }
     assert.ok(iBody < iImport, "body precedes the first import section");
     assert.ok(iImport < iMemorySection, "imports keep their CLAUDE.md order (import.md before MEMORY.md)");
-    assert.ok(iMemorySection < iPlatform, "imports precede platform rules");
+    assert.ok(iMemorySection < iSkill, "MEMORY.md precedes later skill imports");
+    assert.ok(iSkill < iPlatform, "skill imports precede platform rules");
     assert.ok(iPlatform < iCustom, "platform rules precede custom rules");
     assert.ok(iCustom < iMemAccess, "custom rules precede the memory directive");
   });
@@ -153,6 +161,7 @@ describe("buildBundle — deterministic order (D7)", () => {
 
     assert.ok(bundle.includes("IMPORTED_BODY_TOKEN"), "import.md content is inlined");
     assert.ok(bundle.includes("MEMORY_INDEX_TOKEN"), "MEMORY.md content is inlined");
+    assert.ok(bundle.includes("SKILL_CONTEXT_TOKEN"), "skill context imported from .claude/skills is inlined");
     assert.ok(bundle.includes("PLATFORM_RULE_TOKEN"));
     assert.ok(bundle.includes("CUSTOM_RULE_TOKEN"));
     assert.ok(bundle.includes("TRAILING_BODY_TOKEN"), "body after the @-lines is preserved");
@@ -161,6 +170,7 @@ describe("buildBundle — deterministic order (D7)", () => {
     // `## <relpath>` section headers carry the path).
     assert.ok(!/^[ \t]*@import\.md[ \t]*$/m.test(bundle), "@import.md line removed");
     assert.ok(!/^[ \t]*@MEMORY\.md[ \t]*$/m.test(bundle), "@MEMORY.md line removed");
+    assert.ok(!/^[ \t]*@\.claude\/skills\/workspace-health\/SKILL\.md[ \t]*$/m.test(bundle), "skill @-import line removed");
   });
 
   it("includes the fixed memory-access directive verbatim", () => {
@@ -259,6 +269,21 @@ describe("expandImports", () => {
     );
     assert.strictEqual(result.bodyWithoutImports, "top\nbottom", "all @-lines stripped from body");
   });
+
+  it("skips @-imports whose symlink target resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret.md"), "SYMLINK_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    writeFileSync(join(ws, "ok.md"), "OK_TOKEN", "utf8");
+    symlinkSync(join(parent, "secret.md"), join(ws, "leak.md"));
+
+    const { value: result, warnings } = captureWarn(() => expandImports("@leak.md\n@ok.md", ws));
+
+    assert.deepStrictEqual(result.sections, [{ relpath: "ok.md", content: "OK_TOKEN" }]);
+    assert.ok(!result.sections.some((section) => section.content.includes("SYMLINK_SECRET_TOKEN")));
+    assert.ok(warnings.some((m) => m.includes("resolves outside the workspace")));
+  });
 });
 
 describe("collectRules", () => {
@@ -285,6 +310,25 @@ describe("collectRules", () => {
     const ws = makeWorkspace({ files: { ".claude/rules/platform/only.md": "ONLY" } });
     const rules = collectRules(ws);
     assert.deepStrictEqual(rules.map((r) => r.relpath), [".claude/rules/platform/only.md"]);
+  });
+
+  it("skips rule files whose symlink target resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-rule-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret-rule.md"), "RULE_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    const ruleDir = join(ws, ".claude", "rules", "platform");
+    mkdirSync(ruleDir, { recursive: true });
+    writeFileSync(join(ruleDir, "ok.md"), "RULE_OK_TOKEN", "utf8");
+    symlinkSync(join(parent, "secret-rule.md"), join(ruleDir, "leak.md"));
+
+    const { value: rules, warnings } = captureWarn(() => collectRules(ws));
+
+    assert.deepStrictEqual(rules, [
+      { relpath: ".claude/rules/platform/ok.md", content: "RULE_OK_TOKEN" },
+    ]);
+    assert.ok(!rules.some((rule) => rule.content.includes("RULE_SECRET_TOKEN")));
+    assert.ok(warnings.some((m) => m.includes("rule file resolves outside the workspace")));
   });
 });
 
@@ -331,6 +375,25 @@ describe("resolvePersona (D6)", () => {
     assert.strictEqual(persona, null, "a slug with path separators resolves to no persona");
     assert.ok(warnings.some((m) => m.includes("not a bare filename")), "warned about the slug");
   });
+
+  it("ignores output-style files whose symlink target resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-style-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "secret-style.md"), "STYLE_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    mkdirSync(join(ws, ".claude", "output-styles"), { recursive: true });
+    writeFileSync(
+      join(ws, ".claude", "settings.local.json"),
+      JSON.stringify({ outputStyle: "leak" }),
+      "utf8",
+    );
+    symlinkSync(join(parent, "secret-style.md"), join(ws, ".claude", "output-styles", "leak.md"));
+
+    const { value: persona, warnings } = captureWarn(() => resolvePersona(agentFor(ws)));
+
+    assert.strictEqual(persona, null);
+    assert.ok(warnings.some((m) => m.includes("output-style") && m.includes("resolves outside")));
+  });
 });
 
 describe("writeTempArtifact", () => {
@@ -340,7 +403,13 @@ describe("writeTempArtifact", () => {
 
     assert.ok(path.endsWith(join(".tmp", "pi-context-agent-7.bundle.md")));
     assert.strictEqual(readFileSync(path, "utf8"), "BUNDLE_CONTENT");
-    assert.throws(() => statSync(`${path}.tmp.${process.pid}`), "staging file is renamed away");
+    assert.strictEqual(statSync(join(ws, ".tmp")).mode & 0o777, 0o700);
+    assert.strictEqual(statSync(path).mode & 0o777, 0o600);
+    assert.deepStrictEqual(
+      readdirSync(join(ws, ".tmp")).filter((name) => name.includes(`.tmp.${process.pid}.`)),
+      [],
+      "staging file is renamed away",
+    );
   });
 
   it("keeps unsafe agent IDs inside .tmp artifact paths", () => {
@@ -351,6 +420,59 @@ describe("writeTempArtifact", () => {
     assert.match(path, /pi-context-outside_agent-[a-f0-9]{12}\.bundle\.md$/);
     assert.strictEqual(readFileSync(path, "utf8"), "SAFE_CONTENT");
     assert.throws(() => statSync(join(ws, "outside", "agent.bundle.md")));
+  });
+
+  it("tightens an existing loose .tmp directory before writing artifacts", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const tmpDir = join(ws, ".tmp");
+    mkdirSync(tmpDir, { recursive: true, mode: 0o755 });
+    chmodSync(tmpDir, 0o755);
+
+    const path = writeTempArtifact(ws, "agent-7", "persona", "PERSONA_CONTENT");
+
+    assert.strictEqual(statSync(tmpDir).mode & 0o777, 0o700);
+    assert.strictEqual(statSync(path).mode & 0o777, 0o600);
+  });
+
+  it("refuses to write artifacts through a .tmp symlink", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const decoy = mkdtempSync(join(tmpdir(), "pi-context-decoy-"));
+    created.push(decoy);
+    symlinkSync(decoy, join(ws, ".tmp"));
+
+    assert.throws(
+      () => writeTempArtifact(ws, "agent-7", "bundle", "BUNDLE_CONTENT"),
+      /symlink/,
+    );
+    assert.throws(() => statSync(join(decoy, "pi-context-agent-7.bundle.md")));
+  });
+
+  it("refuses to write artifacts when .tmp is owned by another uid", () => {
+    const currentUid = process.getuid?.();
+    if (currentUid === undefined) return;
+    const ws = makeWorkspace({ claudeMd: "# x" });
+
+    assert.throws(
+      () => withPatchedGetuid(currentUid + 1, () => writeTempArtifact(ws, "agent-7", "bundle", "BUNDLE_CONTENT")),
+      /owned by uid/,
+    );
+  });
+
+  it("uses exclusive staging writes and does not overwrite a colliding staging file", () => {
+    const ws = makeWorkspace({ claudeMd: "# x" });
+    const tmpDir = join(ws, ".tmp");
+    mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+    const finalPath = join(tmpDir, "pi-context-agent-7.bundle.md");
+    const stagingPath = `${finalPath}.tmp.collision`;
+    writeFileSync(stagingPath, "EXISTING_STAGING_CONTENT", "utf8");
+
+    assert.throws(
+      () => writeTempArtifact(ws, "agent-7", "bundle", "BUNDLE_CONTENT", { stagingSuffix: "collision" }),
+      /EEXIST|exist/i,
+    );
+
+    assert.strictEqual(readFileSync(stagingPath, "utf8"), "EXISTING_STAGING_CONTENT");
+    assert.strictEqual(existsSync(finalPath), false);
   });
 });
 
@@ -402,6 +524,24 @@ describe("assemblePiContext", () => {
     assert.ok(bundle.includes("LOCAL_IMPORT_TOKEN"), "the under-workspace import is inlined");
     assert.ok(!bundle.includes("HOST_SECRET_TOKEN"), "the escaping ../ import is NOT inlined");
     assert.ok(!/^[ \t]*@\.\.\/secret\.md[ \t]*$/m.test(bundle), "the escaping @-line is stripped");
+  });
+
+  it("writes a sanitized bundle when CLAUDE.md resolves outside the workspace", () => {
+    const parent = mkdtempSync(join(tmpdir(), "pi-ctx-claude-symlink-"));
+    created.push(parent);
+    writeFileSync(join(parent, "CLAUDE.md"), "CLAUDE_SYMLINK_SECRET_TOKEN", "utf8");
+    const ws = mkdtempSync(join(parent, "ws-"));
+    symlinkSync(join(parent, "CLAUDE.md"), join(ws, "CLAUDE.md"));
+
+    const { value: result, warnings } = captureWarn(() =>
+      assemblePiContext(agentFor(ws, { id: "claudesymlink" })),
+    );
+
+    assert.ok(result, "escaped CLAUDE.md must still suppress Pi flat context loading");
+    const bundle = readFileSync(result.appendSystemPromptPath, "utf8");
+    assert.ok(!bundle.includes("CLAUDE_SYMLINK_SECRET_TOKEN"));
+    assert.ok(bundle.includes("## Memory access"));
+    assert.ok(warnings.some((m) => m.includes("CLAUDE.md resolves outside the workspace")));
   });
 
   it("fail-safe: a missing CLAUDE.md does not throw (rules-only bundle still assembles)", () => {
@@ -515,19 +655,15 @@ describe("assemblePiContext", () => {
     assert.strictEqual(readFileSync(second.systemPromptPath, "utf8"), "PROMPT_TWO");
   });
 
-  it("fail-safe: returns null (no throw) when the .tmp artifact dir cannot be created", () => {
-    // The headline contract is "a total failure degrades to a bare spawn, never
-    // crashes". Force the only throw-capable step (writeTempArtifact's mkdirSync)
-    // to fail by occupying `.tmp` with a regular file, and assert the outer catch
-    // swallows it into a null return.
+  it("throws when the .tmp artifact dir cannot be created after content was assembled", () => {
+    // Callers catch this and add --no-context-files. The assembler itself must not
+    // collapse write failure into the same null result used for empty workspaces.
     const ws = makeWorkspace({ claudeMd: "# x\n\nBODY" });
     writeFileSync(join(ws, ".tmp"), "i am a file, not a dir", "utf8");
 
-    const { value, errors } = captureWarnError(() => assemblePiContext(agentFor(ws, { id: "throwcase" })));
-    assert.strictEqual(value, null, "a write failure degrades to a bare spawn");
-    assert.ok(
-      errors.some((m) => m.includes("context assembly failed")),
-      "the fallback was logged via log.error",
+    assert.throws(
+      () => assemblePiContext(agentFor(ws, { id: "throwcase" })),
+      /Refusing to use .*\.tmp: not a directory/,
     );
   });
 });

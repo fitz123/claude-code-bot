@@ -54,8 +54,9 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
 export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
 
 /**
- * Kill-switch env var: set to exactly `"1"` to spawn Pi with NO extensions
- * (fast rollback to a bare, claude-parity spawn — see the plan's Rollback).
+ * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
+ * first-party extensions. Spawns still pass `--no-extensions` so Pi's ambient
+ * extension discovery remains disabled.
  */
 export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
 
@@ -135,9 +136,10 @@ export function shouldIncludePiChildEnvKey(key: string): boolean {
 /**
  * Resolve the repeatable `--extension <abs-path>` args for a Pi spawn.
  *
- * Loading is DELIBERATELY per-spawn rather than via Pi's auto-discovery dirs
- * (those are for `/reload`). Returns `[]` when `PI_EXTENSIONS_DISABLED=1` so the
- * spawn is a bare claude-parity command (fast rollback).
+ * Loading is DELIBERATELY per-spawn rather than via Pi's auto-discovery dirs.
+ * Returns `[]` when `PI_EXTENSIONS_DISABLED=1` so the spawn has no explicit
+ * first-party wrappers; callers still pass `--no-extensions` to keep ambient
+ * discovery disabled.
  *
  * FAIL-CLOSED: a configured wrapper missing on disk THROWS loudly instead of
  * silently dropping it — A1 is the write guard, so a silent skip would spawn an
@@ -161,7 +163,7 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
       throw new Error(
         `Pi extension wrapper not found: ${abs}. Refusing to spawn an unguarded ` +
           `Pi session. Restore the wrapper, or set ${PI_EXTENSIONS_DISABLED_ENV}=1 ` +
-          `to spawn without extensions.`,
+          `to spawn without explicit first-party extensions.`,
       );
     }
     args.push("--extension", abs);
@@ -281,15 +283,15 @@ export function buildPiSpawnArgs(
     "--mode", "rpc",
     "--provider", PI_PROVIDER,
     "--model", normalizePiModel(agent.model),
+    "--no-extensions",
   ];
 
-  if (agent.provider === "pi" && agent.thinking) {
+  if (agent.thinking) {
     args.push("--thinking", agent.thinking);
   }
 
-  // Spawn-time context assembly — provider: "pi" ONLY (the claude path never
-  // reaches here). The assembler (pi-context-assembler.ts) gives full Claude→Pi
-  // context parity from the agent's LIVE workspace files, delivered as three CLI
+  // Spawn-time context assembly. The assembler (pi-context-assembler.ts) gives
+  // workspace-context parity from the agent's LIVE workspace files, delivered as three CLI
   // layers, REPLACING the old `agent.systemPrompt → --append-system-prompt` branch:
   //   --system-prompt <persona>   REPLACES Pi's base prompt (omitted when no persona
   //                               resolves — the agent then rides Pi's base prompt).
@@ -297,35 +299,35 @@ export function buildPiSpawnArgs(
   //   --no-context-files          so Pi does NOT ALSO flat-load CLAUDE.md/AGENTS.md
   //                               from cwd (avoids double context).
   // At most ONE --system-prompt and ONE --append-system-prompt are emitted. The
-  // assembler is fail-safe by construction (a bad source → warn+skip; a total
-  // failure or empty workspace → null → bare spawn), but a write into an
-  // unwritable `.tmp/` could still throw — wrap it so a throw degrades to a bare
-  // spawn (log.error) and NEVER blocks the spawn.
-  if (agent.provider === "pi") {
-    try {
-      const context = assemblePiContext(agent);
-      if (context) {
-        if (context.systemPromptPath) {
-          args.push("--system-prompt", context.systemPromptPath);
-        }
-        args.push("--append-system-prompt", context.appendSystemPromptPath);
-        args.push("--no-context-files");
+  // assembler is fail-safe for source reads (bad source → warn+skip; empty
+  // workspace → null → bare spawn), but artifact writes can throw after source
+  // content has been classified. A throw must fail closed with --no-context-files
+  // so Pi does not flat-load context files the assembler could not safely deliver.
+  try {
+    const context = assemblePiContext(agent);
+    if (context) {
+      if (context.systemPromptPath) {
+        args.push("--system-prompt", context.systemPromptPath);
       }
-    } catch (err) {
-      log.error(
-        "pi-rpc",
-        `Pi context assembly threw for agent "${agent.id}", spawning bare: ${(err as Error).message}`,
-      );
+      args.push("--append-system-prompt", context.appendSystemPromptPath);
+      args.push("--no-context-files");
     }
+  } catch (err) {
+    log.error(
+      "pi-rpc",
+      `Pi context assembly threw for agent "${agent.id}", suppressing flat context loading: ${(err as Error).message}`,
+    );
+    args.push("--no-context-files");
   }
 
-  // Load A1-A3 as repeatable `--extension <abs-path>` args (per-spawn is
-  // deliberate; auto-discovery dirs are for `/reload`). The kill-switch and the
-  // fail-closed missing-wrapper check live in resolvePiExtensionArgs.
+  // Keep `--no-extensions` on every spawn to suppress Pi's ambient extension
+  // discovery; load A1-A3 only as explicit repeatable `--extension <abs-path>`
+  // args. The kill-switch and the fail-closed missing-wrapper check live in
+  // resolvePiExtensionArgs.
   args.push(...resolvePiExtensionArgs(extensionOptions));
 
-  // Pi mints its own session id (the bot cannot pre-assign one as it does for
-  // claude via --session-id). When resuming a stored session, point Pi at the
+  // Pi mints its own session id (the bot cannot pre-assign one with
+  // --session-id). When resuming a stored session, point Pi at the
   // captured id with --session; on a fresh start, omit it entirely (passing an
   // unknown id makes Pi exit 1 with "No session found matching").
   if (resumeSessionId) {
@@ -350,8 +352,7 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   // ambient credentials such as provider tokens or SSH agent sockets.
   delete env.CLAUDE_CODE_OAUTH_TOKEN;
   delete env.ANTHROPIC_API_KEY;
-  // Parity with the Claude path (cli-protocol.ts): never leak the Claude Code
-  // session marker into a spawned agent subprocess.
+  // Never leak the legacy session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
   // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
   // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
@@ -797,9 +798,7 @@ export function parsePiRecord(record: string): StreamLine | null {
 }
 
 /**
- * Extract streamable text from a translated Pi `StreamLine`, mirroring
- * `extractTextDelta` from cli-protocol so the relay treats both providers
- * identically.
+ * Extract streamable text from a translated Pi `StreamLine`.
  */
 export function extractPiTextDelta(msg: StreamLine): string | null {
   if (msg.type === "stream_event") {

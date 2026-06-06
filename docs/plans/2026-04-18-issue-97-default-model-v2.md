@@ -1,5 +1,7 @@
 # Top-level defaultModel for agent config — Round 1
 
+Status note (2026-06-06): historical plan. Current runtime contracts are Pi/Codex only; `provider: claude`, `engine: claude`, `fallbackModel`, `defaultFallbackModel`, `effort`, `maxTurns`, and `allowedTools` fail validation. Agents require explicit `model`; use `thinking`; auth is `pi /login` via `~/.pi/agent/auth.json`; LLM crons run Pi print mode only.
+
 ## Goal
 
 Let the bot owner declare the model once at the top of `config.yaml` instead of repeating `model:` on every agent. Per-agent `model` still works as an override. Resolves fitz123/claude-code-bot#97.

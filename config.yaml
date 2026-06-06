@@ -10,42 +10,25 @@
 telegramTokenService: telegram-bot-token
 logLevel: info
 
-# Fleet-wide defaults: any agent without its own `model` / `fallbackModel`
-# inherits these. Bump here to upgrade every inheriting agent at once.
-# Per-agent `model` / `fallbackModel` still wins when declared.
-#
-# Aliases (`opus`, `sonnet`, `haiku`) resolve to the latest version for your
-# account tier and auto-upgrade when Anthropic ships a new model. Pin to a
-# full name (e.g. `claude-opus-4-7`) if you want a fixed version. Append
-# `[1m]` (e.g. `opus[1m]`) to opt into the 1M-token context window on
-# supported models — see Claude Code's Model configuration docs for plan
-# eligibility.
-defaultModel: opus
-defaultFallbackModel: sonnet
+# Agents must set explicit Pi/Codex models. The top-level defaultModel key is
+# accepted for old config overlays but is no longer inherited by agents.
+defaultModel: gpt-5.5
 
 agents:
   main:
     id: main
     workspaceCwd: /tmp/minime-workspace   # override in config.local.yaml with your actual workspace path
-    # model / fallbackModel omitted — inherited from defaultModel / defaultFallbackModel
-    maxTurns: 250     # safety limit for agentic loops per message (omit for unlimited)
-    effort: high      # Claude reasoning effort; Pi crons map this to --thinking (low, medium, high; omit for default medium)
-    # provider: claude  # coding backend: "claude" (default, omit) or "pi" (Pi RPC + OpenAI Codex).
-                        # "pi" routes the agent through the Pi coding agent; "claude" uses `claude -p`.
-                        # A "pi" agent MUST set an explicit model (e.g. model: gpt-5.5) — it does
-                        # not inherit defaultModel (which is Claude-oriented).
-                        # Optional for "pi" sessions: thinking: off|minimal|low|medium|high|xhigh.
-                        # Cron backend selection is separate: set crons*.yaml `engine: pi` per LLM cron.
-                        # Pi crons ignore provider/model/fallbackModel/maxTurns/allowedTools and use workspaceCwd,
-                        # optional systemPrompt, and effort only.
+    model: gpt-5.5
+    thinking: high    # Pi/Codex thinking level: off|minimal|low|medium|high|xhigh.
+    # provider: pi    # optional compatibility field; omit or set to "pi".
+                      # Cron backend selection is separate: set crons*.yaml `engine: pi` per LLM cron.
+                      # Pi crons use workspaceCwd, optional systemPrompt, and thinking.
 
   # Add more agents as needed:
   # coder:
   #   id: coder
   #   workspaceCwd: /tmp/minime-workspace-coder
-  #   # inherits defaultModel; override here if this agent needs a different model:
-  #   # model: claude-haiku-4-5-20251001
-  #   maxTurns: 250
+  #   model: gpt-5.5
 
 bindings:
   - chatId: 111111111           # override in config.local.yaml with your Telegram user ID (numeric)

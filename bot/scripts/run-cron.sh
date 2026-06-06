@@ -10,23 +10,11 @@ export HOME="${HOME:-$(dscl . -read /Users/$(whoami) NFSHomeDirectory | awk '{pr
 PATH_PREFIX="${MINIME_PATH_PREFIX:-/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
 export PATH="${PATH_PREFIX}${PATH:+:${PATH}}"
 
-# Claude Code subprocess must NOT inherit CLAUDECODE
+# Drop inherited legacy AI runtime environment before cron execution
+for env_name in ${!CLAUDE_CODE_@} ${!ANTHROPIC_@}; do
+  unset "$env_name"
+done
 unset CLAUDECODE
-
-# Read OAuth token from Keychain for Claude CLI subprocess when available. This
-# must be best-effort so Pi-engine crons can run without a Claude credential.
-if CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s claude-code-oauth-token -w 2>/dev/null)"; then
-  export CLAUDE_CODE_OAUTH_TOKEN
-else
-  unset CLAUDE_CODE_OAUTH_TOKEN
-fi
-unset ANTHROPIC_API_KEY
-
-# Claude Code subprocess environment
-export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
-export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
-export CLAUDE_CODE_DISABLE_CRON=1
-export CLAUDE_CODE_ENABLE_TELEMETRY=1
 
 TASK_NAME="${1:?Usage: run-cron.sh <task-name>}"
 export CRON_NAME="$TASK_NAME"

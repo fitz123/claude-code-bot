@@ -55,19 +55,19 @@ Rationale:
 If a wrapper ever grows logic worth testing, move that logic into a
 `src/pi-extensions/*.ts` helper rather than adding a tsconfig for the wrapper.
 
-## Context assembler (Claude→Pi parity at spawn)
+## Context assembler (workspace context parity at spawn)
 
-`bot/src/pi-context-assembler.ts` gives Pi spawns the SAME context a Claude Code
-session loads. Pi reads context files as FLAT text — no `@`-import expansion, no
+`bot/src/pi-context-assembler.ts` gives Pi spawns the same workspace context
+bundle. Pi reads context files as FLAT text — no `@`-import expansion, no
 `.claude/rules/` auto-load, no memory recall — so an agent's CLAUDE.md
 `@`-imports and rule files silently vanish under Pi. The assembler reads the
 agent's LIVE workspace files (zero drift, always fresh) and hands the result to Pi
 via CLI args. It is wired into `buildPiSpawnArgs` in
-`bot/src/pi-rpc-protocol.ts` for `provider: "pi"` RPC sessions, and `cron-runner.ts`
-also calls it directly for `engine: pi` print-mode crons. For crons, the runner
+`bot/src/pi-rpc-protocol.ts` for all live Pi RPC sessions, and `cron-runner.ts`
+also calls it directly for LLM print-mode crons where `engine` may be omitted
+or set to `pi`. For crons, the runner
 builds a minimal Pi agent from `agentId`, `workspaceCwd`, optional
-`systemPrompt`, and `effort`, then injects CLAUDE/MEMORY/rules context via files.
-The `claude -p` path is untouched.
+`systemPrompt`, and `thinking`, then injects CLAUDE/MEMORY/rules context via files.
 
 ### Layer mapping
 
@@ -95,7 +95,7 @@ The `--append-system-prompt` bundle is assembled in this exact order:
 
 MEMORY.md reaches the bundle as one of the CLAUDE.md `@`-imports (`@MEMORY.md`) →
 expanded as a `## MEMORY.md` section = the long-term-memory index. The corpus under
-`memory/auto/*` is read ON DEMAND, not inlined. Auto-recall like the Claude harness
+`memory/auto/*` is read ON DEMAND, not inlined. Auto-recall like the legacy harness
 (a `memory_search` RAG tool) is **not yet available under Pi — it is a tracked
 fast-follow**; the fixed directive tells the agent to read the index deliberately.
 

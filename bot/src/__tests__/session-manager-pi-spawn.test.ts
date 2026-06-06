@@ -28,21 +28,12 @@ function cleanup() {
 // Captures + tunables driven by the module mocks below.
 // ---------------------------------------------------------------------------
 
-/** Opts captured from the mocked claude spawnClaudeSession. */
-interface ClaudeSpawnOpts {
-  agent: { model: string; [key: string]: unknown };
-  sessionId?: string;
-  resume?: boolean;
-  [key: string]: unknown;
-}
-
 /** Args captured from the mocked Pi spawnPiRpcSession. */
 interface PiSpawnCapture {
   agent: AgentConfig;
   resumeSessionId?: string;
 }
 
-const claudeSpawnCaptures: ClaudeSpawnOpts[] = [];
 const piSpawnCaptures: PiSpawnCapture[] = [];
 
 /**
@@ -51,6 +42,7 @@ const piSpawnCaptures: PiSpawnCapture[] = [];
  * (capture must then fall back to the bot's local id).
  */
 let nextPiSessionId: string | null = "pi-generated-id";
+let suppressGetStateResponse = false;
 
 /**
  * When set, the mocked sendPiGetState throws this error — models the
@@ -185,21 +177,10 @@ function createSpawnThenExitChild(failStderr: string): ChildProcess {
 }
 
 // ---------------------------------------------------------------------------
-// Mock BOTH protocol modules BEFORE importing session-manager so the mocks are
+// Mock the Pi protocol module BEFORE importing session-manager so the mock is
 // in place when session-manager's static imports resolve. The spawn path needs
 // the REAL session-manager but stubbed protocol fns (mirrors hot-reload.test.ts).
 // ---------------------------------------------------------------------------
-mock.module("../cli-protocol.js", {
-  namedExports: {
-    spawnClaudeSession(opts: ClaudeSpawnOpts) {
-      claudeSpawnCaptures.push(opts);
-      return createAutoSpawnChild();
-    },
-    sendMessage() {},
-    async *readStream(): AsyncGenerator<StreamLine> {},
-  },
-});
-
 mock.module("../pi-rpc-protocol.js", {
   namedExports: {
     spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string) {
@@ -211,6 +192,7 @@ mock.module("../pi-rpc-protocol.js", {
     },
     sendPiGetState(child: ChildProcess) {
       if (getStateError) throw getStateError;
+      if (suppressGetStateResponse) return;
       // capturePiSessionId reads child.stdout directly (abortable), so model Pi's
       // get_state reply by pushing the real JSONL record onto stdout. `null`
       // models a process that answers without a session id: end the stream so
@@ -252,7 +234,7 @@ function makeConfig(): BotConfig {
       main: {
         id: "main",
         workspaceCwd: "/tmp/test-workspace",
-        model: "claude-opus-4-6",
+        model: "gpt-5.5",
       },
       pi: {
         id: "pi",
@@ -284,10 +266,10 @@ describe("SessionManager Pi session-id capture + resume", () => {
   beforeEach(() => {
     cleanup();
     mkdirSync(TEST_DIR, { recursive: true });
-    claudeSpawnCaptures.length = 0;
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
+    suppressGetStateResponse = false;
     getStateError = null;
   });
 
@@ -310,14 +292,12 @@ describe("SessionManager Pi session-id capture + resume", () => {
     assert.strictEqual(session.provider, "pi");
     assert.strictEqual(session.model, "openai-codex/gpt-5.5");
     assert.strictEqual(session.thinking, "xhigh");
-    assert.strictEqual(session.effort, undefined);
 
     const health = manager.getSessionHealth("pi-chat");
     assert.ok(health);
     assert.strictEqual(health.provider, "pi");
     assert.strictEqual(health.model, "openai-codex/gpt-5.5");
     assert.strictEqual(health.thinking, "xhigh");
-    assert.strictEqual(health.effort, undefined);
 
     // ...and the captured id is persisted for resume across restarts.
     const store = new SessionStore(TEST_STORE_PATH);
@@ -376,6 +356,30 @@ describe("SessionManager Pi session-id capture + resume", () => {
     await manager.closeAll();
   });
 
+  it("falls back to the bot's local id when get_state capture times out on an idle child", async () => {
+    suppressGetStateResponse = true;
+
+    const manager = new SessionManager(
+      () => makeConfig(),
+      TEST_STORE_PATH,
+      undefined,
+      { startupTimeoutMs: 20 },
+    );
+    const session = await manager.getOrCreateSession("pi-timeout", "pi");
+
+    assert.ok(session.sessionId.length > 0, "session keeps a usable local id");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, undefined, "fresh start: no resume id");
+
+    const store = new SessionStore(TEST_STORE_PATH);
+    assert.strictEqual(
+      store.getSession("pi-timeout")?.sessionId,
+      session.sessionId,
+      "the local id is persisted after capture timeout",
+    );
+
+    await manager.closeAll();
+  });
+
   it("get_state throwing (child died right after spawn) falls back to the local id, not an uncaught throw", async () => {
     // Spawn succeeds (waitForSpawn resolves on 'spawn'), but the child dies before
     // get_state is written, so sendPiGetState throws — the spawn-then-exit race.
@@ -400,28 +404,18 @@ describe("SessionManager Pi session-id capture + resume", () => {
     await manager.closeAll();
   });
 
-  it("claude path bot-generates --session-id and never issues get_state (regression)", async () => {
+  it("spawns an absent-provider agent via Pi and captures its Pi session id", async () => {
+    nextPiSessionId = "main-pi-id";
     const manager = new SessionManager(() => makeConfig(), TEST_STORE_PATH);
-    const session = await manager.getOrCreateSession("claude-chat", "main");
+    const session = await manager.getOrCreateSession("main-chat", "main");
 
-    assert.strictEqual(claudeSpawnCaptures.length, 1, "one claude spawn");
-    assert.strictEqual(claudeSpawnCaptures[0].resume, false, "fresh claude session does not resume");
-    assert.ok(
-      typeof claudeSpawnCaptures[0].sessionId === "string" && claudeSpawnCaptures[0].sessionId.length > 0,
-      "claude path bot-generates a --session-id",
-    );
-
-    // No get_state override: the session keeps the bot-generated id exactly.
-    assert.strictEqual(
-      session.sessionId,
-      claudeSpawnCaptures[0].sessionId,
-      "claude session keeps the bot-generated id (no Pi capture override)",
-    );
-    assert.strictEqual(session.provider, "claude");
-    assert.strictEqual(session.model, "claude-opus-4-6");
+    assert.strictEqual(piSpawnCaptures.length, 1, "one Pi spawn");
+    assert.strictEqual(piSpawnCaptures[0].agent.id, "main");
+    assert.strictEqual(piSpawnCaptures[0].resumeSessionId, undefined);
+    assert.strictEqual(session.sessionId, "main-pi-id");
+    assert.strictEqual(session.provider, "pi");
+    assert.strictEqual(session.model, "openai-codex/gpt-5.5");
     assert.strictEqual(session.thinking, undefined);
-    // The claude path must not have touched the Pi spawn path at all.
-    assert.strictEqual(piSpawnCaptures.length, 0, "claude path must not spawn a Pi process");
 
     await manager.closeAll();
   });
@@ -438,12 +432,11 @@ describe("SessionManager Pi graceful resume-recovery (Task 4)", () => {
   beforeEach(() => {
     cleanup();
     mkdirSync(TEST_DIR, { recursive: true });
-    claudeSpawnCaptures.length = 0;
     piSpawnCaptures.length = 0;
     piSpawnOutcomes = [];
     nextPiSessionId = "pi-generated-id";
     getStateError = null;
-    // The media-preserved assertions write into /tmp/bot-media; clear each
+    // The media-preserved assertions write into the test media root; clear each
     // chat's dir between runs so a prior run's file can't mask a regression.
     try { rmSync(sessionMediaDir("pi-keep"), { recursive: true, force: true }); } catch { /* ignore */ }
     try { rmSync(sessionMediaDir("pi-inflight"), { recursive: true, force: true }); } catch { /* ignore */ }

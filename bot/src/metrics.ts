@@ -9,28 +9,30 @@ const register = client.register;
 client.collectDefaultMetrics();
 
 // --- Token usage ---
+// Legacy bot_claude_* names are retained for dashboard continuity. These
+// counters record usage reported by the active agent runtime.
 
 export const tokensInput = new client.Counter({
   name: "bot_claude_tokens_input_total",
-  help: "Total input tokens consumed",
+  help: "Total input tokens reported by the active agent runtime (legacy metric name)",
   labelNames: ["agent_id"] as const,
 });
 
 export const tokensOutput = new client.Counter({
   name: "bot_claude_tokens_output_total",
-  help: "Total output tokens consumed",
+  help: "Total output tokens reported by the active agent runtime (legacy metric name)",
   labelNames: ["agent_id"] as const,
 });
 
 export const tokensCacheRead = new client.Counter({
   name: "bot_claude_tokens_cache_read_total",
-  help: "Total cache read input tokens",
+  help: "Total cache-read input tokens reported by the active agent runtime (legacy metric name)",
   labelNames: ["agent_id"] as const,
 });
 
 export const tokensCacheCreation = new client.Counter({
   name: "bot_claude_tokens_cache_creation_total",
-  help: "Total cache creation input tokens",
+  help: "Total cache-creation input tokens reported by the active agent runtime (legacy metric name)",
   labelNames: ["agent_id"] as const,
 });
 
@@ -38,7 +40,7 @@ export const tokensCacheCreation = new client.Counter({
 
 export const costUsd = new client.Counter({
   name: "bot_claude_cost_usd_total",
-  help: "Total USD cost from Claude API",
+  help: "Total USD cost reported by the active agent runtime (legacy metric name)",
   labelNames: ["agent_id"] as const,
 });
 
@@ -46,7 +48,7 @@ export const costUsd = new client.Counter({
 
 export const turnDuration = new client.Histogram({
   name: "bot_claude_turn_duration_seconds",
-  help: "Claude turn duration in seconds",
+  help: "Turn duration reported by the active agent runtime in seconds (legacy metric name)",
   labelNames: ["agent_id"] as const,
   buckets: [1, 5, 10, 30, 60, 120, 300, 600],
 });
@@ -58,7 +60,7 @@ export const piTurnDuration = new client.Histogram({
   name: "bot_pi_turn_duration_seconds",
   help: "Pi RPC turn duration in seconds",
   labelNames: ["agent_id"] as const,
-  // SAME buckets as the Claude histogram so dashboards compare providers directly.
+  // SAME buckets as the legacy runtime histogram so dashboards compare directly.
   buckets: [1, 5, 10, 30, 60, 120, 300, 600],
 });
 
@@ -137,7 +139,7 @@ export const messagesSent = new client.Counter({
 // --- Helpers ---
 
 /**
- * Record metrics from a Claude CLI result event.
+ * Record metrics from an active-runtime result event.
  * The result message contains usage data via the [key: string]: unknown catch-all.
  */
 export function recordResultMetrics(
@@ -232,7 +234,7 @@ export function recordPiRetry(agentId: string, errorMessage?: string): void {
 
 /**
  * Record a Pi RPC turn duration (seconds) into the Pi histogram, mirroring the
- * Claude turnDuration observation in recordResultMetrics.
+ * legacy turnDuration observation in recordResultMetrics.
  */
 export function recordPiTurnDuration(agentId: string, durationSeconds: number): void {
   piTurnDuration.observe({ agent_id: agentId }, durationSeconds);

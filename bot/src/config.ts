@@ -137,7 +137,6 @@ export function validateAgent(
   raw: unknown,
   id: string,
   defaultModel?: string,
-  defaultFallbackModel?: string,
 ): AgentConfig {
   if (typeof raw !== "object" || raw === null) {
     throw new Error(`Agent "${id}" must be an object`);
@@ -149,24 +148,40 @@ export function validateAgent(
   if (obj.model !== undefined && typeof obj.model !== "string") {
     throw new Error(`Agent "${id}" has invalid model (must be a string)`);
   }
-  // A Pi agent must not inherit the fleet-wide defaultModel: it is Claude-oriented
-  // (e.g. "opus"), and the Pi spawn path would prefix it into a nonsensical
-  // "openai-codex/opus" model string. Require an explicit, Pi-appropriate model.
-  if (obj.model === undefined && obj.provider === "pi") {
+  if (obj.provider === "claude") {
     throw new Error(
-      `Agent "${id}" uses provider "pi" and must set an explicit model (the top-level defaultModel is Claude-oriented); e.g. model: "gpt-5.5"`,
+      `Agent "${id}" uses provider "claude", but the Claude runtime has been removed; remove provider or set provider: "pi"`,
     );
   }
-  const model = obj.model ?? defaultModel;
-  if (typeof model !== "string") {
-    throw new Error(`Agent "${id}" missing model (and no top-level defaultModel set)`);
+  if (obj.provider !== undefined && obj.provider !== "pi") {
+    throw new Error(`Agent "${id}" has invalid provider "${String(obj.provider)}" (must be "pi"; Claude runtime was removed)`);
   }
-  if (obj.fallbackModel !== undefined && typeof obj.fallbackModel !== "string") {
-    throw new Error(`Agent "${id}" has invalid fallbackModel (must be a string)`);
+  // Pi is now the only runtime, and Pi agents require explicit model pins.
+  // Keep validating defaultModel for old configs, but do not inherit it here.
+  if (obj.model === undefined) {
+    const defaultHint = defaultModel !== undefined ? "; top-level defaultModel is no longer inherited by Pi agents" : "";
+    throw new Error(`Agent "${id}" missing model (Pi agents must set an explicit model${defaultHint})`);
   }
-  const fallbackModel = (obj.fallbackModel as string | undefined) ?? defaultFallbackModel;
-  if (obj.provider !== undefined && obj.provider !== "claude" && obj.provider !== "pi") {
-    throw new Error(`Agent "${id}" has invalid provider "${String(obj.provider)}" (must be "claude" or "pi")`);
+  const model = obj.model;
+  if (obj.fallbackModel !== undefined) {
+    throw new Error(
+      `Agent "${id}" uses fallbackModel, but fallback models were removed with the Claude runtime; remove fallbackModel`,
+    );
+  }
+  if (obj.effort !== undefined) {
+    throw new Error(
+      `Agent "${id}" uses effort, but effort was replaced by Pi thinking; use thinking: off|minimal|low|medium|high|xhigh`,
+    );
+  }
+  if (obj.maxTurns !== undefined) {
+    throw new Error(
+      `Agent "${id}" uses maxTurns, but Pi sessions do not support this setting; remove maxTurns`,
+    );
+  }
+  if (obj.allowedTools !== undefined) {
+    throw new Error(
+      `Agent "${id}" uses allowedTools, but Pi sessions do not support this setting; remove allowedTools`,
+    );
   }
   if (
     obj.thinking !== undefined &&
@@ -180,15 +195,9 @@ export function validateAgent(
     id: String(obj.id ?? id),
     workspaceCwd: obj.workspaceCwd,
     model,
-    fallbackModel,
     systemPrompt: typeof obj.systemPrompt === "string" ? obj.systemPrompt : undefined,
-    allowedTools: Array.isArray(obj.allowedTools) ? obj.allowedTools.map(String) : undefined,
-    maxTurns: typeof obj.maxTurns === "number" ? obj.maxTurns : undefined,
-    effort: typeof obj.effort === "string" && ["low", "medium", "high"].includes(obj.effort)
-      ? (obj.effort as AgentConfig["effort"])
-      : undefined,
     thinking: obj.thinking as AgentConfig["thinking"] | undefined,
-    provider: obj.provider === "pi" ? "pi" : "claude",
+    provider: "pi",
   };
 }
 
@@ -406,16 +415,15 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
     throw new Error("Config file is empty or invalid");
   }
 
-  // Validate top-level defaults (optional — inherited by agents without their own model/fallbackModel)
+  // Validate top-level defaults for migration clarity. Agents no longer inherit
+  // defaultModel now that Pi is the only runtime.
   if (raw.defaultModel !== undefined && typeof raw.defaultModel !== "string") {
     throw new Error(`Invalid defaultModel: must be a string`);
   }
-  if (raw.defaultFallbackModel !== undefined && typeof raw.defaultFallbackModel !== "string") {
-    throw new Error(`Invalid defaultFallbackModel: must be a string`);
+  if (raw.defaultFallbackModel !== undefined) {
+    throw new Error(`defaultFallbackModel was removed with the Claude runtime; remove defaultFallbackModel`);
   }
   const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
-  const defaultFallbackModel =
-    typeof raw.defaultFallbackModel === "string" ? raw.defaultFallbackModel : undefined;
 
   // Validate agents (needed before validating bindings)
   if (!raw.agents || typeof raw.agents !== "object") {
@@ -423,7 +431,7 @@ export function loadConfig(configPath?: string, options: LoadConfigOptions = {})
   }
   const agents: Record<string, AgentConfig> = {};
   for (const [id, agentRaw] of Object.entries(raw.agents)) {
-    agents[id] = validateAgent(agentRaw, id, defaultModel, defaultFallbackModel);
+    agents[id] = validateAgent(agentRaw, id, defaultModel);
   }
 
   // Resolve Telegram token from env var (Linux/NixOS) or Keychain (macOS).

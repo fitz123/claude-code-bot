@@ -1,9 +1,9 @@
 // cron-runner.ts — CLI entry point for running scheduled cron tasks
 // Usage: npx tsx src/cron-runner.ts --task <name>
-// Loads cron definition from crons.yaml, runs claude -p one-shot, delivers output to Telegram
+// Loads cron definition from crons.yaml, runs a Pi print-mode one-shot, delivers output to Telegram
 
 import { readFileSync, appendFileSync, mkdirSync, existsSync, writeFileSync, renameSync } from "node:fs";
-import { loadRawMergedConfig } from "./config.js";
+import { loadRawMergedConfig, validateAgent } from "./config.js";
 import {
   execSync,
   spawnSync,
@@ -38,13 +38,13 @@ const DEFAULT_CRON_HEALTH_TEXTFILE_DIR = "/opt/homebrew/var/node_exporter/textfi
 const PI_CRON_MODEL = "openai-codex/gpt-5.5";
 const PI_BIN = "pi";
 const PI_ERROR_EXCERPT_CHARS = 1000;
-type PiThinkingLevel = NonNullable<AgentConfig["effort"]>;
-const PI_THINKING_LEVELS = new Set<PiThinkingLevel>(["low", "medium", "high"]);
+type PiThinkingLevel = NonNullable<AgentConfig["thinking"]>;
+const PI_THINKING_LEVELS = new Set<PiThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 export interface CronAgentData {
   id: string;
   workspaceCwd: string;
   systemPrompt?: string;
-  effort?: AgentConfig["effort"];
+  thinking?: AgentConfig["thinking"];
 }
 
 export type PiRunResult =
@@ -262,8 +262,11 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
 
   let engine: CronJob["engine"];
   if (cronType === "llm" && c.engine !== undefined) {
-    if (c.engine !== "claude" && c.engine !== "pi") {
-      throw new Error(`Task "${taskName}" has invalid 'engine' "${c.engine}" (must be "claude" or "pi")`);
+    if (c.engine === "claude") {
+      throw new Error(`Task "${taskName}" uses engine: claude, but Claude cron runtime was removed; remove engine or set engine: pi`);
+    }
+    if (c.engine !== "pi") {
+      throw new Error(`Task "${taskName}" has invalid 'engine' "${c.engine}" (must be "pi" or omitted)`);
     }
     engine = c.engine;
   }
@@ -283,14 +286,22 @@ function loadCronTask(taskName: string, cronsPath?: string, defaults?: DeliveryD
   };
 }
 
-function isCronPiEffort(value: unknown): value is PiThinkingLevel {
+function isCronPiThinking(value: unknown): value is PiThinkingLevel {
   return typeof value === "string" && PI_THINKING_LEVELS.has(value as PiThinkingLevel);
 }
 
 function resolveCronAgentData(agentId: string, configPath?: string): CronAgentData {
   const raw = loadRawMergedConfig(configPath) as {
     agents?: Record<string, unknown>;
+    defaultModel?: unknown;
+    defaultFallbackModel?: unknown;
   };
+  if (raw.defaultModel !== undefined && typeof raw.defaultModel !== "string") {
+    throw new Error(`Invalid defaultModel: must be a string`);
+  }
+  if (raw.defaultFallbackModel !== undefined) {
+    throw new Error(`defaultFallbackModel was removed with the Claude runtime; remove defaultFallbackModel`);
+  }
   if (
     typeof raw?.agents !== "object" ||
     raw.agents === null ||
@@ -303,8 +314,9 @@ function resolveCronAgentData(agentId: string, configPath?: string): CronAgentDa
     throw new Error(`Agent "${agentId}" missing workspaceCwd`);
   }
 
-  const agent = rawAgent as Record<string, unknown>;
-  if (typeof agent.workspaceCwd !== "string" || !agent.workspaceCwd.trim()) {
+  const defaultModel = typeof raw.defaultModel === "string" ? raw.defaultModel : undefined;
+  const agent = validateAgent(rawAgent, agentId, defaultModel);
+  if (!agent.workspaceCwd.trim()) {
     throw new Error(`Agent "${agentId}" missing workspaceCwd`);
   }
 
@@ -312,11 +324,11 @@ function resolveCronAgentData(agentId: string, configPath?: string): CronAgentDa
     id: agentId,
     workspaceCwd: agent.workspaceCwd,
   };
-  if (typeof agent.systemPrompt === "string") {
+  if (agent.systemPrompt !== undefined) {
     result.systemPrompt = agent.systemPrompt;
   }
-  if (isCronPiEffort(agent.effort)) {
-    result.effort = agent.effort;
+  if (agent.thinking !== undefined) {
+    result.thinking = agent.thinking;
   }
   return result;
 }
@@ -335,8 +347,8 @@ function buildPiCronAgentConfigFromData(agent: CronAgentData): AgentConfig {
   if (agent.systemPrompt !== undefined) {
     result.systemPrompt = agent.systemPrompt;
   }
-  if (agent.effort !== undefined) {
-    result.effort = agent.effort;
+  if (agent.thinking !== undefined) {
+    result.thinking = agent.thinking;
   }
   return result;
 }
@@ -433,11 +445,7 @@ function runScript(cron: CronJob): string {
   }
   const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
 
-  // Strip sensitive env vars — match runClaude's sanitization
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
-  delete env.ANTHROPIC_API_KEY;
-  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  const env = scrubLegacyRuntimeEnv(process.env);
 
   const output = execSync(cron.command, {
     encoding: "utf8",
@@ -451,49 +459,15 @@ function runScript(cron: CronJob): string {
   return output.trim();
 }
 
-function runClaude(cron: CronJob, workspaceCwd: string): string {
-  const timeoutMs = cron.timeout ?? DEFAULT_TIMEOUT_MS;
-  const systemInstruction = buildCronSystemInstruction();
-
-  const args: string[] = [
-    "claude",
-    "-p",
-    cron.prompt!,
-    "--output-format",
-    "text",
-    "--no-session-persistence",
-    "--dangerously-skip-permissions",
-    "--model",
-    "claude-opus-4-6",
-    "--fallback-model",
-    "claude-sonnet-4-6",
-    "--max-turns",
-    "50",
-    "--add-dir",
-    workspaceCwd,
-    "--append-system-prompt",
-    systemInstruction,
-  ];
-
-  // Build env without CLAUDECODE and without ANTHROPIC_API_KEY
-  const env = { ...process.env };
+function scrubLegacyRuntimeEnv(rawEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...rawEnv };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("CLAUDE_CODE_") || key.startsWith("ANTHROPIC_")) {
+      delete env[key];
+    }
+  }
   delete env.CLAUDECODE;
-  delete env.ANTHROPIC_API_KEY;
-  env.HOME = homedir();
-  env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
-  env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
-  env.CLAUDE_CODE_DISABLE_CRON = "1";
-
-  const output = execSync(args.map(shellEscape).join(" "), {
-    encoding: "utf8",
-    timeout: timeoutMs,
-    env,
-    cwd: workspaceCwd,
-    maxBuffer: 10 * 1024 * 1024, // 10MB
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  return output.trim();
+  return env;
 }
 
 function normalizeSpawnOutput(value: string | Buffer | null | undefined): string {
@@ -601,7 +575,7 @@ const defaultPiDeps: PiRunDeps = {
 
 function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtensionArgs): string[] {
   if (process.env[PI_EXTENSIONS_DISABLED_ENV] === "1") {
-    throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; set CRON_PI_DISABLED=1 to run Pi crons on Claude`);
+    throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; unset it before running Pi crons`);
   }
 
   const extensionArgs = resolveExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
@@ -637,7 +611,7 @@ function runPi(
   }
 
   const agent = deps.buildAgentConfig(cron, workspaceCwd, agentData);
-  const thinking = isCronPiEffort(agent.effort) ? agent.effort : "medium";
+  const thinking = isCronPiThinking(agent.thinking) ? agent.thinking : "medium";
   const systemInstruction = buildCronSystemInstruction();
   const args: string[] = [
     "-p",
@@ -650,12 +624,17 @@ function runPi(
     thinking,
   ];
 
-  const context = deps.assembleContext(agent);
-  if (context) {
-    if (context.systemPromptPath) {
-      args.push("--system-prompt", context.systemPromptPath);
+  try {
+    const context = deps.assembleContext(agent);
+    if (context) {
+      if (context.systemPromptPath) {
+        args.push("--system-prompt", context.systemPromptPath);
+      }
+      args.push("--append-system-prompt", context.appendSystemPromptPath);
+      args.push("--no-context-files");
     }
-    args.push("--append-system-prompt", context.appendSystemPromptPath);
+  } catch (err) {
+    log(cron.name, `Pi context assembly failed; suppressing flat context loading: ${(err as Error).message}`);
     args.push("--no-context-files");
   }
 
@@ -663,7 +642,7 @@ function runPi(
   args.push(...resolvePiCronExtensionArgs(deps.resolveExtensionArgs));
 
   const env = hardenPiCronEnv(deps.buildEnv(agent));
-  // Pi authenticates via ~/.pi/agent/auth.json, not Claude OAuth credentials.
+  // Pi authenticates via ~/.pi/agent/auth.json, not legacy OAuth credentials.
   env.HOME ||= homedir();
 
   const result = deps.spawnSync(PI_BIN, args, {
@@ -686,21 +665,21 @@ function runPi(
   return classified.output;
 }
 
-function resolveCronEngine(cron: CronJob): "claude" | "pi" {
-  const engine = cron.engine ?? "claude";
-  if (engine === "pi" && process.env.CRON_PI_DISABLED === "1") {
-    return "claude";
+function resolveCronEngine(cron: CronJob): "pi" {
+  if (cron.engine !== undefined && cron.engine !== "pi") {
+    throw new Error(`Cron task "${cron.name}" uses unsupported engine "${cron.engine}"; only Pi cron execution is supported`);
   }
-  return engine;
+  if (process.env.CRON_PI_DISABLED === "1") {
+    throw new Error("CRON_PI_DISABLED=1 is no longer supported; LLM crons only run via Pi print mode");
+  }
+  return "pi";
 }
 
 interface OneShotDeps {
-  runClaude: (cron: CronJob, workspaceCwd: string) => string;
   runPi: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => string;
 }
 
 const defaultOneShotDeps: OneShotDeps = {
-  runClaude,
   runPi: (cron, workspaceCwd, agentData) => runPi(cron, workspaceCwd, defaultPiDeps, agentData),
 };
 
@@ -710,15 +689,8 @@ function runOneShot(
   deps: OneShotDeps = defaultOneShotDeps,
   agentData?: CronAgentData,
 ): string {
-  const engine = resolveCronEngine(cron);
-  if (engine === "pi") {
-    return deps.runPi(cron, workspaceCwd, agentData);
-  }
-  return deps.runClaude(cron, workspaceCwd);
-}
-
-function shellEscape(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
+  resolveCronEngine(cron);
+  return deps.runPi(cron, workspaceCwd, agentData);
 }
 
 export interface CronRunnerMainDeps {
@@ -731,7 +703,6 @@ export interface CronRunnerMainDeps {
   loadAdminChatId: (configPath?: string) => number | undefined;
   resolveCronAgentData: (agentId: string, configPath?: string) => CronAgentData;
   runScript: (cron: CronJob) => string;
-  runClaude: (cron: CronJob, workspaceCwd: string) => string;
   runPi: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => string;
   deliver: (chatId: number, message: string, threadId?: number) => void;
   handleDeliveryFailure: (
@@ -752,7 +723,6 @@ const defaultMainDeps: Omit<CronRunnerMainDeps, "argv"> = {
   loadAdminChatId,
   resolveCronAgentData,
   runScript,
-  runClaude,
   runPi: (cron, workspaceCwd, agentData) => runPi(cron, workspaceCwd, defaultPiDeps, agentData),
   deliver,
   handleDeliveryFailure,
@@ -809,14 +779,13 @@ async function main(overrides: Partial<CronRunnerMainDeps> = {}): Promise<void> 
     } else {
       const cronAgentData = deps.resolveCronAgentData(cron.agentId);
       const workspaceCwd = cronAgentData.workspaceCwd;
-      const engine = resolveCronEngine(cron);
       output = runOneShot(
         cron,
         workspaceCwd,
-        { runClaude: deps.runClaude, runPi: deps.runPi },
+        { runPi: deps.runPi },
         cronAgentData,
       );
-      deps.log(taskName, `LLM engine=${engine} returned ${output.length} chars`);
+      deps.log(taskName, `Pi returned ${output.length} chars`);
     }
   } catch (err) {
     const error = errorFromUnknown(err);
@@ -877,4 +846,4 @@ if (isMain) {
   main();
 }
 
-export { loadCronTask, resolveCronAgentData, buildPiCronAgentConfig, getAgentWorkspace, deliver, buildDeliverCommand, runClaude, runPi, runOneShot, resolveCronEngine, classifyPiResult, writeCronHealthMetric, runScript, shellEscape, main };
+export { loadCronTask, resolveCronAgentData, buildPiCronAgentConfig, getAgentWorkspace, deliver, buildDeliverCommand, runPi, runOneShot, resolveCronEngine, classifyPiResult, writeCronHealthMetric, runScript, main };

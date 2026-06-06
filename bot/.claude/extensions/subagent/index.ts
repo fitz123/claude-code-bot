@@ -313,8 +313,8 @@ async function runSingleAgent(
 		// Provider wiring lives in the pure helper: --provider openai-codex +
 		// the normalized codex model (agent.model is left provider-agnostic). The
 		// child also loads the A1 write guard so a delegated task is guarded the
-		// same way the parent session is (PI_EXTENSIONS_DISABLED=1 → no extensions,
-		// matching the parent's kill-switch behavior).
+		// same way the parent session is (PI_EXTENSIONS_DISABLED=1 → no explicit
+		// first-party wrappers, while --no-extensions still blocks ambient discovery).
 		const args = buildSubagentSpawnArgs(agent, task, {
 			systemPromptPath: tmpPromptPath ?? undefined,
 			extensionArgs: resolvePiExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS }),

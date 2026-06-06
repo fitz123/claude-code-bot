@@ -3,7 +3,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import type { BotConfig, TelegramBinding } from "./types.js";
 import { outboxDir, hasExited, type SessionManager } from "./session-manager.js";
 import { relayStream } from "./stream-relay.js";
-import { MessageQueue, type SteerFn } from "./message-queue.js";
+import { MessageQueue } from "./message-queue.js";
 import { sendPiSteer } from "./pi-rpc-protocol.js";
 import { createTelegramAdapter } from "./telegram-adapter.js";
 import { tempFilePath, downloadFile, transcribeAudio, cleanupTempFile } from "./voice.js";
@@ -16,13 +16,14 @@ import { recordMessage, lookupMessage } from "./message-content-index.js";
 import type { MessageRecord } from "./message-content-index.js";
 import { logReaction } from "./reaction-log.js";
 import { EchoWatcher, ECHO_PREFIX } from "./echo-watcher.js";
-import { injectDirForChat, writeEchoInjectFile } from "./inject-file.js";
 import { readQuotaStatus } from "./quota-status.js";
 import { buildStatusReport } from "./status-report.js";
 
 
 // Re-export for backward compatibility (tests import from here)
 export { isImageMimeType, imageExtensionForMime };
+
+type SteerFn = (chatId: string, agentId: string, text: string) => boolean;
 
 /** Derive a short sender label for the message content index. */
 function senderLabel(from?: { first_name: string; username?: string }): string {
@@ -140,6 +141,49 @@ export function sessionKey(chatId: number | string, topicId?: number): string {
   return topicId !== undefined ? `${base}:${topicId}` : base;
 }
 
+export function parseTelegramEchoId(value: string, opts?: { allowNegative?: boolean }): number | undefined {
+  if (!/^-?\d+$/.test(value)) return undefined;
+  if (!opts?.allowNegative && value.startsWith("-")) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+export interface TelegramEchoRouteOptions {
+  chatId: string;
+  threadId?: string;
+  text: string;
+  bindings: TelegramBinding[];
+  sessionDefaults?: BotConfig["sessionDefaults"];
+  steerFn: SteerFn;
+}
+
+/**
+ * Route a deliver.sh echo as passive context only. Echoes may be steered into a
+ * currently processing Pi turn, but must never enqueue a normal prompt or start
+ * a session by themselves.
+ */
+export function routeTelegramEchoToActiveTurn(opts: TelegramEchoRouteOptions): boolean {
+  const numericChatId = parseTelegramEchoId(opts.chatId, { allowNegative: true });
+  if (numericChatId === undefined) return false;
+
+  const numericThreadId = opts.threadId === undefined
+    ? undefined
+    : parseTelegramEchoId(opts.threadId);
+  if (opts.threadId !== undefined && numericThreadId === undefined) return false;
+
+  const binding = resolveBinding(numericChatId, opts.bindings, numericThreadId);
+  if (!binding) return false;
+
+  if (binding.kind === "group") {
+    const requireMention = binding.requireMention ?? opts.sessionDefaults?.requireMention ?? true;
+    if (requireMention) return false;
+  }
+
+  const key = sessionKey(numericChatId, numericThreadId);
+  const framedText = `${ECHO_PREFIX} - context only, no reply needed]\n\n${opts.text}`;
+  return opts.steerFn(key, binding.agentId, framedText);
+}
+
 /**
  * Resolve a Telegram chatId (and optional topicId) to its binding config.
  * Bindings with topicId set only match when both chatId and topicId match.
@@ -184,7 +228,7 @@ export function resolveBinding(
 
 /**
  * Build a source context prefix from binding and sender info.
- * Prepended to every message before enqueuing so Claude knows
+ * Prepended to every message before enqueuing so the agent knows
  * which chat/topic a message came from and who sent it.
  */
 export function buildSourcePrefix(
@@ -597,13 +641,9 @@ export const AUTO_RETRY_OPTIONS = {
 } as const;
 
 /**
- * Build the provider-aware mid-turn delivery decision. Pi sessions have no
- * PreToolUse inject hook, so a mid-turn message must be steered live into the
- * running Pi child; the claude path keeps the inject-file mechanism (returns
- * false). The decision is gated on the session's PINNED provider (set at spawn
- * time), NOT the live config snapshot: a session spawned under a since-
- * hot-reloaded provider would otherwise mis-route to the dead inject path and
- * lose the message.
+ * Build the Pi steer decision for passive echo context. Normal user messages
+ * stay on MessageQueue's collect-buffer path because Pi steer responses do not
+ * provide a usable delivery acknowledgement.
  */
 export function makeSteerFn(
   sessionManager: Pick<SessionManager, "getActive">,
@@ -611,14 +651,11 @@ export function makeSteerFn(
   return (chatId: string, _agentId: string, text: string): boolean => {
     const session = sessionManager.getActive(chatId);
     if (!session || hasExited(session.child)) return false;
-    if (session.provider !== "pi") return false;
     // Only steer when a Pi turn is actively processing. After `agent_end`,
     // session-manager clears `processingStartedAt` while MessageQueue.busy can
     // still be true (relay/cleanup of the final response is finishing). A
-    // message arriving in that window must NOT be steered: the Pi child has no
-    // active turn, Pi may reject the steer, and the parser drops failed
-    // side-command responses (pi-rpc-protocol.ts) — losing the message.
-    // Returning false buffers it so the queue drains it as a normal followup.
+    // echo arriving in that window must NOT be steered: the Pi child has no
+    // active turn, and failed side-command responses are best-effort logs.
     if (session.processingStartedAt === null) return false;
     try {
       sendPiSteer(session.child, text);
@@ -675,7 +712,7 @@ export function createTelegramBot(
 
   const maxMessageAgeMs = config.sessionDefaults.maxMessageAgeMs;
 
-  // Provider-aware mid-turn delivery, gated on the session's pinned provider.
+  // Best-effort Pi steer for deliver.sh echo context only.
   const steerFn = makeSteerFn(sessionManager);
 
   // Message queue: debounce rapid messages and collect mid-turn messages
@@ -684,7 +721,6 @@ export function createTelegramBot(
       const stream = sessionManager.sendSessionMessage(chatId, agentId, text);
       await relayStream(stream, platform, outboxDir(chatId), onAgentOwnership);
     },
-    { steerFn },
   );
 
   // Watchdog touch: notify liveness watchdog on every incoming update
@@ -728,7 +764,7 @@ export function createTelegramBot(
 
   // /reconnect command — close current session (keeps session file).
   // Session lifecycle: create → compact → reconnect → resume. The reconnect
-  // kills the Claude subprocess but the session file (with compacted conversation
+  // kills the Pi subprocess but the session file (with compacted conversation
   // history) remains on disk. When the next message arrives, getOrCreateSession()
   // finds the file and resumes with --resume, so prior context may be partially
   // retained through the compaction summary.
@@ -815,7 +851,7 @@ export function createTelegramBot(
     messageQueue.enqueue(key, binding.agentId, messageText, createTelegramAdapter(ctx, binding, undefined, config.sessionDefaults));
   });
 
-  // Handle voice messages — transcribe with whisper-cli and send to Claude
+  // Handle voice messages — transcribe with whisper-cli and send to the agent
   bot.on("message:voice", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
@@ -855,7 +891,7 @@ export function createTelegramBot(
       // Update index with actual transcript content
       recordMessage(chatId, ctx.message.message_id, senderLabel(ctx.from), transcript, "in");
 
-      // Send transcript text to Claude session
+      // Send transcript text to the agent session
       const prefix = buildSourcePrefix(binding, ctx.from, ctx.message.date);
       const replyCtx = buildReplyContext(ctx.message.reply_to_message, ctx.message.quote);
       const fwdCtx = buildForwardContext(ctx.message.forward_origin);
@@ -877,7 +913,7 @@ export function createTelegramBot(
     }
   });
 
-  // Handle photo messages — download image and pass file path to Claude for vision
+  // Handle photo messages — download image and pass file path to the agent for vision
   bot.on("message:photo", async (ctx) => {
     const chatId = ctx.chat.id;
     const topicId = ctx.message?.message_thread_id;
@@ -1174,52 +1210,21 @@ export function createTelegramBot(
     log.error("telegram-bot", `Update that caused the error: ${JSON.stringify(err.ctx.update)}`);
   });
 
-  // Echo watcher: routes deliver.sh echo files to the correct session's inject dir.
-  // Accumulation map: collects framed texts per inject dir within a single poll cycle,
-  // flushed once after all directories are processed to prevent pending-echo overwrites.
-  const echoAccumulator = new Map<string, string[]>();
-
+  // Echo watcher: routes deliver.sh echo files as passive context only. Echoes
+  // can steer into an active Pi turn, but they never enqueue a prompt or start a
+  // session by themselves.
   const echoWatcher = new EchoWatcher({
     handler: (chatId, threadId, text) => {
-      const numericChatId = parseInt(chatId, 10);
-      const numericThreadId = threadId ? parseInt(threadId, 10) : undefined;
-
-      const binding = resolveBinding(numericChatId, config.bindings, numericThreadId);
-      if (!binding) return;
-      // Simplified subset of shouldRespondInGroup: DMs always see all messages;
-      // groups check binding.requireMention with sessionDefaults fallback.
-      // Reply-to-bot and @mention checks are intentionally omitted — echo files
-      // lack message metadata (no entities, no reply context).
-      if (binding.kind === "group") {
-        const requireMention = binding.requireMention ?? config.sessionDefaults?.requireMention ?? true;
-        if (requireMention) return;
-      }
-
-      const key = sessionKey(numericChatId, numericThreadId);
-      // injectDirForChat() accepts a session key string (output of sessionKey()),
-      // not a raw numeric chatId. The parameter name "chatId" is misleading.
-      const injectDir = injectDirForChat(key);
-
-      const framedText = `${ECHO_PREFIX} — context only, no reply needed]\n\n${text}`;
-
-      const existing = echoAccumulator.get(injectDir);
-      if (existing) {
-        existing.push(framedText);
-      } else {
-        echoAccumulator.set(injectDir, [framedText]);
-      }
-    },
-    onFlush: () => {
-      try {
-        for (const [dir, messages] of echoAccumulator) {
-          try {
-            writeEchoInjectFile(dir, messages);
-          } catch (error) {
-            log.error("telegram-bot", `Failed to write echo inject file for ${dir}:`, error);
-          }
-        }
-      } finally {
-        echoAccumulator.clear();
+      const delivered = routeTelegramEchoToActiveTurn({
+        chatId,
+        threadId,
+        text,
+        bindings: config.bindings,
+        sessionDefaults: config.sessionDefaults,
+        steerFn,
+      });
+      if (!delivered) {
+        log.debug("telegram-bot", `Dropped echo context for chat ${chatId}: no active eligible Pi turn`);
       }
     },
   });

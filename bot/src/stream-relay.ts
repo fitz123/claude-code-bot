@@ -1,7 +1,6 @@
 import { readdirSync, lstatSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { StreamLine, PlatformContext } from "./types.js";
-import { extractTextDelta } from "./cli-protocol.js";
 import { log } from "./logger.js";
 import { messagesSent } from "./metrics.js";
 import { shouldSuppressNoReply } from "./no-reply.js";
@@ -61,6 +60,16 @@ export function splitMessage(text: string, maxLen: number): string[] {
  */
 export function collapseNewlines(text: string): string {
   return text.replace(/\n{3,}/g, "\n\n");
+}
+
+function extractTextDelta(msg: StreamLine): string | null {
+  if (msg.type === "stream_event") {
+    const event = msg.event;
+    if (event?.delta?.type === "text_delta" && event.delta.text) {
+      return event.delta.text;
+    }
+  }
+  return null;
 }
 
 /**
@@ -132,7 +141,7 @@ const DRAFT_DEBOUNCE_MS = 300;
 const DRAFT_SETTLE_TIMEOUT_MS = 3000;
 
 /**
- * Relay Claude CLI stream output to a chat using the platform-agnostic interface.
+ * Relay agent stream output to a chat using the platform-agnostic interface.
  *
  * Strategy:
  * 1. Accumulate streaming text deltas
@@ -205,8 +214,8 @@ export async function relayStream(
     let ownershipSignaled = false;
 
     for await (const msg of stream) {
-      // First event from the stream means Claude received the prompt over
-      // stdin and started processing — the conversation history now references
+      // First event from the stream means the agent received the prompt and
+      // started processing — the conversation history now references
       // any media paths in the prompt. Signal ownership so the queue won't
       // reclaim media if response delivery fails afterward (issue #99).
       if (!ownershipSignaled) {
@@ -298,7 +307,7 @@ export async function relayStream(
       }
     }
 
-    // Send any files Claude placed in the outbox directory
+    // Send any files the agent placed in the outbox directory
     if (outboxPath) {
       await sendOutboxFiles(outboxPath, platform);
     }

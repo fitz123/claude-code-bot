@@ -4,28 +4,19 @@
 # Only specify what differs from the defaults.
 # Nested objects are merged field-by-field; arrays replace entirely.
 
-# Optional: override the fleet-wide model in one place.
-# Any agent without its own `model` inherits this value; bump it to upgrade
-# every inheriting agent at once. Per-agent `model` still wins when declared.
-#
-# Use aliases (`opus`, `sonnet`, `haiku`) for auto-upgrade to the latest
-# version on your account tier, or full names (`claude-opus-4-7`) to pin.
-# Append `[1m]` for the 1M-token context window (e.g. `opus[1m]`) — check
-# Claude Code's Model configuration docs for plan eligibility.
-# defaultModel: opus
-# defaultFallbackModel: sonnet
+# Optional: override the legacy top-level model key for old overlays.
+# Pi agents must still set their own explicit `model`; this key is accepted for
+# compatibility but is no longer inherited by agents.
+# defaultModel: gpt-5.5
 
 agents:
   main:
-    workspaceCwd: /Users/you/.minime/workspace   # absolute path to your Claude workspace (~ not expanded)
-    # model omitted — inherits defaultModel. Uncomment to pin this agent to a specific model
-    # or opt into the 1M context window on a single agent:
-    # model: opus[1m]
-    # model: claude-haiku-4-5-20251001
-    # provider: claude   # coding backend: "claude" (default, omit) or "pi" (Pi RPC + OpenAI Codex)
-    # thinking: xhigh    # optional for provider: pi sessions; allowed: off, minimal, low, medium, high, xhigh
-    # effort: high       # Pi crons map low/medium/high to --thinking; absent/unsupported defaults to medium
-                         # Cron engine is configured in crons*.yaml. Pi crons ignore provider/model/fallbackModel/maxTurns/allowedTools.
+    workspaceCwd: /Users/you/.minime/workspace   # absolute path to your agent workspace (~ not expanded)
+    model: gpt-5.5
+    # provider: pi      # optional compatibility field; omit or set to "pi"
+    # thinking: xhigh   # optional Pi/Codex thinking level: off, minimal, low, medium, high, xhigh
+                        # Cron execution is Pi print mode; crons use workspaceCwd,
+                        # optional systemPrompt, and thinking.
 
 bindings:
   - chatId: 123456789           # your Telegram user ID (get it from @userinfobot)

@@ -8,19 +8,19 @@ import { classifyToolCall, type ClassifyOptions } from "../pi-extensions/guard.j
 
 // ---------------------------------------------------------------------------
 // PARITY: the Pi-path classifier (`classifyToolCall` with an injected
-// `writeAllowlist`) and the CLAUDE-path hook chain (`protect-files.sh` then
+// `writeAllowlist`) and the shell hook chain (`protect-files.sh` then
 // `guardian.sh`) must reach the SAME allow/deny verdict for every path, driven
 // by the SAME schema.md allow-list. This is the single-source-of-truth proof:
 // the immutable-core deny-overlay, the three D17 line kinds, the `.claude/`
 // split, and deny-by-default all match across both enforcers.
 //
-// The CLAUDE chain is run in the SAME order .claude/settings.json runs it
+// The shell chain is run in the SAME order .claude/settings.json runs it
 // (protect-files.sh = immutable deny, THEN guardian.sh = schema allow-check):
 // a target is ALLOWED only if BOTH hooks exit 0; BLOCKED if EITHER exits
 // non-zero — exactly the deny-overlay > allow > default-deny precedence the
 // real session sees. The classifier collapses both halves into one call.
 //
-// Only write/edit targets are compared — NOT bash redirects: the claude path
+// Only write/edit targets are compared — NOT bash redirects: the shell hook path
 // deliberately does not parse bash (the D16 tracked v1 known-gap), so a bash
 // write would diverge by design. The bash coverage asymmetry is asserted in
 // guard.test.ts (Pi side) instead.
@@ -107,7 +107,7 @@ function piVerdict(rel: string, ws: string): "ALLOW" | "BLOCK" {
   return classifyToolCall({ toolName: "write", input: { path: rel } }, opts).block ? "BLOCK" : "ALLOW";
 }
 
-/** CLAUDE-path verdict via the full hook chain (protect-files.sh → guardian.sh). */
+/** Shell-hook verdict via the full hook chain (protect-files.sh → guardian.sh). */
 function chainVerdict(rel: string, ws: string): "ALLOW" | "BLOCK" {
   const input = JSON.stringify({ tool_name: "Write", tool_input: { file_path: join(ws, rel) } });
   const env = { ...CLEAN_ENV, CLAUDE_PROJECT_DIR: ws };

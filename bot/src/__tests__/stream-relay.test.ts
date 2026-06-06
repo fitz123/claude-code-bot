@@ -172,7 +172,7 @@ describe("extractText", () => {
   });
 
   it("does not duplicate text when processing full CLI event sequence", () => {
-    // Simulates the event sequence from Claude CLI with --include-partial-messages:
+    // Simulates a stream with partial chunks followed by full-message snapshots:
     // 1. text_delta events (streaming chunks)
     // 2. assistant message snapshot (full text)
     // 3. result message (full text again)
