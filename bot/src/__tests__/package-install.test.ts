@@ -240,7 +240,7 @@ describe("package artifact install", () => {
 
 const INSTALLED_ARTIFACT_CHECK = String.raw`
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -276,7 +276,7 @@ const loadedConfig = configMod.loadConfig(join(workspace, "config.yaml"), {
 });
 assert.equal(loadedConfig.agents.main.workspaceCwd, agentWorkspace);
 const childEnv = piRpc.buildPiSpawnEnv(loadedConfig.agents.main);
-assert.equal(childEnv.PI_GUARD_WORKSPACE_ROOT, workspace);
+assert.equal(childEnv.PI_GUARD_WORKSPACE_ROOT, realpathSync(workspace));
 
 const workspaceContract = await importPackageFile("dist/workspace-contract.js");
 const validator = await importPackageFile("dist/workspace-validator.js");
