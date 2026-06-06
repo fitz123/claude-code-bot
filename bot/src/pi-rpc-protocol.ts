@@ -412,13 +412,7 @@ function copyExplicitControlPathEnv(
     delete env[envKey];
     return;
   }
-
-  const value = process.env[envKey]?.trim();
-  if (value) {
-    env[envKey] = value;
-  } else {
-    delete env[envKey];
-  }
+  env[envKey] = contract.paths[pathName];
 }
 
 /**

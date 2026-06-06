@@ -747,12 +747,12 @@ describe("buildPiSpawnEnv", () => {
     try {
       process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceRoot;
       process.env[MINIME_CONFIG_PATH_ENV] = "settings/bot.yaml";
-      process.env[MINIME_CRONS_PATH_ENV] = join(workspaceRoot, "ops", "crons.yaml");
+      process.env[MINIME_CRONS_PATH_ENV] = "ops/crons.yaml";
 
       const env = buildPiSpawnEnv();
 
       assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], workspaceRoot);
-      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/bot.yaml");
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], join(workspaceRoot, "settings", "bot.yaml"));
       assert.strictEqual(env[MINIME_CRONS_PATH_ENV], join(workspaceRoot, "ops", "crons.yaml"));
     } finally {
       if (oldWorkspace === undefined) {
@@ -960,12 +960,12 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
       process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceRoot;
       process.env[MINIME_CONFIG_PATH_ENV] = "settings/bot.yaml";
-      process.env[MINIME_CRONS_PATH_ENV] = join(workspaceRoot, "ops", "crons.yaml");
+      process.env[MINIME_CRONS_PATH_ENV] = "ops/crons.yaml";
 
       const env = buildPiSubagentChildSpawnEnv();
 
       assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], workspaceRoot);
-      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/bot.yaml");
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], join(workspaceRoot, "settings", "bot.yaml"));
       assert.strictEqual(env[MINIME_CRONS_PATH_ENV], join(workspaceRoot, "ops", "crons.yaml"));
       assert.strictEqual(env.DISCORD_BOT_TOKEN, undefined);
       assert.strictEqual(env.TAVILY_API_KEY, undefined);
