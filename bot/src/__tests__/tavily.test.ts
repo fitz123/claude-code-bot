@@ -366,7 +366,91 @@ describe("tavily: executeWebFetch", () => {
     ]);
   });
 
-  it("blocks local and private IPv6 literal URLs before external egress", async () => {
+  it("blocks encoded and repeated-slash local URL paths before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const urls = [
+      "https://example.com/%2Ftmp%2Fprivate%2Fconfig.local.yaml",
+      "https://example.com//tmp/private/config.local.yaml",
+      "https://example.com/%E0%A4%A",
+    ];
+    const details = [
+      "url path contains local path text",
+      "url path contains local path text",
+      "url path contains malformed percent-encoding",
+    ];
+
+    for (const url of urls) {
+      const res = await executeWebFetch({ url }, deps);
+      assert.equal(res.ok, false);
+      assert.match(res.text, /blocked/);
+    }
+
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, details.map((detail) => ({
+      tool: "web_fetch" as const,
+      reason: "blocked-egress" as const,
+      detail,
+    })));
+  });
+
+  it("blocks sensitive URL fragments before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebFetch({ url: "https://example.com/#token=abcd" }, deps);
+    assert.equal(res.ok, false);
+    assert.match(res.text, /blocked/);
+    assert.doesNotMatch(res.text, /token=abcd/);
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, [
+      { tool: "web_fetch", reason: "blocked-egress", detail: "url fragment contains a sensitive assignment" },
+    ]);
+  });
+
+  it("strips harmless URL fragments before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [{ url: "https://example.com/docs", raw_content: "body" }] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const res = await executeWebFetch({ url: "https://example.com/docs#section" }, deps);
+    assert.equal(res.ok, true);
+    assert.equal(mock.calls.length, 1);
+    assert.deepEqual(JSON.parse(String(mock.calls[0].init?.body)), { urls: ["https://example.com/docs"] });
+    assert.equal(warns.length, 0);
+  });
+
+  it("blocks non-global IPv4 literal URLs before external egress", async () => {
+    const mock = mockFetch(async () => jsonResponse({ results: [] }));
+    const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
+    const urls = [
+      "http://10.0.0.1/",
+      "http://127.0.0.1/",
+      "http://100.64.0.1/",
+      "http://169.254.1.1/",
+      "http://172.16.0.1/",
+      "http://192.168.1.1/",
+      "http://192.0.2.1/",
+      "http://198.18.0.1/",
+      "http://198.51.100.1/",
+      "http://203.0.113.1/",
+      "http://224.0.0.1/",
+      "http://240.0.0.1/",
+      "http://255.255.255.255/",
+    ];
+
+    for (const url of urls) {
+      const res = await executeWebFetch({ url }, deps);
+      assert.equal(res.ok, false);
+      assert.match(res.text, /local\/private host/);
+    }
+
+    assert.equal(mock.calls.length, 0);
+    assert.deepEqual(warns, urls.map(() => ({
+      tool: "web_fetch" as const,
+      reason: "blocked-egress" as const,
+      detail: "url targets a local/private host",
+    })));
+  });
+
+  it("blocks local, private, and reserved IPv6 literal URLs before external egress", async () => {
     const mock = mockFetch(async () => jsonResponse({ results: [] }));
     const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
     const urls = [
@@ -378,6 +462,8 @@ describe("tavily: executeWebFetch", () => {
       "http://[::ffff:127.0.0.1]/",
       "http://[::ffff:192.168.1.1]/",
       "http://[0:0:0:0:0:ffff:ac10:1]/",
+      "http://[ff00::1]/",
+      "http://[2001:db8::1]/",
     ];
 
     for (const url of urls) {

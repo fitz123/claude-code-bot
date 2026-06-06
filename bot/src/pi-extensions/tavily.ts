@@ -155,7 +155,7 @@ interface OutboundTextValidationOptions {
 }
 
 function validateOutboundText(
-  kind: "query" | "url" | "url path" | "url query parameter",
+  kind: "query" | "url" | "url path" | "url fragment" | "url query parameter",
   text: string,
   maxChars: number,
   options: OutboundTextValidationOptions = {},
@@ -205,15 +205,33 @@ function ipv4Octets(host: string): number[] | undefined {
   return host.split(".").map((part) => Number(part));
 }
 
-function isPrivateOrLocalIpv4(octets: readonly number[]): boolean {
-  const [a, b] = octets;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
+function isPublicIpv4(octets: readonly number[]): boolean {
+  const [a, b, c, d] = octets;
+  const isLimitedBroadcastOrMulticast = a >= 224;
+  const isThisNetwork = a === 0;
+  const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  const isLoopback = a === 127;
+  const isSharedAddressSpace = a === 100 && b >= 64 && b <= 127;
+  const isLinkLocal = a === 169 && b === 254;
+  const isIetfProtocolAssignment = a === 192 && b === 0 && c === 0 && d !== 9 && d !== 10;
+  const isDocumentation = (
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113)
+  );
+  const isDeprecated6to4Relay = a === 192 && b === 88 && c === 99;
+  const isBenchmarking = a === 198 && (b === 18 || b === 19);
+  return !(
+    isLimitedBroadcastOrMulticast ||
+    isThisNetwork ||
+    isPrivate ||
+    isLoopback ||
+    isSharedAddressSpace ||
+    isLinkLocal ||
+    isIetfProtocolAssignment ||
+    isDocumentation ||
+    isDeprecated6to4Relay ||
+    isBenchmarking
   );
 }
 
@@ -265,34 +283,50 @@ function ipv4MappedOctets(groups: readonly number[]): number[] | undefined {
   return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff];
 }
 
+function isPublicIpv6(groups: readonly number[]): boolean {
+  const mappedV4 = ipv4MappedOctets(groups);
+  if (mappedV4 !== undefined) {
+    return isPublicIpv4(mappedV4);
+  }
+
+  const [first, second] = groups;
+  const isGlobalUnicast = (first & 0xe000) === 0x2000;
+  if (!isGlobalUnicast) {
+    return false;
+  }
+
+  const isDocumentation = first === 0x2001 && second === 0x0db8;
+  const isTeredo = first === 0x2001 && second === 0;
+  const isBenchmark = first === 0x2001 && second === 0x0002 && groups[2] === 0;
+  const isOrchidV2 = first === 0x2001 && second >= 0x0020 && second <= 0x002f;
+  const isDeprecated6to4 = first === 0x2002;
+  const isDocumentationV2 = first === 0x3fff;
+  return !(
+    isDocumentation ||
+    isTeredo ||
+    isBenchmark ||
+    isOrchidV2 ||
+    isDeprecated6to4 ||
+    isDocumentationV2
+  );
+}
+
 function isPrivateOrLocalHost(hostname: string): boolean {
   const host = canonicalHostname(hostname);
-  if (host === "localhost" || host.endsWith(".local") || host.endsWith(".internal")) {
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
     return true;
   }
 
   const v4 = ipv4Octets(host);
   if (v4) {
-    return isPrivateOrLocalIpv4(v4);
+    return !isPublicIpv4(v4);
   }
 
   const v6 = ipv6Groups(host);
   if (!v6) {
     return false;
   }
-  const first = v6[0];
-  const isUnspecified = v6.every((group) => group === 0);
-  const isLoopback = v6.slice(0, 7).every((group) => group === 0) && v6[7] === 1;
-  const isUniqueLocal = (first & 0xfe00) === 0xfc00;
-  const isLinkLocal = (first & 0xffc0) === 0xfe80;
-  const mappedV4 = ipv4MappedOctets(v6);
-  return (
-    isUnspecified ||
-    isLoopback ||
-    isUniqueLocal ||
-    isLinkLocal ||
-    (mappedV4 !== undefined && isPrivateOrLocalIpv4(mappedV4))
-  );
+  return !isPublicIpv6(v6);
 }
 
 function validateWebSearchEgress(query: string): string | undefined {
@@ -302,52 +336,89 @@ function validateWebSearchEgress(query: string): string | undefined {
   });
 }
 
-function validateWebFetchEgress(url: string): string | undefined {
+interface WebFetchEgressValidation {
+  problem?: string;
+  safeUrl?: string;
+}
+
+function decodeUrlText(kind: "url path" | "url fragment", text: string): string | undefined {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function validateDecodedUrlText(kind: "url path" | "url fragment", rawText: string): string | undefined {
+  const decoded = decodeUrlText(kind, rawText);
+  if (decoded === undefined) {
+    return `${kind} contains malformed percent-encoding`;
+  }
+  const textForValidation = kind === "url path" ? decoded.replace(/^\/{2,}/, "/") : decoded;
+  return validateOutboundText(kind, textForValidation, MAX_FETCH_URL_CHARS, {
+    checkLocalPaths: true,
+    checkRepoPaths: kind === "url fragment",
+  });
+}
+
+function validateWebFetchEgress(url: string): WebFetchEgressValidation {
   const textProblem = validateOutboundText("url", url, MAX_FETCH_URL_CHARS, {
     checkSensitiveAssignments: false,
   });
   if (textProblem) {
-    return textProblem;
+    return { problem: textProblem };
   }
 
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return "url must be an absolute http(s) URL";
+    return { problem: "url must be an absolute http(s) URL" };
   }
 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return "url must use http(s)";
+    return { problem: "url must use http(s)" };
   }
   if (parsed.username || parsed.password) {
-    return "url contains credentials";
+    return { problem: "url contains credentials" };
   }
   if (isPrivateOrLocalHost(parsed.hostname)) {
-    return "url targets a local/private host";
+    return { problem: "url targets a local/private host" };
   }
 
-  const pathProblem = validateOutboundText("url path", parsed.pathname, MAX_FETCH_URL_CHARS, {
+  const rawPathProblem = validateOutboundText("url path", parsed.pathname, MAX_FETCH_URL_CHARS, {
     checkLocalPaths: true,
   });
-  if (pathProblem) {
-    return pathProblem;
+  if (rawPathProblem) {
+    return { problem: rawPathProblem };
+  }
+  const decodedPathProblem = validateDecodedUrlText("url path", parsed.pathname);
+  if (decodedPathProblem) {
+    return { problem: decodedPathProblem };
+  }
+
+  if (parsed.hash) {
+    const fragmentProblem = validateDecodedUrlText("url fragment", parsed.hash.slice(1));
+    if (fragmentProblem) {
+      return { problem: fragmentProblem };
+    }
   }
 
   for (const [name, value] of parsed.searchParams) {
     if (value && SENSITIVE_URL_PARAM_PATTERN.test(name)) {
-      return "url contains a sensitive query parameter";
+      return { problem: "url contains a sensitive query parameter" };
     }
     const paramProblem = validateOutboundText("url query parameter", value, MAX_SEARCH_QUERY_CHARS, {
       checkLocalPaths: true,
       checkRepoPaths: true,
     });
     if (paramProblem) {
-      return paramProblem;
+      return { problem: paramProblem };
     }
   }
 
-  return undefined;
+  parsed.hash = "";
+  return { safeUrl: parsed.href };
 }
 
 /** Build the Tavily `/search` HTTP request for a `web_search` call. */
@@ -542,13 +613,13 @@ export async function executeWebFetch(args: WebFetchArgs, deps: RunToolDeps): Pr
     return errResult("web_fetch requires a non-empty 'url' string.");
   }
 
-  const egressProblem = validateWebFetchEgress(url);
-  if (egressProblem) {
-    deps.warn?.({ tool: "web_fetch", reason: "blocked-egress", detail: egressProblem });
-    return errResult(`web_fetch blocked: ${egressProblem}. Do not send local or private data to external web services.`);
+  const egress = validateWebFetchEgress(url);
+  if (egress.problem) {
+    deps.warn?.({ tool: "web_fetch", reason: "blocked-egress", detail: egress.problem });
+    return errResult(`web_fetch blocked: ${egress.problem}. Do not send local or private data to external web services.`);
   }
 
-  const req = buildExtractRequest(deps.apiKey, { url });
+  const req = buildExtractRequest(deps.apiKey, { url: egress.safeUrl ?? url });
   try {
     const json = await fetchTavilyJson(req, deps.fetchImpl);
     return { ok: true, text: formatExtractResult(parseExtractResponse(json)) };
