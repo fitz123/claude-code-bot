@@ -246,7 +246,10 @@ const loadedConfig = configMod.loadConfig(join(workspace, "config.yaml"), {
 });
 assert.equal(loadedConfig.agents.main.workspaceCwd, agentWorkspace);
 const childEnv = piRpc.buildPiSpawnEnv(loadedConfig.agents.main);
-assert.equal(childEnv.MINIME_WORKSPACE_ROOT, undefined);
+assert.equal(childEnv.MINIME_WORKSPACE_ROOT, workspace);
+assert.equal(childEnv.TELEGRAM_BOT_TOKEN, undefined);
+assert.equal(childEnv.DISCORD_BOT_TOKEN, undefined);
+assert.equal(childEnv.TAVILY_API_KEY, undefined);
 
 const workspaceContract = await importPackageFile("dist/workspace-contract.js");
 const validator = await importPackageFile("dist/workspace-validator.js");

@@ -19,7 +19,11 @@ import {
   PI_CRON_WRAPPER_RELPATHS,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, CronJob } from "../types.js";
-import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
+import {
+  MINIME_CONFIG_PATH_ENV,
+  MINIME_CRONS_PATH_ENV,
+  MINIME_WORKSPACE_ROOT_ENV,
+} from "../workspace-contract.js";
 
 interface SpawnCapture {
   command: string;
@@ -345,6 +349,7 @@ describe("cron-runner runPi", () => {
     const sessionSecretEnv = ["MINIME", "SESSION", "SECRET"].join("_");
     const githubTokenEnv = ["GITHUB", "TOKEN"].join("_");
     const awsSecretEnv = ["AWS", "SECRET", "ACCESS", "KEY"].join("_");
+    const discordTokenEnv = ["DISCORD", "BOT", "TOKEN"].join("_");
     const oldOpenAiKey = process.env[openAiKeyEnv];
     const oldPiSessionDir = process.env[piSessionDirEnv];
     const oldTelegramToken = process.env[telegramTokenEnv];
@@ -352,7 +357,11 @@ describe("cron-runner runPi", () => {
     const oldSessionSecret = process.env[sessionSecretEnv];
     const oldGithubToken = process.env[githubTokenEnv];
     const oldAwsSecret = process.env[awsSecretEnv];
+    const oldDiscordToken = process.env[discordTokenEnv];
     const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    const oldConfigPath = process.env[MINIME_CONFIG_PATH_ENV];
+    const oldCronsPath = process.env[MINIME_CRONS_PATH_ENV];
+    const fixtureValues = ["cron-telegram-fixture", "cron-discord-fixture", "cron-tavily-fixture"];
 
     try {
       delete process.env.HOME;
@@ -361,14 +370,17 @@ describe("cron-runner runPi", () => {
       process.env[openAiKeyEnv] = "secret-openai";
       process.env[piSessionDirEnv] = "/tmp/pi-sessions";
       process.env.CLAUDECODE = "session-marker";
-      process.env[telegramTokenEnv] = "fixture";
-      process.env[tavilyKeyEnv] = "fixture";
+      process.env[telegramTokenEnv] = fixtureValues[0];
+      process.env[discordTokenEnv] = fixtureValues[1];
+      process.env[tavilyKeyEnv] = fixtureValues[2];
       process.env[sessionSecretEnv] = "fixture";
       process.env[githubTokenEnv] = "fixture";
       process.env[awsSecretEnv] = "fixture";
 
       const ws = makeWorkspace();
       process.env[MINIME_WORKSPACE_ROOT_ENV] = ws;
+      process.env[MINIME_CONFIG_PATH_ENV] = "settings/config.yaml";
+      process.env[MINIME_CRONS_PATH_ENV] = join(ws, "settings", "crons.yaml");
       const captures: SpawnCapture[] = [];
       const deps = makeDeps(captures, { buildEnv: buildPiSpawnEnv });
 
@@ -376,18 +388,26 @@ describe("cron-runner runPi", () => {
 
       const env = captures[0].options.env ?? {};
       assert.strictEqual(env.HOME, homedir());
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], ws);
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/config.yaml");
+      assert.strictEqual(env[MINIME_CRONS_PATH_ENV], join(ws, "settings", "crons.yaml"));
       assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
       assert.strictEqual(env[openAiKeyEnv], undefined);
       assert.strictEqual(env[piSessionDirEnv], "/tmp/pi-sessions");
       assert.strictEqual(env.CLAUDECODE, undefined);
       assert.strictEqual(env[telegramTokenEnv], undefined);
+      assert.strictEqual(env[discordTokenEnv], undefined);
       assert.strictEqual(env[tavilyKeyEnv], undefined);
       assert.strictEqual(env[sessionSecretEnv], undefined);
       assert.strictEqual(env[githubTokenEnv], undefined);
       assert.strictEqual(env[awsSecretEnv], undefined);
       assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
       assert.strictEqual(captures[0].options.timeout, 900000);
+      const serializedChildContract = JSON.stringify({ env, args: captures[0].args });
+      for (const value of fixtureValues) {
+        assert.doesNotMatch(serializedChildContract, new RegExp(value));
+      }
     } finally {
       if (oldHome === undefined) {
         delete process.env.HOME;
@@ -429,6 +449,11 @@ describe("cron-runner runPi", () => {
       } else {
         process.env[tavilyKeyEnv] = oldTavilyKey;
       }
+      if (oldDiscordToken === undefined) {
+        delete process.env[discordTokenEnv];
+      } else {
+        process.env[discordTokenEnv] = oldDiscordToken;
+      }
       if (oldSessionSecret === undefined) {
         delete process.env[sessionSecretEnv];
       } else {
@@ -448,6 +473,16 @@ describe("cron-runner runPi", () => {
         delete process.env[MINIME_WORKSPACE_ROOT_ENV];
       } else {
         process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+      if (oldConfigPath === undefined) {
+        delete process.env[MINIME_CONFIG_PATH_ENV];
+      } else {
+        process.env[MINIME_CONFIG_PATH_ENV] = oldConfigPath;
+      }
+      if (oldCronsPath === undefined) {
+        delete process.env[MINIME_CRONS_PATH_ENV];
+      } else {
+        process.env[MINIME_CRONS_PATH_ENV] = oldCronsPath;
       }
     }
   });
@@ -469,7 +504,7 @@ describe("cron-runner runPi", () => {
       runPi(makeCron(), agentWorkspace, deps);
 
       const env = captures[0].options.env ?? {};
-      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], workspace);
       assert.strictEqual(captures[0].options.cwd, agentWorkspace);
     } finally {
       if (oldWorkspace === undefined) {

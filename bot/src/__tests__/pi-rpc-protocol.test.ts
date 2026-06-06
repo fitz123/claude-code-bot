@@ -42,7 +42,11 @@ import {
   type PiExtensionResolveOptions,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, StreamLine } from "../types.js";
-import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
+import {
+  MINIME_CONFIG_PATH_ENV,
+  MINIME_CRONS_PATH_ENV,
+  MINIME_WORKSPACE_ROOT_ENV,
+} from "../workspace-contract.js";
 
 const testAgent: AgentConfig = {
   id: "main",
@@ -630,7 +634,11 @@ describe("buildPiSpawnEnv", () => {
       "TAVILY_API_KEY",
       "TELEGRAM_BOT_TOKEN",
       "MINIME_SESSION_SECRET",
-      "MINIME_WORKSPACE_ROOT",
+      "MINIME_SCHEMA_PATH",
+      "PI_GUARD_WORKSPACE_ROOT",
+      MINIME_CONFIG_PATH_ENV,
+      MINIME_CRONS_PATH_ENV,
+      MINIME_WORKSPACE_ROOT_ENV,
     ];
     const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
 
@@ -654,7 +662,11 @@ describe("buildPiSpawnEnv", () => {
       process.env.TAVILY_API_KEY = "fixture";
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
       process.env.MINIME_SESSION_SECRET = "fixture";
+      process.env.MINIME_SCHEMA_PATH = "/tmp/schema.md";
+      process.env.PI_GUARD_WORKSPACE_ROOT = "/tmp/guard-root";
       process.env[MINIME_WORKSPACE_ROOT_ENV] = "/tmp";
+      delete process.env[MINIME_CONFIG_PATH_ENV];
+      delete process.env[MINIME_CRONS_PATH_ENV];
 
       const env = buildPiSpawnEnv(testAgent);
 
@@ -667,7 +679,11 @@ describe("buildPiSpawnEnv", () => {
       assert.strictEqual(env.TAVILY_API_KEY, undefined);
       assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
       assert.strictEqual(env.MINIME_SESSION_SECRET, undefined);
-      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], undefined);
+      assert.strictEqual(env.MINIME_SCHEMA_PATH, undefined);
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, undefined);
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], "/tmp");
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], undefined);
+      assert.strictEqual(env[MINIME_CRONS_PATH_ENV], undefined);
       assert.strictEqual(env.ANTHROPIC_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.AWS_ACCESS_KEY_ID, undefined);
       assert.strictEqual(env.AWS_SECRET_ACCESS_KEY, undefined);
@@ -694,6 +710,42 @@ describe("buildPiSpawnEnv", () => {
     const env = withWorkspaceRoot("/tmp", () => buildPiSpawnEnv(testAgent));
 
     assert.ok(env.PATH?.includes("/opt/homebrew/bin"));
+  });
+
+  it("passes the non-secret control workspace contract to Pi children", () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-spawn-env-control-contract-"));
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    const oldConfig = process.env[MINIME_CONFIG_PATH_ENV];
+    const oldCrons = process.env[MINIME_CRONS_PATH_ENV];
+
+    try {
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceRoot;
+      process.env[MINIME_CONFIG_PATH_ENV] = "settings/bot.yaml";
+      process.env[MINIME_CRONS_PATH_ENV] = join(workspaceRoot, "ops", "crons.yaml");
+
+      const env = buildPiSpawnEnv(testAgent);
+
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], workspaceRoot);
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/bot.yaml");
+      assert.strictEqual(env[MINIME_CRONS_PATH_ENV], join(workspaceRoot, "ops", "crons.yaml"));
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+      if (oldConfig === undefined) {
+        delete process.env[MINIME_CONFIG_PATH_ENV];
+      } else {
+        process.env[MINIME_CONFIG_PATH_ENV] = oldConfig;
+      }
+      if (oldCrons === undefined) {
+        delete process.env[MINIME_CRONS_PATH_ENV];
+      } else {
+        process.env[MINIME_CRONS_PATH_ENV] = oldCrons;
+      }
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("does not double-prepend /opt/homebrew/bin when already present", () => {
@@ -815,6 +867,9 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       "SSH_AUTH_SOCK",
       "TAVILY_API_KEY",
       "TELEGRAM_BOT_TOKEN",
+      MINIME_CONFIG_PATH_ENV,
+      MINIME_CRONS_PATH_ENV,
+      MINIME_WORKSPACE_ROOT_ENV,
     ];
     const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
 
@@ -828,12 +883,18 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
       process.env.TAVILY_API_KEY = "fixture";
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = "/tmp";
+      delete process.env[MINIME_CONFIG_PATH_ENV];
+      delete process.env[MINIME_CRONS_PATH_ENV];
 
       const env = buildPiSubagentChildSpawnEnv();
 
       assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
       assert.strictEqual(env.LC_CTYPE, "UTF-8");
       assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+      assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], "/tmp");
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], undefined);
+      assert.strictEqual(env[MINIME_CRONS_PATH_ENV], undefined);
       assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
       assert.strictEqual(env.GITHUB_TOKEN, undefined);
       assert.strictEqual(env.OPENAI_API_KEY, undefined);

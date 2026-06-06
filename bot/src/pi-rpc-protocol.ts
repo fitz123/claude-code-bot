@@ -13,6 +13,9 @@ import type {
 import { log } from "./logger.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
 import {
+  MINIME_CONFIG_PATH_ENV,
+  MINIME_CRONS_PATH_ENV,
+  MINIME_WORKSPACE_ROOT_ENV,
   resolveAgentWorkspaceCwd,
   resolveWorkspaceContract,
   type ResolvedWorkspaceContract,
@@ -85,6 +88,9 @@ const PI_CHILD_ENV_KEY_ALLOWLIST = new Set([
   "HOME",
   "LANG",
   "LOGNAME",
+  MINIME_CONFIG_PATH_ENV,
+  MINIME_CRONS_PATH_ENV,
+  MINIME_WORKSPACE_ROOT_ENV,
   "NO_COLOR",
   "PATH",
   "PI_CODING_AGENT_DIR",
@@ -364,14 +370,14 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   const contract = resolveWorkspaceContract();
   validateAgentWorkspaceCwd(agent, contract);
 
-  return buildAllowedPiChildEnv();
+  return buildAllowedPiChildEnv(contract);
 }
 
 export function buildPiSubagentChildSpawnEnv(): Record<string, string> {
-  return buildAllowedPiChildEnv();
+  return buildAllowedPiChildEnv(resolveWorkspaceContract());
 }
 
-function buildAllowedPiChildEnv(): Record<string, string> {
+function buildAllowedPiChildEnv(contract: ResolvedWorkspaceContract): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, val] of Object.entries(process.env)) {
     if (val !== undefined && shouldIncludePiChildEnvKey(key)) {
@@ -392,8 +398,30 @@ function buildAllowedPiChildEnv(): Record<string, string> {
     pathParts.unshift("/opt/homebrew/bin");
   }
   env.PATH = pathParts.join(":");
+  env[MINIME_WORKSPACE_ROOT_ENV] = contract.paths.controlWorkspaceRoot;
+  copyExplicitControlPathEnv(env, contract, MINIME_CONFIG_PATH_ENV, "configPath");
+  copyExplicitControlPathEnv(env, contract, MINIME_CRONS_PATH_ENV, "cronsPath");
 
   return env;
+}
+
+function copyExplicitControlPathEnv(
+  env: Record<string, string>,
+  contract: ResolvedWorkspaceContract,
+  envKey: typeof MINIME_CONFIG_PATH_ENV | typeof MINIME_CRONS_PATH_ENV,
+  pathName: "configPath" | "cronsPath",
+): void {
+  if (contract.effectivePaths[pathName].source !== "env") {
+    delete env[envKey];
+    return;
+  }
+
+  const value = process.env[envKey]?.trim();
+  if (value) {
+    env[envKey] = value;
+  } else {
+    delete env[envKey];
+  }
 }
 
 /**
