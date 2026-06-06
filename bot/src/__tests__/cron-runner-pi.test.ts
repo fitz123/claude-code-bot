@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -477,7 +478,7 @@ describe("cron-runner runPi", () => {
       runPi(makeCron(), agentWorkspace, deps);
 
       const env = captures[0].options.env ?? {};
-      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], workspace);
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspace));
       assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], join(workspace, "schemas", "override.md"));
       assert.strictEqual(captures[0].options.cwd, agentWorkspace);
     } finally {
