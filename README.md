@@ -59,7 +59,7 @@ Telegram Cloud          Discord Gateway
 
 Both platforms share one Session Manager and use the same stream-relay logic via the `PlatformContext` interface. Each platform provides an adapter that handles platform-specific message I/O (Telegram: grammY Context, Discord: discord.js Channel).
 
-**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while a session is processing are steered into the live Pi RPC process so the agent can see mid-turn updates without waiting for a respawn.
+**Message queue** sits between platform bots and Session Manager. Rapid messages are debounced (3s window) into a single prompt. Messages arriving while a session is processing are collected (up to 20) and delivered as reliable follow-up prompts after the current turn completes. Passive echo context and shutdown notices can still be steered best-effort into an active Pi turn.
 
 **Context injection:** Each message includes metadata — current time, chat type (DM/group/topic), topic name, sender username, and emoji reactions. The agent knows where it is, when it is, and who it's talking to. Reactions are delivered as messages so the agent can respond to a thumbs-up or a ❤️ without the user typing anything.
 
@@ -360,7 +360,7 @@ Each agent must set an explicit Pi-appropriate `model` (for example, `model: gpt
 
 Agents may also set `thinking`, which is passed as Pi `--thinking`. Allowed values are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`.
 
-The typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) handles JSONL splitting, spawn/send helpers, and event translation into the bot's existing stream relay shapes. The Session Manager spawns Pi RPC, streams responses to Telegram/Discord, persists and resumes session IDs across restarts, and steers mid-turn messages into the active process.
+The typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts)) handles JSONL splitting, spawn/send helpers, and event translation into the bot's existing stream relay shapes. The Session Manager spawns Pi RPC, streams responses to Telegram/Discord, persists and resumes session IDs across restarts, and sends user prompts with `followUp` semantics so they queue instead of being rejected if Pi is still busy.
 
 The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
 
