@@ -6,7 +6,7 @@ Delegate tasks to specialized subagents with isolated context windows.
 
 This is the upstream Pi `subagent` example, ADOPTED as a bot Pi extension and
 loaded into every `pi --mode rpc` spawn via `--extension` (see
-`resolvePiExtensionArgs` in `bot/src/pi-rpc-protocol.ts`). Two behavioral changes
+`resolvePiExtensionArgs` in `bot/src/pi-rpc-protocol.ts`). Three behavioral changes
 from upstream:
 
 1. **Provider wiring**: each spawned child runs on the bot's `openai-codex`
@@ -28,6 +28,13 @@ from upstream:
    **override the bundled ones by name**. `discoverAgents` always loads the
    bundled `agents/` dir first regardless of `agentScope`; the bundled `prompts/`
    dir is registered via a `resources_discover` handler in `index.ts`.
+3. **Child extension subset**: each child `pi -p` spawn passes `--no-extensions`,
+   then explicitly loads only A1 guard + A2 web-tools via
+   `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS`. Children do not load A3
+   `subagent/index.ts`, so recursive subagent spawning stays disabled. Missing
+   guard or web-tools wrappers fail closed during spawn arg resolution; a missing
+   Tavily key leaves web tools registered but returning graceful unavailable
+   results.
 
 **Tool/param contract:** the registered tool is named `subagent`; modes are
 `single` (`{ agent, task }`), `parallel` (`{ tasks: [...] }`), and `chain`
@@ -190,9 +197,9 @@ Later sources override earlier ones with the same name: user overrides bundled; 
 
 | Agent | Purpose | Model | Tools |
 |-------|---------|-------|-------|
-| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash |
-| `planner` | Implementation plans | Sonnet | read, grep, find, ls |
-| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash |
+| `scout` | Fast codebase recon | Haiku | read, grep, find, ls, bash, web_search, web_fetch |
+| `planner` | Implementation plans | Sonnet | read, grep, find, ls, web_search, web_fetch |
+| `reviewer` | Code review | Sonnet | read, grep, find, ls, bash, web_search, web_fetch |
 | `worker` | General-purpose | Sonnet | (all default) |
 
 ## Workflow Prompts

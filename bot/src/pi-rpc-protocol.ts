@@ -55,6 +55,12 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
 export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts", "web-tools.ts"] as const;
 
 /**
+ * Wrappers a Pi print-mode cron must load. Crons require only the A1 write
+ * guard; they intentionally do not get A2 web tools or A3 subagent parity.
+ */
+export const PI_CRON_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
+
+/**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
  * first-party extensions. Spawns still pass `--no-extensions` so Pi's ambient
  * extension discovery remains disabled.

@@ -33,7 +33,8 @@ import type { ExecFileSyncLike } from "../secrets.js";
 
 const KEY = "tvly-test-key";
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const WEB_TOOLS_WRAPPER_PATH = resolve(__dirname, "../../.claude/extensions/web-tools.ts");
+const BOT_DIR = resolve(__dirname, "..", "..");
+const WEB_TOOLS_WRAPPER_PATH = resolve(BOT_DIR, ".claude", "extensions", "web-tools.ts");
 
 interface FetchCall {
   url: string;
@@ -45,12 +46,14 @@ interface MockFetch {
   calls: FetchCall[];
 }
 
+interface WrapperToolResult {
+  content: Array<{ type: "text"; text: string }>;
+  details: { ok: boolean };
+}
+
 interface RegisteredTool {
   name: string;
-  execute: (
-    toolCallId: string,
-    params: Record<string, unknown>,
-  ) => Promise<{ content: Array<{ type: "text"; text: string }>; details: { ok: boolean } }>;
+  execute: (toolCallId: string, params: Record<string, unknown>) => Promise<WrapperToolResult>;
 }
 
 /** A minimal Response-like object for the success / HTTP-error paths. */
@@ -393,6 +396,41 @@ describe("tavily: warn + tool descriptors", () => {
     assert.equal(WEB_FETCH_TOOL.name, "web_fetch");
     assert.deepEqual([...WEB_FETCH_TOOL.parameters.required], ["url"]);
     assert.equal(WEB_FETCH_TOOL.parameters.properties.url.type, "string");
+  });
+
+  it("wrapper registers web_search/web_fetch and missing-key executions stay graceful", async () => {
+    const moduleUrl = pathToFileURL(resolve(BOT_DIR, ".claude", "extensions", "web-tools.ts")).href;
+    const mod = await import(moduleUrl) as {
+      default: (pi: { registerTool: (tool: RegisteredTool) => void }) => void;
+    };
+    const registered: RegisteredTool[] = [];
+    const warns: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: Parameters<typeof console.warn>): void => {
+      warns.push(args.map(String).join(" "));
+    };
+
+    try {
+      mod.default({ registerTool: (tool) => registered.push(tool) });
+
+      assert.deepEqual(registered.map((tool) => tool.name), ["web_search", "web_fetch"]);
+      assert.ok(warns.some((line) => line.includes("tool=web_search") && line.includes("reason=missing-key")));
+
+      const search = registered.find((tool) => tool.name === "web_search");
+      const fetchTool = registered.find((tool) => tool.name === "web_fetch");
+      assert.ok(search);
+      assert.ok(fetchTool);
+
+      const searchResult = await search.execute("call-1", { query: "codex" });
+      assert.equal(searchResult.details.ok, false);
+      assert.match(searchResult.content[0].text, /unavailable/);
+
+      const fetchResult = await fetchTool.execute("call-2", { url: "https://example.com" });
+      assert.equal(fetchResult.details.ok, false);
+      assert.match(fetchResult.content[0].text, /unavailable/);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });
 

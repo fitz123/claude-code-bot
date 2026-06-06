@@ -2,13 +2,15 @@
 
 Issue: https://github.com/fitz123/claude-code-bot/issues/145
 
+Status note (2026-06-06): implemented in this branch. The final behavior keeps Pi crons guard-only, while subagent children load A1 guard + A2 web-tools and never load recursive A3 subagent.
+
 ## Goal
 
 Allow Pi subagent children to use `web_search` and `web_fetch` while keeping the A1 write guard enforced and keeping recursive subagent spawning disabled.
 
 ## Context
 
-Current behavior:
+Pre-change behavior:
 
 - Parent Pi sessions load all first-party wrappers: `guardian-protect-files.ts`, `web-tools.ts`, and `subagent/index.ts`.
 - Subagent children spawn with `--no-extensions` and an explicit child wrapper subset.

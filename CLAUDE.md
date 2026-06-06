@@ -33,6 +33,8 @@ Five hooks are wired in `.claude/settings.json`:
 - `/status` is local-only: read quota data with `readQuotaStatus()` and never call Pi, Codex, the network, or Pi `get_state` from a status command.
 - Live Pi sessions stay on `transport: auto`; only `bot/scripts/codex-quota-sampler.ts` creates an isolated sampler cwd with `transport: "sse"`.
 - `bot/.claude/extensions/codex-usage.ts` is sampler-only and must not be added to the normal Pi RPC extension list.
+- Pi subagent child spawns load only A1 guard + A2 web-tools via `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS`; do not add A3 `subagent/index.ts` to child sessions. Pi crons use the separate A1-only `PI_CRON_WRAPPER_RELPATHS`.
+- Bundled scout/planner/reviewer agents allow `web_search` and `web_fetch`; worker has no explicit tools allowlist.
 - Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
 - Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Telegram/Discord SOPS files resolve relative to the bot config file, while Tavily uses `config/secrets.sops.yaml` relative to each Pi session `workspaceCwd` and should contain only `tavily.api_key`.
 - Bot validation commands: `cd bot && npm test`, `npm run typecheck`, and `npm run validate-config`.

@@ -101,8 +101,7 @@ export function buildSubagentSpawnArgs(
     args.push("--append-system-prompt", options.systemPromptPath);
   }
 
-  // Load the child's extensions (the A1 write guard) BEFORE the positional task,
-  // so a delegated task is guarded the same way the parent session is.
+  // Load the child's resolved extension wrappers BEFORE the positional task.
   if (options?.extensionArgs && options.extensionArgs.length > 0) {
     args.push(...options.extensionArgs);
   }

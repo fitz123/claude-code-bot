@@ -18,6 +18,7 @@ import {
 import { _resetPiContextCache } from "../pi-context-assembler.js";
 import {
   NewlineOnlyJsonlSplitter,
+  PI_CRON_WRAPPER_RELPATHS,
   PI_EXTENSION_WRAPPER_RELPATHS,
   PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
   buildGetStateCommand,
@@ -417,12 +418,14 @@ describe("Pi extension loading (--extension)", () => {
   });
 
   it("the subagent-child wrapper subset is A1 guard + A2 web-tools, without A3 subagent recursion", () => {
-    const childRelpaths: string[] = [...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS];
-    assert.deepStrictEqual(childRelpaths, [
+    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], [
       "guardian-protect-files.ts",
       "web-tools.ts",
     ]);
-    assert.ok(!childRelpaths.includes("subagent/index.ts"));
+  });
+
+  it("the Pi cron wrapper subset is A1 guard only", () => {
+    assert.deepStrictEqual([...PI_CRON_WRAPPER_RELPATHS], ["guardian-protect-files.ts"]);
   });
 
   it("resolves only the requested relpaths subset (subagent child loads guard + web-tools only)", () => {
@@ -431,7 +434,13 @@ describe("Pi extension loading (--extension)", () => {
       "--extension", wrapperAbs("guardian-protect-files.ts"),
       "--extension", wrapperAbs("web-tools.ts"),
     ]);
-    assert.ok(!args.includes(wrapperAbs("subagent/index.ts")));
+  });
+
+  it("resolves only the requested relpaths subset (Pi cron loads guard only)", () => {
+    const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_CRON_WRAPPER_RELPATHS });
+    assert.deepStrictEqual(args, [
+      "--extension", wrapperAbs("guardian-protect-files.ts"),
+    ]);
   });
 
   it("the subset still honors the kill-switch (subagent child spawns bare when disabled)", () => {

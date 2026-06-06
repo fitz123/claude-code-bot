@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import {
   accumulateAssistantUsage,
   buildSubagentSpawnArgs,
@@ -29,18 +29,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..", "..");
 const BUNDLED_AGENT_DIR = resolve(BOT_DIR, ".claude", "extensions", "subagent", "agents");
 
-function readBundledAgentFrontmatter(name: string): Record<string, unknown> {
-  const content = readFileSync(resolve(BUNDLED_AGENT_DIR, `${name}.md`), "utf8");
-  const match = /^---\n([\s\S]*?)\n---/.exec(content);
-  assert.ok(match, `${name} must have frontmatter`);
-  const frontmatter = parseYaml(match[1]);
-  assert.equal(typeof frontmatter, "object");
-  assert.notEqual(frontmatter, null);
-  return frontmatter as Record<string, unknown>;
-}
-
 function readBundledAgentTools(name: string): string[] | undefined {
-  const tools = readBundledAgentFrontmatter(name).tools;
+  const content = readFileSync(resolve(BUNDLED_AGENT_DIR, `${name}.md`), "utf8");
+  const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
+  const tools = frontmatter.tools;
   if (tools === undefined) {
     return undefined;
   }
@@ -113,14 +105,15 @@ describe("subagent: buildSubagentSpawnArgs", () => {
     assert.equal(args[args.length - 1], "Task: t");
   });
 
-  it("injects the child's --extension args before the task (A1 guard propagation)", () => {
-    const extensionArgs = ["--extension", "/abs/guardian-protect-files.ts"];
+  it("injects the child's --extension args before the task", () => {
+    const extensionArgs = [
+      "--extension", "/abs/guardian-protect-files.ts",
+      "--extension", "/abs/web-tools.ts",
+    ];
     const args = buildSubagentSpawnArgs({}, "delegate", { extensionArgs });
-    const idx = args.indexOf("--extension");
-    assert.notEqual(idx, -1);
-    assert.equal(args[idx + 1], "/abs/guardian-protect-files.ts");
-    assert.ok(idx < args.length - 1, "extension args must precede the positional task");
-    assert.equal(args[args.length - 1], "Task: delegate");
+    const taskIdx = args.indexOf("Task: delegate");
+    assert.notEqual(taskIdx, -1);
+    assert.deepEqual(args.slice(taskIdx - extensionArgs.length, taskIdx), extensionArgs);
   });
 
   it("omits explicit --extension wrappers when no extensionArgs are given, but suppresses ambient discovery", () => {
@@ -138,6 +131,8 @@ describe("subagent: bundled agent tool allowlists", () => {
       assert.ok(tools, `${agentName} must have an explicit tools allowlist`);
       assert.ok(tools.includes("web_search"), `${agentName} tools must include web_search`);
       assert.ok(tools.includes("web_fetch"), `${agentName} tools must include web_fetch`);
+      const args = buildSubagentSpawnArgs({ tools }, `task for ${agentName}`);
+      assert.equal(args[args.indexOf("--tools") + 1], tools.join(","));
     }
   });
 
