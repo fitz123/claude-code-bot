@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -399,6 +399,13 @@ describe("tavily: warn + tool descriptors", () => {
   });
 
   it("wrapper registers web_search/web_fetch and missing-key executions stay graceful", async () => {
+    const childProcessMock = mock.module("node:child_process", {
+      namedExports: {
+        execFileSync: () => {
+          throw new Error("missing test key");
+        },
+      },
+    });
     const moduleUrl = pathToFileURL(resolve(BOT_DIR, ".claude", "extensions", "web-tools.ts")).href;
     const mod = await import(moduleUrl) as {
       default: (pi: { registerTool: (tool: RegisteredTool) => void }) => void;
@@ -406,8 +413,12 @@ describe("tavily: warn + tool descriptors", () => {
     const registered: RegisteredTool[] = [];
     const warns: string[] = [];
     const originalWarn = console.warn;
+    const originalFetch = globalThis.fetch;
     console.warn = (...args: Parameters<typeof console.warn>): void => {
       warns.push(args.map(String).join(" "));
+    };
+    globalThis.fetch = async () => {
+      throw new Error("wrapper test must not call fetch");
     };
 
     try {
@@ -430,6 +441,8 @@ describe("tavily: warn + tool descriptors", () => {
       assert.match(fetchResult.content[0].text, /unavailable/);
     } finally {
       console.warn = originalWarn;
+      globalThis.fetch = originalFetch;
+      childProcessMock.restore();
     }
   });
 });
