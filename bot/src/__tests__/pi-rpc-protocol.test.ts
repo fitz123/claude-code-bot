@@ -25,6 +25,7 @@ import {
   buildPiPromptCommand,
   buildPiSpawnArgs,
   buildPiSpawnEnv,
+  buildPiSubagentChildSpawnEnv,
   buildPiSteerCommand,
   extractPiTextDelta,
   isPiAlreadyProcessingRejection,
@@ -726,6 +727,59 @@ describe("buildPiSpawnEnv", () => {
         delete process.env.PI_GUARD_WORKSPACE_ROOT;
       } else {
         process.env.PI_GUARD_WORKSPACE_ROOT = oldRoot;
+      }
+    }
+  });
+});
+
+describe("buildPiSubagentChildSpawnEnv", () => {
+  it("uses the same credential-scrubbed env as Pi spawns and pins the guard root", () => {
+    const envKeys = [
+      "ANTHROPIC_API_KEY",
+      "GITHUB_TOKEN",
+      "LC_CTYPE",
+      "OPENAI_API_KEY",
+      "PATH",
+      "PI_CODING_AGENT_SESSION_DIR",
+      "PI_GUARD_WORKSPACE_ROOT",
+      "SSH_AUTH_SOCK",
+      "TAVILY_API_KEY",
+      "TELEGRAM_BOT_TOKEN",
+    ];
+    const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
+
+    try {
+      process.env.ANTHROPIC_API_KEY = "fixture";
+      process.env.GITHUB_TOKEN = "fixture";
+      process.env.LC_CTYPE = "UTF-8";
+      process.env.OPENAI_API_KEY = "fixture";
+      process.env.PATH = "/usr/bin";
+      process.env.PI_CODING_AGENT_SESSION_DIR = "/tmp/pi-sessions";
+      process.env.PI_GUARD_WORKSPACE_ROOT = "/wrong/root";
+      process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
+      process.env.TAVILY_API_KEY = "fixture";
+      process.env.TELEGRAM_BOT_TOKEN = "fixture";
+
+      const env = buildPiSubagentChildSpawnEnv("/workspace/root");
+
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, "/workspace/root");
+      assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
+      assert.strictEqual(env.LC_CTYPE, "UTF-8");
+      assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+      assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
+      assert.strictEqual(env.GITHUB_TOKEN, undefined);
+      assert.strictEqual(env.OPENAI_API_KEY, undefined);
+      assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
+      assert.strictEqual(env.TAVILY_API_KEY, undefined);
+      assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
+    } finally {
+      for (const key of envKeys) {
+        const oldValue = oldValues.get(key);
+        if (oldValue === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = oldValue;
+        }
       }
     }
   });

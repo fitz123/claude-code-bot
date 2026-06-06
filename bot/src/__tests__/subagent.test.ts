@@ -141,6 +141,15 @@ describe("subagent: bundled agent tool allowlists", () => {
   });
 });
 
+describe("subagent: wrapper spawn environment", () => {
+  it("uses the scrubbed subagent-child env helper instead of copying process.env", () => {
+    const wrapper = readFileSync(resolve(BOT_DIR, ".claude", "extensions", "subagent", "index.ts"), "utf8");
+
+    assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(guardWorkspaceRoot\)/);
+    assert.doesNotMatch(wrapper, /env:\s*\{\s*\.{3}process\.env/);
+  });
+});
+
 describe("subagent: parseSubagentEventLine", () => {
   it("surfaces a message_end as a message event", () => {
     const ev = parseSubagentEventLine(assistantLine({ content: [{ type: "text", text: "hi" }] }).trim());

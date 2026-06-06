@@ -42,6 +42,7 @@ import {
 // guard the parent session runs under (resolved here — honoring the kill-switch
 // + fail-closed missing-wrapper check — and injected into the spawn args).
 import {
+	buildPiSubagentChildSpawnEnv,
 	PI_GUARD_WORKSPACE_ROOT_ENV,
 	PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
 	resolvePiExtensionArgs,
@@ -312,9 +313,8 @@ async function runSingleAgent(
 
 		// Provider wiring lives in the pure helper: --provider openai-codex +
 		// the normalized codex model (agent.model is left provider-agnostic). The
-		// child also loads the A1 write guard so a delegated task is guarded the
-		// same way the parent session is (PI_EXTENSIONS_DISABLED=1 → no explicit
-		// first-party wrappers, while --no-extensions still blocks ambient discovery).
+		// child loads the guarded web-tool subset, and its env is allowlisted so
+		// web-capable child agents never inherit ambient secrets from the parent.
 		const args = buildSubagentSpawnArgs(agent, task, {
 			systemPromptPath: tmpPromptPath ?? undefined,
 			extensionArgs: resolvePiExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS }),
@@ -332,7 +332,7 @@ async function runSingleAgent(
 			spawn: (command, spawnArgs, opts) =>
 				spawn(command, spawnArgs, {
 					cwd: opts.cwd,
-					env: { ...process.env, [PI_GUARD_WORKSPACE_ROOT_ENV]: guardWorkspaceRoot },
+					env: buildPiSubagentChildSpawnEnv(guardWorkspaceRoot),
 					shell: false,
 					stdio: ["ignore", "pipe", "pipe"],
 				}),

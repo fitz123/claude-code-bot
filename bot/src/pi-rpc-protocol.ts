@@ -348,6 +348,24 @@ export function buildPiSpawnArgs(
 export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   void agent;
 
+  const env = buildAllowedPiChildEnv();
+
+  // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
+  // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
+  // parent guard — only the subagent child spawn sets it (see the constant doc).
+  delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
+
+  return env;
+}
+
+export function buildPiSubagentChildSpawnEnv(guardWorkspaceRoot: string): Record<string, string> {
+  return {
+    ...buildAllowedPiChildEnv(),
+    [PI_GUARD_WORKSPACE_ROOT_ENV]: guardWorkspaceRoot,
+  };
+}
+
+function buildAllowedPiChildEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, val] of Object.entries(process.env)) {
     if (val !== undefined && shouldIncludePiChildEnvKey(key)) {
@@ -362,10 +380,6 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   delete env.ANTHROPIC_API_KEY;
   // Never leak the legacy session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
-  // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
-  // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
-  // parent guard — only the subagent child spawn sets it (see the constant doc).
-  delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
 
   const pathParts = (env.PATH ?? "").split(":").filter(Boolean);
   if (!pathParts.includes("/opt/homebrew/bin")) {
