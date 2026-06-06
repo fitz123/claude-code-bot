@@ -9,6 +9,7 @@ export type SecretFailureKind =
   | "missing-file"
   | "command-not-found"
   | "decrypt-failed"
+  | "timeout"
   | "blank"
   | "unset";
 
@@ -50,6 +51,7 @@ export type ExecFileSyncLike = (
   options: {
     encoding: BufferEncoding;
     stdio: ["ignore", "pipe", "pipe"];
+    timeout: number;
   },
 ) => string | Buffer;
 
@@ -69,6 +71,7 @@ export interface ResolveSecretOptions {
 }
 
 const SAFE_SOPS_SEGMENT = /^[A-Za-z0-9_-]+$/;
+const SOPS_DECRYPT_TIMEOUT_MS = 10_000;
 
 function formatSecretSourceFailure(failure: SecretSourceFailure): string {
   if (failure.source === "sops") {
@@ -89,6 +92,7 @@ function defaultExecFileSync(
   options: {
     encoding: BufferEncoding;
     stdio: ["ignore", "pipe", "pipe"];
+    timeout: number;
   },
 ): string | Buffer {
   return nodeExecFileSync(file, [...args], options);
@@ -128,14 +132,21 @@ export function readSopsSecret(opts: ReadSopsSecretOptions): string {
     raw = execFileSync("sops", ["-d", "--extract", extract, opts.file], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: SOPS_DECRYPT_TIMEOUT_MS,
     });
   } catch (err) {
-    const code = typeof err === "object" && err !== null
-      ? (err as { code?: unknown }).code
-      : undefined;
+    const errorMeta = typeof err === "object" && err !== null
+      ? (err as { code?: unknown; signal?: unknown })
+      : {};
+    const code = errorMeta.code;
+    const signal = errorMeta.signal;
     throw toSourceError({
       source: "sops",
-      kind: code === "ENOENT" ? "command-not-found" : "decrypt-failed",
+      kind: code === "ENOENT"
+        ? "command-not-found"
+        : signal === "SIGTERM"
+          ? "timeout"
+          : "decrypt-failed",
       key: opts.key,
     });
   }

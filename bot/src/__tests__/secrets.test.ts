@@ -35,9 +35,9 @@ describe("SOPS secret reader", () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "secrets-test-"));
     const file = join(tmpDir, "secrets.sops.yaml");
     writeFileSync(file, "placeholder: true\n", "utf8");
-    const calls: Array<{ file: string; args: readonly string[] }> = [];
-    const execFileSync: ExecFileSyncLike = (cmd, args) => {
-      calls.push({ file: cmd, args });
+    const calls: Array<{ file: string; args: readonly string[]; timeout: number }> = [];
+    const execFileSync: ExecFileSyncLike = (cmd, args, options) => {
+      calls.push({ file: cmd, args, timeout: options.timeout });
       return "value-from-sops\n";
     };
 
@@ -46,6 +46,7 @@ describe("SOPS secret reader", () => {
       assert.deepEqual(calls, [{
         file: "sops",
         args: ["-d", "--extract", '["tavily"]["api_key"]', file],
+        timeout: 10_000,
       }]);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
@@ -123,6 +124,31 @@ describe("SOPS secret reader", () => {
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it("reports sops timeout without leaking command stderr text", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "secrets-test-"));
+    const file = join(tmpDir, "secrets.sops.yaml");
+    writeFileSync(file, "placeholder: true\n", "utf8");
+    const execFileSync: ExecFileSyncLike = () => {
+      throw Object.assign(new Error("sensitive timeout stderr text"), { signal: "SIGTERM" });
+    };
+
+    try {
+      assert.throws(
+        () => readSopsSecret({ file, key: "tavily.api_key", execFileSync }),
+        (err: unknown) => {
+          assert.ok(err instanceof SecretSourceError);
+          assert.equal(err.failure.source, "sops");
+          assert.equal(err.failure.kind, "timeout");
+          assert.equal(err.failure.key, "tavily.api_key");
+          assert.doesNotMatch(err.message, /sensitive timeout stderr text/);
+          return true;
+        },
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("secret resolver", () => {
@@ -170,6 +196,23 @@ describe("secret resolver", () => {
   it("falls back to env when SOPS fails", () => withSopsFile((sopsFile) => {
     const execFileSync: ExecFileSyncLike = () => {
       throw Object.assign(new Error("not included in sanitized error"), { status: 1 });
+    };
+
+    const value = resolveSecret({
+      sopsFile,
+      sopsKey: "discord.bot_token",
+      envVar: "DISCORD_BOT_TOKEN",
+      fieldName: "discord.token",
+      env: { DISCORD_BOT_TOKEN: "value-from-env" },
+      execFileSync,
+    });
+
+    assert.equal(value, "value-from-env");
+  }));
+
+  it("falls back to env when SOPS times out", () => withSopsFile((sopsFile) => {
+    const execFileSync: ExecFileSyncLike = () => {
+      throw Object.assign(new Error("not included in sanitized error"), { signal: "SIGTERM" });
     };
 
     const value = resolveSecret({

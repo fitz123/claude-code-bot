@@ -59,6 +59,7 @@ if [ -z "$TOKEN" ]; then
   echo "[deliver] Error: TELEGRAM_BOT_TOKEN is not set; run via cron-runner or provide a resolved token" >&2
   exit 1
 fi
+unset TELEGRAM_BOT_TOKEN
 
 API="https://api.telegram.org/bot${TOKEN}"
 LOG_DIR="${LOG_DIR:-$HOME/.minime/logs}"

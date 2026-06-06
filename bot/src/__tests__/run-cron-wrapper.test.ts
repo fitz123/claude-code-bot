@@ -151,5 +151,6 @@ describe("deliver.sh", () => {
     assert.doesNotMatch(script, /security find-generic-password/);
     assert.doesNotMatch(script, /Keychain/);
     assert.match(script, /TELEGRAM_BOT_TOKEN/);
+    assert.match(script, /\nTOKEN="\$\{TELEGRAM_BOT_TOKEN:-\}"[\s\S]*\nunset TELEGRAM_BOT_TOKEN\n[\s\S]*\nAPI=/);
   });
 });
