@@ -18,12 +18,14 @@ import {
 import { _resetPiContextCache } from "../pi-context-assembler.js";
 import {
   NewlineOnlyJsonlSplitter,
+  PI_CRON_WRAPPER_RELPATHS,
   PI_EXTENSION_WRAPPER_RELPATHS,
   PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
   buildGetStateCommand,
   buildPiPromptCommand,
   buildPiSpawnArgs,
   buildPiSpawnEnv,
+  buildPiSubagentChildSpawnEnv,
   buildPiSteerCommand,
   extractPiTextDelta,
   isPiAlreadyProcessingRejection,
@@ -416,13 +418,30 @@ describe("Pi extension loading (--extension)", () => {
     );
   });
 
-  it("the subagent-child wrapper subset is ONLY the A1 guard (no web/subagent → no recursion)", () => {
-    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], ["guardian-protect-files.ts"]);
+  it("the subagent-child wrapper subset is A1 guard + A2 web-tools, without A3 subagent recursion", () => {
+    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], [
+      "guardian-protect-files.ts",
+      "web-tools.ts",
+    ]);
   });
 
-  it("resolves only the requested relpaths subset (subagent child loads just the A1 guard)", () => {
+  it("the Pi cron wrapper subset is A1 guard only", () => {
+    assert.deepStrictEqual([...PI_CRON_WRAPPER_RELPATHS], ["guardian-protect-files.ts"]);
+  });
+
+  it("resolves only the requested relpaths subset (subagent child loads guard + web-tools only)", () => {
     const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
-    assert.deepStrictEqual(args, ["--extension", wrapperAbs("guardian-protect-files.ts")]);
+    assert.deepStrictEqual(args, [
+      "--extension", wrapperAbs("guardian-protect-files.ts"),
+      "--extension", wrapperAbs("web-tools.ts"),
+    ]);
+  });
+
+  it("resolves only the requested relpaths subset (Pi cron loads guard only)", () => {
+    const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_CRON_WRAPPER_RELPATHS });
+    assert.deepStrictEqual(args, [
+      "--extension", wrapperAbs("guardian-protect-files.ts"),
+    ]);
   });
 
   it("the subset still honors the kill-switch (subagent child spawns bare when disabled)", () => {
@@ -445,6 +464,20 @@ describe("Pi extension loading (--extension)", () => {
           relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
         }),
       /guardian-protect-files\.ts[\s\S]*Refusing to spawn an unguarded/,
+    );
+  });
+
+  it("the subset still fails CLOSED when the A2 web-tools wrapper is missing on disk", () => {
+    const presentWithoutWeb = (p: string): boolean => !p.includes("web-tools.ts");
+    assert.throws(
+      () =>
+        resolvePiExtensionArgs({
+          extensionsDir: FAKE_DIR,
+          env: {},
+          exists: presentWithoutWeb,
+          relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+        }),
+      /web-tools\.ts[\s\S]*Refusing to spawn an unguarded/,
     );
   });
 
@@ -694,6 +727,59 @@ describe("buildPiSpawnEnv", () => {
         delete process.env.PI_GUARD_WORKSPACE_ROOT;
       } else {
         process.env.PI_GUARD_WORKSPACE_ROOT = oldRoot;
+      }
+    }
+  });
+});
+
+describe("buildPiSubagentChildSpawnEnv", () => {
+  it("uses the same credential-scrubbed env as Pi spawns and pins the guard root", () => {
+    const envKeys = [
+      "ANTHROPIC_API_KEY",
+      "GITHUB_TOKEN",
+      "LC_CTYPE",
+      "OPENAI_API_KEY",
+      "PATH",
+      "PI_CODING_AGENT_SESSION_DIR",
+      "PI_GUARD_WORKSPACE_ROOT",
+      "SSH_AUTH_SOCK",
+      "TAVILY_API_KEY",
+      "TELEGRAM_BOT_TOKEN",
+    ];
+    const oldValues = new Map(envKeys.map((key) => [key, process.env[key]]));
+
+    try {
+      process.env.ANTHROPIC_API_KEY = "fixture";
+      process.env.GITHUB_TOKEN = "fixture";
+      process.env.LC_CTYPE = "UTF-8";
+      process.env.OPENAI_API_KEY = "fixture";
+      process.env.PATH = "/usr/bin";
+      process.env.PI_CODING_AGENT_SESSION_DIR = "/tmp/pi-sessions";
+      process.env.PI_GUARD_WORKSPACE_ROOT = "/wrong/root";
+      process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
+      process.env.TAVILY_API_KEY = "fixture";
+      process.env.TELEGRAM_BOT_TOKEN = "fixture";
+
+      const env = buildPiSubagentChildSpawnEnv("/workspace/root");
+
+      assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, "/workspace/root");
+      assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
+      assert.strictEqual(env.LC_CTYPE, "UTF-8");
+      assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
+      assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
+      assert.strictEqual(env.GITHUB_TOKEN, undefined);
+      assert.strictEqual(env.OPENAI_API_KEY, undefined);
+      assert.strictEqual(env.SSH_AUTH_SOCK, undefined);
+      assert.strictEqual(env.TAVILY_API_KEY, undefined);
+      assert.strictEqual(env.TELEGRAM_BOT_TOKEN, undefined);
+    } finally {
+      for (const key of envKeys) {
+        const oldValue = oldValues.get(key);
+        if (oldValue === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = oldValue;
+        }
       }
     }
   });

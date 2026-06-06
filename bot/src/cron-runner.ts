@@ -19,8 +19,8 @@ import type { CronJob, AgentConfig } from "./types.js";
 import { shouldSuppressNoReply } from "./no-reply.js";
 import {
   buildPiSpawnEnv,
+  PI_CRON_WRAPPER_RELPATHS,
   resolvePiExtensionArgs,
-  PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
   PI_EXTENSIONS_DISABLED_ENV,
   shouldIncludePiChildEnvKey,
 } from "./pi-rpc-protocol.js";
@@ -602,7 +602,7 @@ function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtens
     throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; unset it before running Pi crons`);
   }
 
-  const extensionArgs = resolveExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
+  const extensionArgs = resolveExtensionArgs({ relpaths: PI_CRON_WRAPPER_RELPATHS });
   if (extensionArgs.length === 0) {
     throw new Error("Pi cron extension resolver returned no guard extension; refusing to spawn an unguarded Pi cron");
   }

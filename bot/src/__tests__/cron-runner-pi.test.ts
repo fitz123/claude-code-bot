@@ -16,8 +16,8 @@ import { runPi, type PiRunDeps } from "../cron-runner.js";
 import { assemblePiContext } from "../pi-context-assembler.js";
 import {
   buildPiSpawnEnv,
+  PI_CRON_WRAPPER_RELPATHS,
   PI_EXTENSIONS_DISABLED_ENV,
-  PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, CronJob } from "../types.js";
 
@@ -154,7 +154,7 @@ describe("cron-runner runPi", () => {
       "/fake/guardian-protect-files.ts",
     ]);
     assert.strictEqual(capture.options.input, undefined);
-    assert.deepStrictEqual([...(relpathsSeen ?? [])], [...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS]);
+    assert.deepStrictEqual([...(relpathsSeen ?? [])], [...PI_CRON_WRAPPER_RELPATHS]);
     assert.strictEqual(capture.options.cwd, ws);
     assert.strictEqual(capture.options.timeout, 1234);
     assert.strictEqual(capture.options.encoding, "utf8");

@@ -46,12 +46,19 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
  * Wrappers a subagent CHILD `pi` spawn must load. The subagent tool spawns an
  * isolated `pi -p` child to run a delegated task; without the A1 write guard a
  * parent could delegate a protected write (e.g. into `bot/`) to a child and
- * bypass A1 entirely. We load ONLY the guard — not web-tools/subagent — so the
- * child stays a focused, guarded worker without web access or the ability to
- * recursively re-spawn subagents. Honors the same kill-switch + fail-closed
- * resolution as the parent (via {@link resolvePiExtensionArgs}).
+ * bypass A1 entirely. Children load the guard plus A2 web tools so delegated
+ * research can use web_search/web_fetch, but they do NOT load A3 subagent: the
+ * recursive spawn tool stays disabled in child sessions. Honors the same
+ * kill-switch + fail-closed resolution as the parent (via
+ * {@link resolvePiExtensionArgs}).
  */
-export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
+export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts", "web-tools.ts"] as const;
+
+/**
+ * Wrappers a Pi print-mode cron must load. Crons require only the A1 write
+ * guard; they intentionally do not get A2 web tools or A3 subagent parity.
+ */
+export const PI_CRON_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
 
 /**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
@@ -84,7 +91,8 @@ export interface PiExtensionResolveOptions {
   /**
    * Which wrapper relpaths to resolve (default: the full A1-A3
    * {@link PI_EXTENSION_WRAPPER_RELPATHS}). A subagent child passes
-   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load only the A1 guard.
+   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load only A1 guard + A2 web
+   * tools, leaving recursive A3 subagent spawning disabled.
    */
   relpaths?: readonly string[];
 }
@@ -340,6 +348,24 @@ export function buildPiSpawnArgs(
 export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   void agent;
 
+  const env = buildAllowedPiChildEnv();
+
+  // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
+  // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
+  // parent guard — only the subagent child spawn sets it (see the constant doc).
+  delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
+
+  return env;
+}
+
+export function buildPiSubagentChildSpawnEnv(guardWorkspaceRoot: string): Record<string, string> {
+  return {
+    ...buildAllowedPiChildEnv(),
+    [PI_GUARD_WORKSPACE_ROOT_ENV]: guardWorkspaceRoot,
+  };
+}
+
+function buildAllowedPiChildEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, val] of Object.entries(process.env)) {
     if (val !== undefined && shouldIncludePiChildEnvKey(key)) {
@@ -354,10 +380,6 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   delete env.ANTHROPIC_API_KEY;
   // Never leak the legacy session marker into a spawned agent subprocess.
   delete env.CLAUDECODE;
-  // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
-  // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
-  // parent guard — only the subagent child spawn sets it (see the constant doc).
-  delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
 
   const pathParts = (env.PATH ?? "").split(":").filter(Boolean);
   if (!pathParts.includes("/opt/homebrew/bin")) {

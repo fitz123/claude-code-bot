@@ -23,6 +23,7 @@
  * and missing-key paths with a mock fetch and never touch the network.
  */
 
+import { isIP } from "node:net";
 import { TAVILY_SOPS_FILE_RELPATH, TAVILY_SOPS_KEY } from "./tavily-constants.js";
 
 export const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
@@ -32,6 +33,10 @@ export const TAVILY_EXTRACT_URL = "https://api.tavily.com/extract";
 export const DEFAULT_SEARCH_MAX_RESULTS = 5;
 /** Clamp so a model can never request a runaway page of results. */
 export const MAX_SEARCH_MAX_RESULTS = 20;
+/** Keep model-supplied search text small enough to avoid pasted local data. */
+export const MAX_SEARCH_QUERY_CHARS = 300;
+/** Hard cap for fetch URLs before they are sent to Tavily. */
+export const MAX_FETCH_URL_CHARS = 2048;
 
 /** A fully-described HTTP request (so tests can assert shape without a network). */
 export interface TavilyHttpRequest {
@@ -86,7 +91,7 @@ export interface WebToolResult {
 
 export interface TavilyWarn {
   tool: "web_search" | "web_fetch";
-  reason: "missing-key" | "bad-args" | "http-error" | "request-failed";
+  reason: "missing-key" | "bad-args" | "blocked-egress" | "http-error" | "request-failed";
   detail?: string;
 }
 
@@ -117,6 +122,303 @@ function coerceMaxResults(raw: unknown): number {
     return DEFAULT_SEARCH_MAX_RESULTS;
   }
   return Math.min(Math.floor(n), MAX_SEARCH_MAX_RESULTS);
+}
+
+const SENSITIVE_ASSIGNMENT_PATTERN =
+  /\b(?:api[_-]?key|authorization|cookie|credential|passwd|password|secret|session|token)\b\s*[:=]\s*\S{4,}/i;
+const AUTH_HEADER_PATTERN = /\b(?:basic|bearer)\s+[A-Za-z0-9._~+/=-]{12,}\b/i;
+const COMMON_SECRET_TOKEN_PATTERN =
+  /\b(?:gh[pousr]_|sk-|tvly-|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i;
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}\b/;
+const PRIVATE_KEY_MARKER_PATTERN = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
+const LOCAL_PATH_PATTERN =
+  /(?:^|[\s"'`=:(])(?:~\/|\.\.\/|\/(?:Users|home|private|var\/folders|etc|tmp)\/|[A-Za-z]:\\)[^\s"'`)]*/;
+const REPO_FILE_PATH_PATTERN =
+  /(?:^|[\s"'`=:(])(?:\.claude\/|bot\/|memory\/|\.ssh\/|(?:config\.local\.yaml|\.env|id_rsa)\b|[A-Za-z0-9_-]+\/[A-Za-z0-9._/-]+\.(?:env|json|key|md|pem|ts|tsx|yaml|yml)\b)/;
+const HIGH_ENTROPY_TOKEN_PATTERN = /[A-Za-z0-9_+/=-]{32,}/g;
+const SENSITIVE_URL_PARAM_PATTERN =
+  /(?:api[_-]?key|auth|cookie|credential|key|passwd|password|secret|session|token)/i;
+
+function containsHighEntropyToken(text: string): boolean {
+  for (const [token] of text.matchAll(HIGH_ENTROPY_TOKEN_PATTERN)) {
+    if (/[a-z]/.test(token) && /[A-Z]/.test(token) && /\d/.test(token)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface OutboundTextValidationOptions {
+  checkSensitiveAssignments?: boolean;
+  checkLocalPaths?: boolean;
+  checkRepoPaths?: boolean;
+}
+
+function validateOutboundText(
+  kind: "query" | "url" | "url path" | "url fragment" | "url query parameter",
+  text: string,
+  maxChars: number,
+  options: OutboundTextValidationOptions = {},
+): string | undefined {
+  if (text.length > maxChars) {
+    return `${kind} exceeds ${maxChars} characters`;
+  }
+  if (/[\r\n]/.test(text)) {
+    return `${kind} contains multiline content`;
+  }
+  if (text.includes("```")) {
+    return `${kind} contains a code block`;
+  }
+  if (PRIVATE_KEY_MARKER_PATTERN.test(text)) {
+    return `${kind} contains private-key material`;
+  }
+  if (AUTH_HEADER_PATTERN.test(text) || COMMON_SECRET_TOKEN_PATTERN.test(text) || JWT_PATTERN.test(text)) {
+    return `${kind} contains credential-like text`;
+  }
+  if (options.checkSensitiveAssignments !== false && SENSITIVE_ASSIGNMENT_PATTERN.test(text)) {
+    return `${kind} contains a sensitive assignment`;
+  }
+  if (options.checkLocalPaths && LOCAL_PATH_PATTERN.test(text)) {
+    return `${kind} contains local path text`;
+  }
+  if (options.checkRepoPaths && REPO_FILE_PATH_PATTERN.test(text)) {
+    return `${kind} contains workspace/repository path text`;
+  }
+  if (containsHighEntropyToken(text)) {
+    return `${kind} contains high-entropy token-like text`;
+  }
+  return undefined;
+}
+
+function canonicalHostname(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (host.startsWith("[") && host.endsWith("]")) {
+    return host.slice(1, -1);
+  }
+  return host;
+}
+
+function ipv4Octets(host: string): number[] | undefined {
+  if (isIP(host) !== 4) {
+    return undefined;
+  }
+  return host.split(".").map((part) => Number(part));
+}
+
+function isPublicIpv4(octets: readonly number[]): boolean {
+  const [a, b, c, d] = octets;
+  const isLimitedBroadcastOrMulticast = a >= 224;
+  const isThisNetwork = a === 0;
+  const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  const isLoopback = a === 127;
+  const isSharedAddressSpace = a === 100 && b >= 64 && b <= 127;
+  const isLinkLocal = a === 169 && b === 254;
+  const isIetfProtocolAssignment = a === 192 && b === 0 && c === 0 && d !== 9 && d !== 10;
+  const isDocumentation = (
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113)
+  );
+  const isDeprecated6to4Relay = a === 192 && b === 88 && c === 99;
+  const isBenchmarking = a === 198 && (b === 18 || b === 19);
+  return !(
+    isLimitedBroadcastOrMulticast ||
+    isThisNetwork ||
+    isPrivate ||
+    isLoopback ||
+    isSharedAddressSpace ||
+    isLinkLocal ||
+    isIetfProtocolAssignment ||
+    isDocumentation ||
+    isDeprecated6to4Relay ||
+    isBenchmarking
+  );
+}
+
+function ipv6Groups(host: string): number[] | undefined {
+  if (isIP(host) !== 6) {
+    return undefined;
+  }
+
+  let source = host;
+  let embeddedIpv4Groups: number[] = [];
+  const lastColon = source.lastIndexOf(":");
+  const possibleIpv4 = lastColon === -1 ? "" : source.slice(lastColon + 1);
+  const embeddedIpv4 = possibleIpv4.includes(".") ? ipv4Octets(possibleIpv4) : undefined;
+  if (embeddedIpv4) {
+    source = source.slice(0, lastColon);
+    embeddedIpv4Groups = [
+      (embeddedIpv4[0] << 8) | embeddedIpv4[1],
+      (embeddedIpv4[2] << 8) | embeddedIpv4[3],
+    ];
+  }
+
+  const halves = source.split("::");
+  if (halves.length > 2) {
+    return undefined;
+  }
+
+  const parseHalf = (half: string): number[] => {
+    if (!half) {
+      return [];
+    }
+    return half.split(":").map((part) => Number.parseInt(part, 16));
+  };
+  const left = parseHalf(halves[0]);
+  const right = halves.length === 2 ? parseHalf(halves[1]) : [];
+  const explicitGroupCount = left.length + right.length + embeddedIpv4Groups.length;
+  const zeroFillCount = halves.length === 2 ? 8 - explicitGroupCount : 0;
+  if (zeroFillCount < 0 || (halves.length === 1 && explicitGroupCount !== 8)) {
+    return undefined;
+  }
+
+  return [...left, ...Array(zeroFillCount).fill(0), ...right, ...embeddedIpv4Groups];
+}
+
+function ipv4MappedOctets(groups: readonly number[]): number[] | undefined {
+  const hasIpv4Prefix = groups.slice(0, 5).every((group) => group === 0);
+  if (!hasIpv4Prefix || (groups[5] !== 0 && groups[5] !== 0xffff)) {
+    return undefined;
+  }
+  return [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff];
+}
+
+function isPublicIpv6(groups: readonly number[]): boolean {
+  const mappedV4 = ipv4MappedOctets(groups);
+  if (mappedV4 !== undefined) {
+    return isPublicIpv4(mappedV4);
+  }
+
+  const [first, second] = groups;
+  const isGlobalUnicast = (first & 0xe000) === 0x2000;
+  if (!isGlobalUnicast) {
+    return false;
+  }
+
+  const isDocumentation = first === 0x2001 && second === 0x0db8;
+  const isTeredo = first === 0x2001 && second === 0;
+  const isBenchmark = first === 0x2001 && second === 0x0002 && groups[2] === 0;
+  const isOrchidV2 = first === 0x2001 && second >= 0x0020 && second <= 0x002f;
+  const isDeprecated6to4 = first === 0x2002;
+  const isDocumentationV2 = first === 0x3fff;
+  return !(
+    isDocumentation ||
+    isTeredo ||
+    isBenchmark ||
+    isOrchidV2 ||
+    isDeprecated6to4 ||
+    isDocumentationV2
+  );
+}
+
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const host = canonicalHostname(hostname);
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
+    return true;
+  }
+
+  const v4 = ipv4Octets(host);
+  if (v4) {
+    return !isPublicIpv4(v4);
+  }
+
+  const v6 = ipv6Groups(host);
+  if (!v6) {
+    return false;
+  }
+  return !isPublicIpv6(v6);
+}
+
+function validateWebSearchEgress(query: string): string | undefined {
+  return validateOutboundText("query", query, MAX_SEARCH_QUERY_CHARS, {
+    checkLocalPaths: true,
+    checkRepoPaths: true,
+  });
+}
+
+interface WebFetchEgressValidation {
+  problem?: string;
+  safeUrl?: string;
+}
+
+function decodeUrlText(kind: "url path" | "url fragment", text: string): string | undefined {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function validateDecodedUrlText(kind: "url path" | "url fragment", rawText: string): string | undefined {
+  const decoded = decodeUrlText(kind, rawText);
+  if (decoded === undefined) {
+    return `${kind} contains malformed percent-encoding`;
+  }
+  const textForValidation = kind === "url path" ? decoded.replace(/^\/{2,}/, "/") : decoded;
+  return validateOutboundText(kind, textForValidation, MAX_FETCH_URL_CHARS, {
+    checkLocalPaths: true,
+    checkRepoPaths: kind === "url fragment",
+  });
+}
+
+function validateWebFetchEgress(url: string): WebFetchEgressValidation {
+  const textProblem = validateOutboundText("url", url, MAX_FETCH_URL_CHARS, {
+    checkSensitiveAssignments: false,
+  });
+  if (textProblem) {
+    return { problem: textProblem };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { problem: "url must be an absolute http(s) URL" };
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { problem: "url must use http(s)" };
+  }
+  if (parsed.username || parsed.password) {
+    return { problem: "url contains credentials" };
+  }
+  if (isPrivateOrLocalHost(parsed.hostname)) {
+    return { problem: "url targets a local/private host" };
+  }
+
+  const rawPathProblem = validateOutboundText("url path", parsed.pathname, MAX_FETCH_URL_CHARS, {
+    checkLocalPaths: true,
+  });
+  if (rawPathProblem) {
+    return { problem: rawPathProblem };
+  }
+  const decodedPathProblem = validateDecodedUrlText("url path", parsed.pathname);
+  if (decodedPathProblem) {
+    return { problem: decodedPathProblem };
+  }
+
+  if (parsed.hash) {
+    const fragmentProblem = validateDecodedUrlText("url fragment", parsed.hash.slice(1));
+    if (fragmentProblem) {
+      return { problem: fragmentProblem };
+    }
+  }
+
+  for (const [name, value] of parsed.searchParams) {
+    if (value && SENSITIVE_URL_PARAM_PATTERN.test(name)) {
+      return { problem: "url contains a sensitive query parameter" };
+    }
+    const paramProblem = validateOutboundText("url query parameter", value, MAX_SEARCH_QUERY_CHARS, {
+      checkLocalPaths: true,
+      checkRepoPaths: true,
+    });
+    if (paramProblem) {
+      return { problem: paramProblem };
+    }
+  }
+
+  parsed.hash = "";
+  return { safeUrl: parsed.href };
 }
 
 /** Build the Tavily `/search` HTTP request for a `web_search` call. */
@@ -276,6 +578,12 @@ export async function executeWebSearch(args: WebSearchArgs, deps: RunToolDeps): 
     return errResult("web_search requires a non-empty 'query' string.");
   }
 
+  const egressProblem = validateWebSearchEgress(query);
+  if (egressProblem) {
+    deps.warn?.({ tool: "web_search", reason: "blocked-egress", detail: egressProblem });
+    return errResult(`web_search blocked: ${egressProblem}. Do not send local or private data to external web services.`);
+  }
+
   const req = buildSearchRequest(deps.apiKey, { ...args, query });
   try {
     const json = await fetchTavilyJson(req, deps.fetchImpl);
@@ -305,7 +613,13 @@ export async function executeWebFetch(args: WebFetchArgs, deps: RunToolDeps): Pr
     return errResult("web_fetch requires a non-empty 'url' string.");
   }
 
-  const req = buildExtractRequest(deps.apiKey, { url });
+  const egress = validateWebFetchEgress(url);
+  if (egress.problem) {
+    deps.warn?.({ tool: "web_fetch", reason: "blocked-egress", detail: egress.problem });
+    return errResult(`web_fetch blocked: ${egress.problem}. Do not send local or private data to external web services.`);
+  }
+
+  const req = buildExtractRequest(deps.apiKey, { url: egress.safeUrl ?? url });
   try {
     const json = await fetchTavilyJson(req, deps.fetchImpl);
     return { ok: true, text: formatExtractResult(parseExtractResponse(json)) };
@@ -331,7 +645,8 @@ export const WEB_SEARCH_TOOL = {
   label: "Web Search",
   description:
     "Search the web for current information via Tavily. Returns ranked results " +
-    "(title, URL, snippet) and an optional synthesized answer.",
+    "(title, URL, snippet) and an optional synthesized answer. Do not include " +
+    "local file contents, paths, credentials, or other private data.",
   parameters: {
     type: "object",
     properties: {
@@ -358,7 +673,8 @@ export const WEB_FETCH_TOOL = {
   name: "web_fetch",
   label: "Web Fetch",
   description:
-    "Fetch and extract the readable text content of a single web page URL via Tavily.",
+    "Fetch and extract the readable text content of a single public web page URL " +
+    "via Tavily. URLs containing credentials or private/local targets are blocked.",
   parameters: {
     type: "object",
     properties: {
