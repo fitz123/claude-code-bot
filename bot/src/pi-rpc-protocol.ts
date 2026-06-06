@@ -46,12 +46,13 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
  * Wrappers a subagent CHILD `pi` spawn must load. The subagent tool spawns an
  * isolated `pi -p` child to run a delegated task; without the A1 write guard a
  * parent could delegate a protected write (e.g. into `bot/`) to a child and
- * bypass A1 entirely. We load ONLY the guard — not web-tools/subagent — so the
- * child stays a focused, guarded worker without web access or the ability to
- * recursively re-spawn subagents. Honors the same kill-switch + fail-closed
- * resolution as the parent (via {@link resolvePiExtensionArgs}).
+ * bypass A1 entirely. Children load the guard plus A2 web tools so delegated
+ * research can use web_search/web_fetch, but they do NOT load A3 subagent: the
+ * recursive spawn tool stays disabled in child sessions. Honors the same
+ * kill-switch + fail-closed resolution as the parent (via
+ * {@link resolvePiExtensionArgs}).
  */
-export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
+export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts", "web-tools.ts"] as const;
 
 /**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
@@ -84,7 +85,8 @@ export interface PiExtensionResolveOptions {
   /**
    * Which wrapper relpaths to resolve (default: the full A1-A3
    * {@link PI_EXTENSION_WRAPPER_RELPATHS}). A subagent child passes
-   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load only the A1 guard.
+   * {@link PI_SUBAGENT_CHILD_WRAPPER_RELPATHS} to load only A1 guard + A2 web
+   * tools, leaving recursive A3 subagent spawning disabled.
    */
   relpaths?: readonly string[];
 }

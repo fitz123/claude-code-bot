@@ -416,13 +416,22 @@ describe("Pi extension loading (--extension)", () => {
     );
   });
 
-  it("the subagent-child wrapper subset is ONLY the A1 guard (no web/subagent → no recursion)", () => {
-    assert.deepStrictEqual([...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS], ["guardian-protect-files.ts"]);
+  it("the subagent-child wrapper subset is A1 guard + A2 web-tools, without A3 subagent recursion", () => {
+    const childRelpaths: string[] = [...PI_SUBAGENT_CHILD_WRAPPER_RELPATHS];
+    assert.deepStrictEqual(childRelpaths, [
+      "guardian-protect-files.ts",
+      "web-tools.ts",
+    ]);
+    assert.ok(!childRelpaths.includes("subagent/index.ts"));
   });
 
-  it("resolves only the requested relpaths subset (subagent child loads just the A1 guard)", () => {
+  it("resolves only the requested relpaths subset (subagent child loads guard + web-tools only)", () => {
     const args = resolvePiExtensionArgs({ ...presentAll, relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS });
-    assert.deepStrictEqual(args, ["--extension", wrapperAbs("guardian-protect-files.ts")]);
+    assert.deepStrictEqual(args, [
+      "--extension", wrapperAbs("guardian-protect-files.ts"),
+      "--extension", wrapperAbs("web-tools.ts"),
+    ]);
+    assert.ok(!args.includes(wrapperAbs("subagent/index.ts")));
   });
 
   it("the subset still honors the kill-switch (subagent child spawns bare when disabled)", () => {
@@ -445,6 +454,20 @@ describe("Pi extension loading (--extension)", () => {
           relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
         }),
       /guardian-protect-files\.ts[\s\S]*Refusing to spawn an unguarded/,
+    );
+  });
+
+  it("the subset still fails CLOSED when the A2 web-tools wrapper is missing on disk", () => {
+    const presentWithoutWeb = (p: string): boolean => !p.includes("web-tools.ts");
+    assert.throws(
+      () =>
+        resolvePiExtensionArgs({
+          extensionsDir: FAKE_DIR,
+          env: {},
+          exists: presentWithoutWeb,
+          relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+        }),
+      /web-tools\.ts[\s\S]*Refusing to spawn an unguarded/,
     );
   });
 

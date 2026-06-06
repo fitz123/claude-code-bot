@@ -26,9 +26,9 @@ Desired behavior:
 
 ### Task 1: Child extension relpaths
 
-- [ ] Update `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS` to include `guardian-protect-files.ts` and `web-tools.ts`.
-- [ ] Update nearby comments to explain: guard + web allowed, recursive subagent disabled.
-- [ ] Ensure `resolvePiExtensionArgs` still fail-closes if either required child wrapper is missing.
+- [x] Update `PI_SUBAGENT_CHILD_WRAPPER_RELPATHS` to include `guardian-protect-files.ts` and `web-tools.ts`.
+- [x] Update nearby comments to explain: guard + web allowed, recursive subagent disabled.
+- [x] Ensure `resolvePiExtensionArgs` still fail-closes if either required child wrapper is missing.
 
 ### Task 2: Bundled subagent tool allowlists
 
