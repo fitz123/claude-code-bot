@@ -50,7 +50,7 @@ const HELP_TEXT = `Usage:
   minime-bot workspace validate --workspace <path>
 
 Options:
-  --workspace <path>  Workspace root. Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd.
+  --workspace <path>  Control/app workspace root. Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd.
   -h, --help          Show this help text.
 `;
 
@@ -103,7 +103,8 @@ function resolveForCli(parsed: ParsedArgs, options: CliRunOptions): ResolvedWork
 function formatEffectivePaths(contract: ResolvedWorkspaceContract): string[] {
   const diagnostics = workspaceContractDiagnostics(contract);
   return [
-    `  workspace root: ${diagnostics.workspaceRoot.path} (${diagnostics.workspaceRoot.source})`,
+    `  control workspace root: ${diagnostics.controlWorkspaceRoot.path} (${diagnostics.controlWorkspaceRoot.source})`,
+    `  package root: ${diagnostics.packageRoot.path} (${diagnostics.packageRoot.source})`,
     `  config path: ${diagnostics.configPath.path} (${diagnostics.configPath.source})`,
     `  crons path: ${diagnostics.cronsPath.path} (${diagnostics.cronsPath.source})`,
     `  schema path: ${diagnostics.schemaPath.path} (${diagnostics.schemaPath.source})`,
@@ -138,6 +139,10 @@ function writeWorkspaceValidationReport(
   }
   if (result.config) {
     writeLine(stdout, `Agents: ${Object.keys(result.config.agents).join(", ")}`);
+    writeLine(stdout, "Agent workspaces:");
+    for (const [agentId, agent] of Object.entries(result.config.agents)) {
+      writeLine(stdout, `  ${agentId}: ${agent.workspaceCwd}`);
+    }
   }
   writeLine(stdout, `Crons: ${result.crons === undefined ? "not present" : result.crons.length}`);
   if (result.schema) {

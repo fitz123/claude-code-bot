@@ -389,13 +389,13 @@ Installed-package commands use the same surface:
 
 ```bash
 minime-bot --help
-minime-bot config validate --workspace /path/to/workspace
-minime-bot workspace validate --workspace /path/to/workspace
+minime-bot config validate --workspace /path/to/control-workspace
+minime-bot workspace validate --workspace /path/to/control-workspace
 ```
 
-`--workspace` takes precedence over `MINIME_WORKSPACE_ROOT`; under ADR-081 it names the control/app workspace that owns config, crons, bindings, runtime state, and global secret references. If neither is set in the current source checkout, the workspace defaults to the repository root. Relative agent `workspaceCwd` values resolve against the control workspace. Absolute agent workspaces are allowed to live outside the control workspace after the legacy guard-era containment check is removed.
+`--workspace` takes precedence over `MINIME_WORKSPACE_ROOT`; under ADR-081 it names the control/app workspace that owns config, crons, bindings, runtime state, and global secret references. If neither is set in the current source checkout, the workspace defaults to the repository root. Relative agent `workspaceCwd` values resolve against the control workspace. Absolute agent workspaces are allowed to live outside the control workspace after existence/directory validation.
 
-Validation is structural by default. These commands load config with secret resolution disabled, parse crons, and print effective paths without decrypting SOPS files or printing secret values. The current pre-retirement code still validates `schema.md`, `MINIME_SCHEMA_PATH`, guard extension presence, and agent workspace containment for the legacy A1 guard. ADR-081 retires that behavior from the package contract; Tasks 1-7 remove the schema/write-guard requirements while keeping hard failures for invalid control config/crons and missing or non-directory configured agent workspaces.
+Validation is structural by default. These commands load config with secret resolution disabled, parse crons, and print effective paths without decrypting SOPS files or printing secret values. The current pre-retirement code still validates `schema.md`, `MINIME_SCHEMA_PATH`, and guard extension presence for the legacy A1 guard. ADR-081 retires that behavior from the package contract; Tasks 2-7 remove the schema/write-guard requirements while keeping hard failures for invalid control config/crons and missing or non-directory configured agent workspaces.
 
 ### Provider backends
 

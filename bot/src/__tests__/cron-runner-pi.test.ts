@@ -310,7 +310,7 @@ describe("cron-runner runPi", () => {
 
   it("builds the guarded env before assembling cron context", () => {
     const workspaceRoot = makeWorkspace();
-    const externalWorkspace = makeWorkspace();
+    const missingWorkspace = join(workspaceRoot, "missing-agent-workspace");
     const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
     let assembled = false;
 
@@ -326,8 +326,8 @@ describe("cron-runner runPi", () => {
       });
 
       assert.throws(
-        () => runPi(makeCron(), externalWorkspace, deps),
-        /workspaceCwd must be inside the resolved workspace root/,
+        () => runPi(makeCron(), missingWorkspace, deps),
+        /workspaceCwd does not exist/,
       );
       assert.strictEqual(assembled, false);
       assert.strictEqual(captures.length, 0);

@@ -98,6 +98,7 @@ describe("minime-bot CLI", () => {
     assert.equal(result.code, 0);
     assert.match(result.stdout, /minime-bot config validate --workspace <path>/);
     assert.match(result.stdout, /minime-bot workspace validate --workspace <path>/);
+    assert.match(result.stdout, /Control\/app workspace root/);
     assert.match(result.stdout, /Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd\./);
     assert.doesNotMatch(result.stdout, /current repo layout/);
     assert.equal(result.stderr, "");
@@ -124,9 +125,11 @@ describe("minime-bot CLI", () => {
       assert.equal(result.code, 0);
       assert.match(result.stdout, /Workspace valid\./);
       assert.match(result.stdout, /Effective paths:/);
-      assert.match(result.stdout, new RegExp(`workspace root: ${workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(cli\\)`));
+      assert.match(result.stdout, new RegExp(`control workspace root: ${workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(cli\\)`));
+      assert.match(result.stdout, /package root:/);
       assert.match(result.stdout, /schema path:/);
       assert.match(result.stdout, /Pi extension dir:/);
+      assert.match(result.stdout, /Agent workspaces:\n  main: /);
       assert.match(result.stdout, /Crons: 1/);
       assert.match(result.stdout, /Schema allow-list entries: 3/);
       assert.equal(result.stderr, "");
@@ -144,7 +147,7 @@ describe("minime-bot CLI", () => {
 
     assert.equal(result.code, 0);
     assert.match(result.stdout, /Workspace valid\./);
-    assert.match(result.stdout, new RegExp(`workspace root: ${MINIMAL_WORKSPACE_FIXTURE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(env\\)`));
+    assert.match(result.stdout, new RegExp(`control workspace root: ${MINIMAL_WORKSPACE_FIXTURE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(env\\)`));
     assert.match(result.stdout, /config path: .*minimal-workspace\/config\.yaml \(workspace-default\)/);
     assert.match(result.stdout, /schema path: .*minimal-workspace\/schema\.md \(workspace-default\)/);
     assert.equal(result.stderr, "");

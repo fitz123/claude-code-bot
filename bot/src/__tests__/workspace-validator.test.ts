@@ -92,6 +92,57 @@ function validate(workspace: string, env: NodeJS.ProcessEnv = {}) {
   return validateWorkspaceContract(contract, { env });
 }
 
+function createSiblingWorkspaceFixture(): {
+  root: string;
+  controlWorkspace: string;
+  agentMain: string;
+  agentReviewer: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), "minime-validator-sibling-layout-"));
+  fixtures.push(root);
+  const controlWorkspace = join(root, "control-workspace");
+  const agentMain = join(root, "agent-workspace-main");
+  const agentReviewer = join(root, "agent-workspace-reviewer");
+  mkdirSync(controlWorkspace, { recursive: true });
+  mkdirSync(agentMain, { recursive: true });
+  mkdirSync(agentReviewer, { recursive: true });
+  writeFileSync(
+    join(controlWorkspace, "config.yaml"),
+    [
+      "agents:",
+      "  main:",
+      `    workspaceCwd: ${agentMain}`,
+      "    model: gpt-5.5",
+      "  reviewer:",
+      `    workspaceCwd: ${agentReviewer}`,
+      "    model: gpt-5.5",
+      "telegramTokenEnv: MINIME_FIXTURE_TELEGRAM_TOKEN",
+      "bindings:",
+      "  - chatId: 111",
+      "    agentId: main",
+      "    kind: dm",
+      "  - chatId: 222",
+      "    agentId: reviewer",
+      "    kind: dm",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(controlWorkspace, "crons.yaml"),
+    [
+      "crons:",
+      "  - name: smoke",
+      "    schedule: \"0 9 * * *\"",
+      "    prompt: smoke",
+      "    agentId: main",
+      "    deliveryChatId: 111",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(join(controlWorkspace, "schema.md"), validSchema(["*.md", "schema.md"]));
+  return { root, controlWorkspace, agentMain, agentReviewer };
+}
+
 function guardBlocks(workspaceRoot: string, schemaPath: string, relPath: string): boolean {
   const entries = readWriteAllowlistEntriesForGuard(schemaPath);
   return classifyToolCall(
@@ -135,19 +186,17 @@ describe("workspace validator schema parity with the live guard parser", () => {
     assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "unregistered/file.txt"), true);
   });
 
-  it("rejects agent workspaceCwd outside the resolved workspace root", () => {
+  it("accepts an absolute agent workspaceCwd outside the control workspace root", () => {
     const externalWorkspace = mkdtempSync(join(tmpdir(), "minime-validator-external-agent-"));
     fixtures.push(externalWorkspace);
     const workspace = createWorkspace({ workspaceCwd: externalWorkspace });
     const result = validate(workspace);
 
-    assert.match(
-      workspaceValidationErrors(result).map((item) => item.message).join("\n"),
-      /workspaceCwd must be inside the resolved workspace root/,
-    );
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(result.config?.agents.main.workspaceCwd, externalWorkspace);
   });
 
-  it("rejects symlinked agent workspaceCwd that resolves outside the workspace root", () => {
+  it("accepts a symlinked agent workspaceCwd that resolves outside the control workspace root", () => {
     const externalWorkspace = mkdtempSync(join(tmpdir(), "minime-validator-external-agent-"));
     fixtures.push(externalWorkspace);
     const workspace = createWorkspace();
@@ -157,9 +206,39 @@ describe("workspace validator schema parity with the live guard parser", () => {
 
     const result = validate(workspace);
 
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+  });
+
+  it("accepts sibling control and agent workspace roots with multiple agents", () => {
+    const { controlWorkspace, agentMain, agentReviewer } = createSiblingWorkspaceFixture();
+    const result = validate(controlWorkspace);
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(result.contract.paths.controlWorkspaceRoot, controlWorkspace);
+    assert.equal(result.config?.agents.main.workspaceCwd, agentMain);
+    assert.equal(result.config?.agents.reviewer.workspaceCwd, agentReviewer);
+  });
+
+  it("rejects a missing configured agent workspaceCwd", () => {
+    const workspace = createWorkspace({ workspaceCwd: "./missing-agent-workspace" });
+    const result = validate(workspace);
+
     assert.match(
       workspaceValidationErrors(result).map((item) => item.message).join("\n"),
-      /workspaceCwd must be inside the resolved workspace root/,
+      /agent "main" workspaceCwd does not exist/,
+    );
+  });
+
+  it("rejects a configured agent workspaceCwd that is not a directory", () => {
+    const workspace = createWorkspace({
+      workspaceCwd: "./not-a-directory",
+      extraFiles: { "not-a-directory": "not a directory" },
+    });
+    const result = validate(workspace);
+
+    assert.match(
+      workspaceValidationErrors(result).map((item) => item.message).join("\n"),
+      /agent "main" workspaceCwd is not a directory/,
     );
   });
 
