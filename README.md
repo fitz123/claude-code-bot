@@ -667,7 +667,7 @@ If you have a local `config.yaml` from the old workflow, git will refuse to pull
 cp config.yaml config.local.yaml
 
 # 2. Move the untracked file aside so git can check out the new tracked version
-trash config.yaml
+mv config.yaml config.yaml.pre-tracked-backup
 
 # 3. Pull — git will restore config.yaml with upstream defaults
 git pull

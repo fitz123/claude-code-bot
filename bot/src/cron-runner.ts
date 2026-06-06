@@ -422,13 +422,32 @@ function buildDeliverCommand(
   return `${DELIVER_SCRIPT} ${chatId}${threadArg}`;
 }
 
+let cachedDeliveryTelegramToken: string | undefined;
+let cachedDeliveryTelegramTokenError: Error | undefined;
+
+function loadDeliveryTelegramToken(): string {
+  if (cachedDeliveryTelegramToken !== undefined) {
+    return cachedDeliveryTelegramToken;
+  }
+  if (cachedDeliveryTelegramTokenError !== undefined) {
+    throw cachedDeliveryTelegramTokenError;
+  }
+  try {
+    cachedDeliveryTelegramToken = loadTelegramToken();
+    return cachedDeliveryTelegramToken;
+  } catch (err) {
+    cachedDeliveryTelegramTokenError = err instanceof Error ? err : new Error(String(err));
+    throw cachedDeliveryTelegramTokenError;
+  }
+}
+
 function deliver(
   chatId: number,
   message: string,
   threadId?: number,
 ): void {
   try {
-    const telegramToken = loadTelegramToken();
+    const telegramToken = loadDeliveryTelegramToken();
     execSync(buildDeliverCommand(chatId, threadId), {
       input: message,
       encoding: "utf8",

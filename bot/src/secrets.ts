@@ -160,13 +160,10 @@ export function readSopsSecret(opts: ReadSopsSecretOptions): string {
 
 export function resolveSecret(opts: ResolveSecretOptions): string {
   const failures: SecretSourceFailure[] = [];
-  const hasSopsSource = opts.sopsFile !== undefined || opts.sopsKey !== undefined;
 
-  if (hasSopsSource) {
+  if (opts.sopsKey !== undefined) {
     if (!opts.sopsFile) {
       failures.push({ source: "sops", kind: "missing-file", key: opts.sopsKey });
-    } else if (!opts.sopsKey) {
-      failures.push({ source: "sops", kind: "invalid-key" });
     } else {
       try {
         return readSopsSecret({

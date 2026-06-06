@@ -227,6 +227,30 @@ describe("secret resolver", () => {
     assert.equal(value, "value-from-env");
   }));
 
+  it("does not treat a global SOPS file as configured when this secret has no SOPS key", () => withSopsFile((sopsFile) => {
+    const execFileSync: ExecFileSyncLike = () => {
+      throw new Error("sops should not be called without a per-secret key");
+    };
+
+    assert.throws(
+      () => resolveSecret({
+        sopsFile,
+        envVar: "DISCORD_BOT_TOKEN",
+        fieldName: "discord.token",
+        env: {},
+        execFileSync,
+      }),
+      (err: unknown) => {
+        assert.ok(err instanceof SecretResolutionError);
+        assert.deepEqual(err.failures, [
+          { source: "env", kind: "unset", envVar: "DISCORD_BOT_TOKEN" },
+        ]);
+        assert.doesNotMatch(err.message, /SOPS/);
+        return true;
+      },
+    );
+  }));
+
   it("reports env blank as a missing-source error", () => {
     assert.throws(
       () => resolveSecret({
