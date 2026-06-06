@@ -95,7 +95,7 @@ cd ~/.minime/bot && npm install
 cp config.local.yaml.example config.local.yaml
 ```
 
-Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of your repo and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it).
+Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of the repo or project directory the agent should work in, and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it).
 
 `crons.yaml` ships with example crons (all disabled). Create `crons.local.yaml` for your own crons:
 
@@ -134,7 +134,7 @@ creation_rules:
     age: age1replace_with_your_public_recipient
 ```
 
-`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. This bot runtime file is resolved relative to the bot config file, not relative to agent workspaces. Create it with SOPS/age so the decrypted document contains only bot platform token paths:
+`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. This bot runtime file is resolved relative to the control workspace, not relative to agent workspaces. Create it with SOPS/age so the decrypted document contains only control-workspace runtime secrets:
 
 ```bash
 mkdir -p config
@@ -148,9 +148,11 @@ telegram:
   bot_token: ENC[...]
 discord:
   bot_token: ENC[...]
+tavily:
+  api_key: ENC[...]
 ```
 
-Tavily web-tool secrets use a separate SOPS file in each agent workspace, described in [A2 setup](#pi-extensions-a1-a3). Do not copy Telegram or Discord bot tokens into agent workspaces.
+Tavily web-tool secrets use the same control-workspace path by default: `config/secrets.sops.yaml` key `tavily.api_key`, described in [A2 setup](#pi-extensions-a1-a3). Do not copy Telegram, Discord, or Tavily secret values into agent workspaces.
 
 **4. Initialize Pi auth**
 
@@ -361,13 +363,13 @@ Legacy `telegramTokenService` and `discord.tokenService` Keychain settings are r
 
 ## Memory architecture
 
-The bot maintains persistent context across sessions through a memory system rooted at the workspace.
+The bot maintains persistent context across sessions through a memory system rooted at each agent workspace.
 
-- `MEMORY.md` at the workspace root is a curated index of memory files. Keep it concise — the Pi context assembler loads it into the agent's initial context on every session.
+- `MEMORY.md` at the agent workspace root is a curated index of memory files. Keep it concise — the Pi context assembler loads it into the agent's initial context on every session.
 - `memory/auto/` holds typed memory files (`user`, `feedback`, `project`, `reference`) with frontmatter, written by the agent or the `memory-consolidation` nightly cron.
 - `memory/diary/` holds narrative digests from consolidation runs.
 
-`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. `CLAUDE.md` remains the workspace context entry point even though Pi/Codex is now the runtime; the Pi context assembler follows that import and includes the workspace memory index.
+`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. `CLAUDE.md` remains the agent workspace context entry point even though Pi/Codex is now the runtime; the Pi context assembler follows that import and includes the workspace memory index.
 
 **Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, your workspace `MEMORY.md` will not be auto-loaded and the agent will start every session with no memory index. See [.claude/rules/platform/memory-protocol.md](.claude/rules/platform/memory-protocol.md) for the full protocol.
 
@@ -430,17 +432,17 @@ Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--
 
 | Extension | Wrapper | What it does |
 |---|---|---|
-| **web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. Current code reads `tavily.api_key` from `config/secrets.sops.yaml` relative to the Pi session cwd; ADR-081 changes Tavily to a global control-workspace secret reference in a later task. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
+| **web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The wrapper reads `tavily.api_key` from `config/secrets.sops.yaml` under the control workspace passed through `MINIME_WORKSPACE_ROOT`, independent of the Pi session cwd. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
 | **subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Children load web-tools only; they never load `subagent/index.ts`, so recursive spawning stays disabled. Child wrapper resolution fails closed if a required wrapper is missing. Child errors warn-log. |
 
-**web-tools setup (optional):** current code expects a [Tavily](https://tavily.com) API key in a Tavily-only private SOPS file at `<agent.workspaceCwd>/config/secrets.sops.yaml`. ADR-081 moves this to the control workspace while preserving the `tavily.api_key` shape. The decrypted shape should contain only the web-tool secret:
+**web-tools setup (optional):** add a [Tavily](https://tavily.com) API key to the control-workspace SOPS file at `<control-workspace>/config/secrets.sops.yaml` using key `tavily.api_key`. The decrypted shape can share the same file as Telegram and Discord tokens, or contain only the web-tool secret if those tokens use explicit environment overrides:
 
 ```yaml
 tavily:
   api_key: ENC[...]
 ```
 
-Until Task 4 moves Tavily to the control workspace, keep this file separate from the bot runtime SOPS file used for Telegram and Discord tokens. Omit it to leave the tools registered-but-unavailable.
+Omit `tavily.api_key` to leave the tools registered-but-unavailable. The web-tools wrapper never reads secrets from agent workspaces and never receives the plaintext Tavily key through env or argv.
 
 **Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with no explicit first-party wrappers; the spawn still passes `--no-extensions`, so ambient discovery does not load other extensions. A configured wrapper missing on disk fails loudly instead of silently dropping part of the first-party extension contract.
 

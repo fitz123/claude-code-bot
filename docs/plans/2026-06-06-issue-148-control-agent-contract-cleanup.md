@@ -226,13 +226,13 @@ Safety baseline after retirement:
 
 ### Task 7: Update docs, tests, and deterministic removal gate
 
-- [ ] Update README/package docs to describe control workspace vs agent workspaces.
-- [ ] Update current docs that say `schema.md`/write-allowlist is required for runtime/package validity.
-- [ ] Update tests that assert `MINIME_SCHEMA_PATH` or schema validation exists.
-- [ ] Add regression tests for the one-bot-many-workspaces binding model.
-- [ ] Add regression tests that package-installed mode works without any `schema.md` files in fixtures.
-- [ ] Replace any non-blocking `rg ... || true` removal check with a deterministic failing check that allows only explicitly listed historical/legacy paths.
-- [ ] Scope the removal check to active symbols/prose (`MINIME_SCHEMA_PATH`, `MINIME_SCHEMA_PATH_ENV`, `PI_GUARD_WORKSPACE_ROOT`, `guardian-protect-files`, `guardian.sh`, `protect-files.sh`, `readWriteAllowlistSchema`, active `write-allowlist` parser usage, `immutable core`, and current prose claiming schema/write-guard enforcement), not a broad unqualified `schema.md` substring.
+- [x] Update README/package docs to describe control workspace vs agent workspaces.
+- [x] Update current docs that say `schema.md`/write-allowlist is required for runtime/package validity.
+- [x] Update tests that assert `MINIME_SCHEMA_PATH` or schema validation exists.
+- [x] Add regression tests for the one-bot-many-workspaces binding model.
+- [x] Add regression tests that package-installed mode works without any `schema.md` files in fixtures.
+- [x] Replace any non-blocking `rg ... || true` removal check with a deterministic failing check that allows only explicitly listed historical/legacy paths.
+- [x] Scope the removal check to active symbols/prose (`MINIME_SCHEMA_PATH`, `MINIME_SCHEMA_PATH_ENV`, `PI_GUARD_WORKSPACE_ROOT`, `guardian-protect-files`, `guardian.sh`, `protect-files.sh`, `readWriteAllowlistSchema`, active `write-allowlist` parser usage, `immutable core`, and current prose claiming schema/write-guard enforcement), not a broad unqualified `schema.md` substring.
 
 ### Task 8: Private-production follow-up artifact only
 

@@ -112,6 +112,16 @@ function createSiblingWorkspaceFixture(): {
       "  - chatId: 222",
       "    agentId: reviewer",
       "    kind: dm",
+      "discord:",
+      "  tokenEnv: MINIME_FIXTURE_DISCORD_TOKEN",
+      "  bindings:",
+      "    - guildId: \"guild-1\"",
+      "      agentId: main",
+      "      kind: channel",
+      "      channels:",
+      "        - channelId: \"review-channel\"",
+      "          agentId: reviewer",
+      "          label: Review",
       "",
     ].join("\n"),
   );
@@ -273,6 +283,22 @@ describe("workspace validator", () => {
     assert.equal(result.contract.paths.controlWorkspaceRoot, controlWorkspace);
     assert.equal(result.config?.agents.main.workspaceCwd, agentMain);
     assert.equal(result.config?.agents.reviewer.workspaceCwd, agentReviewer);
+  });
+
+  it("keeps one bot binding model routed to multiple sibling agent workspaces", () => {
+    const { controlWorkspace, agentMain, agentReviewer } = createSiblingWorkspaceFixture();
+    const result = validate(controlWorkspace);
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(result.config?.bindings[0]?.agentId, "main");
+    assert.equal(result.config?.agents[result.config.bindings[0].agentId]?.workspaceCwd, agentMain);
+    assert.equal(result.config?.bindings[1]?.agentId, "reviewer");
+    assert.equal(result.config?.agents[result.config.bindings[1].agentId]?.workspaceCwd, agentReviewer);
+    const discordBinding = result.config?.discord?.bindings[0];
+    assert.equal(discordBinding?.agentId, "main");
+    assert.equal(result.config?.agents[discordBinding?.agentId ?? ""]?.workspaceCwd, agentMain);
+    assert.equal(discordBinding?.channels?.[0]?.agentId, "reviewer");
+    assert.equal(result.config?.agents[discordBinding?.channels?.[0]?.agentId ?? ""]?.workspaceCwd, agentReviewer);
   });
 
   it("rejects a missing configured agent workspaceCwd", () => {
