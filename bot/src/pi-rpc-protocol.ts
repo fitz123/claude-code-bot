@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { normalize, resolve } from "node:path";
+import { isAbsolute, normalize, resolve } from "node:path";
 import type {
   AgentConfig,
   StreamLine,
@@ -401,11 +401,31 @@ export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
   return env;
 }
 
-export function buildPiSubagentChildSpawnEnv(guardWorkspaceRoot: string): Record<string, string> {
-  return {
-    ...buildAllowedPiChildEnv(),
-    [PI_GUARD_WORKSPACE_ROOT_ENV]: realpathSync(guardWorkspaceRoot),
-  };
+function resolveOptionalChildSchemaPath(
+  guardWorkspaceRoot: string,
+  schemaPath: string | undefined,
+): string | undefined {
+  const trimmed = schemaPath?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return normalize(isAbsolute(trimmed) ? trimmed : resolve(guardWorkspaceRoot, trimmed));
+}
+
+export function buildPiSubagentChildSpawnEnv(
+  guardWorkspaceRoot: string,
+  schemaPath = process.env[MINIME_SCHEMA_PATH_ENV],
+): Record<string, string> {
+  const realGuardWorkspaceRoot = realpathSync(guardWorkspaceRoot);
+  const env = buildAllowedPiChildEnv();
+  env[PI_GUARD_WORKSPACE_ROOT_ENV] = realGuardWorkspaceRoot;
+
+  const resolvedSchemaPath = resolveOptionalChildSchemaPath(realGuardWorkspaceRoot, schemaPath);
+  if (resolvedSchemaPath) {
+    env[MINIME_SCHEMA_PATH_ENV] = resolvedSchemaPath;
+  }
+
+  return env;
 }
 
 function buildAllowedPiChildEnv(): Record<string, string> {

@@ -962,6 +962,7 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       "PATH",
       "PI_CODING_AGENT_SESSION_DIR",
       "PI_GUARD_WORKSPACE_ROOT",
+      "MINIME_SCHEMA_PATH",
       "SSH_AUTH_SOCK",
       "TAVILY_API_KEY",
       "TELEGRAM_BOT_TOKEN",
@@ -976,6 +977,7 @@ describe("buildPiSubagentChildSpawnEnv", () => {
       process.env.PATH = "/usr/bin";
       process.env.PI_CODING_AGENT_SESSION_DIR = "/tmp/pi-sessions";
       process.env.PI_GUARD_WORKSPACE_ROOT = "/wrong/root";
+      process.env[MINIME_SCHEMA_PATH_ENV] = "schemas/child-schema.md";
       process.env.SSH_AUTH_SOCK = "/tmp/ssh-agent.sock";
       process.env.TAVILY_API_KEY = "fixture";
       process.env.TELEGRAM_BOT_TOKEN = "fixture";
@@ -985,6 +987,7 @@ describe("buildPiSubagentChildSpawnEnv", () => {
         const env = buildPiSubagentChildSpawnEnv(guardRoot);
 
         assert.strictEqual(env.PI_GUARD_WORKSPACE_ROOT, realpathSync(guardRoot));
+        assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], join(realpathSync(guardRoot), "schemas", "child-schema.md"));
         assert.strictEqual(env.PI_CODING_AGENT_SESSION_DIR, "/tmp/pi-sessions");
         assert.strictEqual(env.LC_CTYPE, "UTF-8");
         assert.strictEqual(env.PATH, "/opt/homebrew/bin:/usr/bin");
