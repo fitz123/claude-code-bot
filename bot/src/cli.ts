@@ -104,10 +104,15 @@ function formatEffectivePaths(contract: ResolvedWorkspaceContract): string[] {
   const diagnostics = workspaceContractDiagnostics(contract);
   return [
     `  control workspace root: ${diagnostics.controlWorkspaceRoot.path} (${diagnostics.controlWorkspaceRoot.source})`,
-    `  package root: ${diagnostics.packageRoot.path} (${diagnostics.packageRoot.source})`,
     `  config path: ${diagnostics.configPath.path} (${diagnostics.configPath.source})`,
     `  crons path: ${diagnostics.cronsPath.path} (${diagnostics.cronsPath.source})`,
+    `  package root: ${diagnostics.packageRoot.path} (${diagnostics.packageRoot.source})`,
     `  Pi extension dir: ${diagnostics.piExtensionDir.path} (${diagnostics.piExtensionDir.source})`,
+    `  data dir: ${diagnostics.dataDir.path} (${diagnostics.dataDir.source})`,
+    `  session store path: ${diagnostics.sessionStorePath.path} (${diagnostics.sessionStorePath.source})`,
+    `  log dir: ${diagnostics.logDir.path} (${diagnostics.logDir.source})`,
+    `  media base dir: ${diagnostics.mediaBaseDir.path} (${diagnostics.mediaBaseDir.source})`,
+    `  runtime dir: ${diagnostics.runtimeDir.path} (${diagnostics.runtimeDir.source})`,
   ];
 }
 

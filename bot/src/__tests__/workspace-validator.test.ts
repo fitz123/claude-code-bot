@@ -4,7 +4,11 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, wri
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { validateWorkspaceContract, workspaceValidationErrors } from "../workspace-validator.js";
+import {
+  validateWorkspaceContract,
+  workspaceValidationErrors,
+  workspaceValidationWarnings,
+} from "../workspace-validator.js";
 import { resolveWorkspaceContract } from "../workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -66,6 +70,14 @@ function createWorkspace(options: {
 function validate(workspace: string, env: NodeJS.ProcessEnv = {}) {
   const contract = resolveWorkspaceContract({ workspace, cwd: workspace, env });
   return validateWorkspaceContract(contract, { env });
+}
+
+function errorMessages(result: ReturnType<typeof validate>): string {
+  return workspaceValidationErrors(result).map((item) => item.message).join("\n");
+}
+
+function warningMessages(result: ReturnType<typeof validate>): string {
+  return workspaceValidationWarnings(result).map((item) => item.message).join("\n");
 }
 
 function createSiblingWorkspaceFixture(): {
@@ -141,11 +153,51 @@ describe("workspace validator", () => {
     assert.strictEqual(result.crons?.length, 1);
   });
 
-  it("does not require schema.md in the control workspace", () => {
+  it("does not require schema.md in the control or agent workspace", () => {
     const workspace = createWorkspace();
     const result = validate(workspace);
 
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(existsSync(join(workspace, "schema.md")), false);
+    assert.equal(existsSync(join(workspace, "agent-workspace", "schema.md")), false);
+  });
+
+  it("hard-fails invalid control workspace config", () => {
+    const workspace = createWorkspace();
+    writeFileSync(
+      join(workspace, "config.yaml"),
+      [
+        "agents: []",
+        "telegramTokenEnv: MINIME_FIXTURE_TELEGRAM_TOKEN",
+        "bindings: []",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validate(workspace);
+
+    assert.match(errorMessages(result), /config does not parse with secret resolution disabled/);
+  });
+
+  it("hard-fails invalid control workspace crons", () => {
+    const workspace = createWorkspace();
+    writeFileSync(join(workspace, "crons.yaml"), "crons: not-an-array\n");
+
+    const result = validate(workspace);
+
+    assert.match(errorMessages(result), /crons file does not parse: crons\.yaml missing 'crons' array/);
+  });
+
+  it("warns instead of hard-failing when agent context files are missing", () => {
+    const workspace = createWorkspace();
+    const result = validate(workspace);
+    const warnings = warningMessages(result);
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.match(warnings, /agent "main" context file is not present: .*CLAUDE\.md/);
+    assert.match(warnings, /agent "main" context file is not present: .*MEMORY\.md/);
+    assert.match(warnings, /agent "main" rules dir is not present: .*\.claude\/rules\/platform/);
+    assert.match(warnings, /agent "main" rules dir is not present: .*\.claude\/rules\/custom/);
   });
 
   it("validates configured SOPS references without invoking sops", () => {
@@ -228,7 +280,7 @@ describe("workspace validator", () => {
     const result = validate(workspace);
 
     assert.match(
-      workspaceValidationErrors(result).map((item) => item.message).join("\n"),
+      errorMessages(result),
       /agent "main" workspaceCwd does not exist/,
     );
   });
@@ -241,7 +293,7 @@ describe("workspace validator", () => {
     const result = validate(workspace);
 
     assert.match(
-      workspaceValidationErrors(result).map((item) => item.message).join("\n"),
+      errorMessages(result),
       /agent "main" workspaceCwd is not a directory/,
     );
   });
