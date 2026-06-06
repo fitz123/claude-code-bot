@@ -269,7 +269,7 @@ describe("tavily: executeWebSearch", () => {
     ]);
   });
 
-  it("blocks repository path text in a search query before external egress", async () => {
+  it("reports workspace/repository path text distinctly from local paths", async () => {
     const mock = mockFetch(async () => jsonResponse({ results: [] }));
     const { deps, warns } = makeDeps({ fetchImpl: mock.fn });
     const res = await executeWebSearch({ query: "inspect bot/src/config.ts" }, deps);
@@ -278,7 +278,7 @@ describe("tavily: executeWebSearch", () => {
     assert.doesNotMatch(res.text, /bot\/src\/config\.ts/);
     assert.equal(mock.calls.length, 0);
     assert.deepEqual(warns, [
-      { tool: "web_search", reason: "blocked-egress", detail: "query contains repository path text" },
+      { tool: "web_search", reason: "blocked-egress", detail: "query contains workspace/repository path text" },
     ]);
   });
 
