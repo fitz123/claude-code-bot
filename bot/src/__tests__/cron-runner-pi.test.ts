@@ -377,7 +377,7 @@ describe("cron-runner runPi", () => {
       const env = captures[0].options.env ?? {};
       assert.strictEqual(env.HOME, homedir());
       assert.strictEqual(env[MINIME_WORKSPACE_ROOT_ENV], ws);
-      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], "settings/config.yaml");
+      assert.strictEqual(env[MINIME_CONFIG_PATH_ENV], join(ws, "settings", "config.yaml"));
       assert.strictEqual(env[MINIME_CRONS_PATH_ENV], join(ws, "settings", "crons.yaml"));
       assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, undefined);
       assert.strictEqual(env.ANTHROPIC_API_KEY, undefined);
