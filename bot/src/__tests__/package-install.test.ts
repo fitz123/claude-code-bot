@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -15,6 +16,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_ROOT = resolve(__dirname, "..", "..");
+const EXPECTED_BUNDLED_AGENT_FILES = ["planner.md", "reviewer.md", "scout.md", "worker.md"];
+const EXPECTED_BUNDLED_PROMPT_FILES = ["implement-and-review.md", "implement.md", "scout-and-plan.md"];
 
 interface PackedFile {
   path: string;
@@ -55,7 +58,8 @@ function runNpmPack(args: readonly string[], cwd = BOT_ROOT): PackResult {
 function createWorkspace(root: string): string {
   const workspace = join(root, "workspace");
   mkdirSync(join(workspace, "agent-workspace"), { recursive: true });
-  mkdirSync(join(workspace, "schemas"), { recursive: true });
+  mkdirSync(join(workspace, "config"), { recursive: true });
+  writeFileSync(join(workspace, "config", "secrets.sops.yaml"), "placeholder: true\n", "utf8");
   writeFileSync(
     join(workspace, "config.yaml"),
     [
@@ -85,33 +89,20 @@ function createWorkspace(root: string): string {
       "",
     ].join("\n"),
   );
-  writeFileSync(
-    join(workspace, "schema.md"),
-    [
-      "# Default schema",
-      "",
-      "```write-allowlist",
-      "agent-workspace/",
-      "*.md",
-      "schema.md",
-      "```",
-      "",
-    ].join("\n"),
-  );
-  writeFileSync(
-    join(workspace, "schemas", "override.md"),
-    [
-      "# Override schema",
-      "",
-      "```write-allowlist",
-      "agent-workspace/",
-      "override-only/",
-      "schema.md",
-      "```",
-      "",
-    ].join("\n"),
-  );
   return workspace;
+}
+
+function collectSchemaFiles(root: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...collectSchemaFiles(path));
+    } else if (entry.isFile() && entry.name === "schema.md") {
+      found.push(path);
+    }
+  }
+  return found;
 }
 
 function runInstalledBin(projectDir: string, args: readonly string[], workspace: string): SpawnSyncReturns<string> {
@@ -132,22 +123,20 @@ function assertPackFiles(files: readonly string[]): void {
     "dist/pi-rpc-protocol.js",
     "dist/workspace-contract.js",
     "dist/workspace-validator.js",
-    "dist/pi-extensions/guard.js",
     "dist/pi-extensions/subagent-args.js",
     "dist/pi-extensions/tavily.js",
     "dist/pi-extensions/tavily-secret.js",
-    "dist/pi-extensions/write-allowlist-schema.js",
-    "dist/extensions/pi/guardian-protect-files.js",
     "dist/extensions/pi/web-tools.js",
     "dist/extensions/pi/subagent/agents.js",
     "dist/extensions/pi/subagent/index.js",
-    "dist/extensions/pi/subagent/agents/worker.md",
-    "dist/extensions/pi/subagent/prompts/implement.md",
     "scripts/deliver.sh",
+    ...EXPECTED_BUNDLED_AGENT_FILES.map((file) => `dist/extensions/pi/subagent/agents/${file}`),
+    ...EXPECTED_BUNDLED_PROMPT_FILES.map((file) => `dist/extensions/pi/subagent/prompts/${file}`),
   ]) {
     assert.ok(files.includes(expected), `expected npm pack to include ${expected}`);
   }
 
+  assert.ok(!files.some((file) => file.includes("guardian-protect-files")), "guard extension should not be packed");
   assert.ok(!files.some((file) => file.startsWith("src/")), "source TS should not be packed");
   assert.ok(!files.some((file) => file.startsWith(".claude/")), "source extension wrappers should not be packed");
   assert.ok(!files.some((file) => file.startsWith("test-fixtures/")), "workspace fixtures should not be packed");
@@ -189,6 +178,7 @@ describe("package artifact install", () => {
     mkdirSync(packDir, { recursive: true });
     mkdirSync(projectDir, { recursive: true });
     const workspace = createWorkspace(temp);
+    assert.deepEqual(collectSchemaFiles(workspace), [], "installed workspace fixture must not contain schema.md");
 
     try {
       const pack = runNpmPack(["--pack-destination", packDir]);
@@ -240,7 +230,7 @@ describe("package artifact install", () => {
 
 const INSTALLED_ARTIFACT_CHECK = String.raw`
 import assert from "node:assert/strict";
-import { existsSync, realpathSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -253,18 +243,55 @@ const projectDir = process.cwd();
 const packageDir = join(projectDir, "node_modules", "minime");
 const artifactDir = join(packageDir, "dist", "extensions", "pi");
 const agentWorkspace = join(workspace, "agent-workspace");
+const controlTavilySopsFile = join(workspace, "config", "secrets.sops.yaml");
 const importFile = (path) => import(pathToFileURL(path).href);
 const importPackageFile = (relpath) => importFile(join(packageDir, relpath));
+const expectedBundledAgentFiles = ${JSON.stringify(EXPECTED_BUNDLED_AGENT_FILES)};
+const expectedBundledPromptFiles = ${JSON.stringify(EXPECTED_BUNDLED_PROMPT_FILES)};
+
+function extensionPathsFromArgs(args) {
+  const paths = [];
+  for (let idx = 0; idx < args.length; idx += 2) {
+    assert.equal(args[idx], "--extension");
+    assert.equal(typeof args[idx + 1], "string");
+    paths.push(args[idx + 1]);
+  }
+  return paths;
+}
+
+function assertNoGuardContract(label, args) {
+  assert.doesNotMatch(JSON.stringify(args), /guardian-protect-files/, label);
+}
 
 const piRpc = await importPackageFile("dist/pi-rpc-protocol.js");
-const extensionArgs = piRpc.resolvePiExtensionArgs({ env: {} });
-const extensionPaths = extensionArgs.filter((arg) => arg !== "--extension");
+const parentExtensionArgs = piRpc.resolvePiExtensionArgs({ env: {} });
+const extensionPaths = extensionPathsFromArgs(parentExtensionArgs);
 assert.deepEqual(
   extensionPaths.map((path) => relative(artifactDir, path)),
-  ["guardian-protect-files.js", "web-tools.js", "subagent/index.js"],
+  ["web-tools.js", "subagent/index.js"],
 );
+assertNoGuardContract("parent Pi extension args must not load the retired guard", parentExtensionArgs);
+
+const subagentChildExtensionArgs = piRpc.resolvePiExtensionArgs({
+  env: {},
+  relpaths: piRpc.PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
+});
+assert.deepEqual(
+  extensionPathsFromArgs(subagentChildExtensionArgs).map((path) => relative(artifactDir, path)),
+  ["web-tools.js"],
+);
+assertNoGuardContract("subagent child extension args must not load the retired guard", subagentChildExtensionArgs);
+
+const cronExtensionArgs = piRpc.resolvePiExtensionArgs({
+  env: {},
+  relpaths: piRpc.PI_CRON_WRAPPER_RELPATHS,
+});
+assert.deepEqual(cronExtensionArgs, []);
+assertNoGuardContract("cron Pi extension args must not load the retired guard", cronExtensionArgs);
 
 for (const extensionPath of extensionPaths) {
+  assert.ok(extensionPath.startsWith(artifactDir + "/"), extensionPath);
+  assert.equal(extensionPath.startsWith(sourceBotRoot), false);
   const mod = await importFile(extensionPath);
   assert.equal(typeof mod.default, "function", extensionPath);
 }
@@ -276,70 +303,24 @@ const loadedConfig = configMod.loadConfig(join(workspace, "config.yaml"), {
 });
 assert.equal(loadedConfig.agents.main.workspaceCwd, agentWorkspace);
 const childEnv = piRpc.buildPiSpawnEnv(loadedConfig.agents.main);
-assert.equal(childEnv.PI_GUARD_WORKSPACE_ROOT, realpathSync(workspace));
+assert.equal(childEnv.MINIME_WORKSPACE_ROOT, workspace);
+assert.equal(childEnv.TELEGRAM_BOT_TOKEN, undefined);
+assert.equal(childEnv.DISCORD_BOT_TOKEN, undefined);
+assert.equal(childEnv.TAVILY_API_KEY, undefined);
 
 const workspaceContract = await importPackageFile("dist/workspace-contract.js");
 const validator = await importPackageFile("dist/workspace-validator.js");
-const schema = await importPackageFile("dist/pi-extensions/write-allowlist-schema.js");
 
 const defaultContract = workspaceContract.resolveWorkspaceContract({
   workspace,
   cwd: projectDir,
   env: {},
 });
-const defaultResult = validator.validateWorkspaceContract(defaultContract, { env: {} });
+const defaultResult = validator.validateWorkspaceContract(defaultContract);
 assert.equal(validator.workspaceValidationErrors(defaultResult).length, 0);
-assert.equal(defaultResult.schema.entries.includes("override-only/"), false);
-
-const overrideSchemaPath = join(workspace, "schemas", "override.md");
-const overrideEnv = { [workspaceContract.MINIME_SCHEMA_PATH_ENV]: overrideSchemaPath };
-const overrideContract = workspaceContract.resolveWorkspaceContract({
-  workspace,
-  cwd: projectDir,
-  env: overrideEnv,
-});
-const overrideResult = validator.validateWorkspaceContract(overrideContract, { env: overrideEnv });
-assert.equal(validator.workspaceValidationErrors(overrideResult).length, 0);
-assert.deepEqual(
-  overrideResult.schema.entries,
-  schema.readWriteAllowlistEntriesForGuard(overrideContract.paths.schemaPath),
-);
-assert.equal(overrideResult.schema.entries.includes("override-only/"), true);
-
-const guardian = await importFile(join(artifactDir, "guardian-protect-files.js"));
-let toolCallHandler;
-const guardianPi = {
-  on(event, handler) {
-    if (event === "tool_call") {
-      toolCallHandler = handler;
-    }
-  },
-};
-guardian.default(guardianPi);
-assert.equal(typeof toolCallHandler, "function");
-
-delete process.env.MINIME_SCHEMA_PATH;
-process.env.PI_GUARD_WORKSPACE_ROOT = workspace;
-const defaultVerdict = await toolCallHandler(
-  { toolName: "write", input: { path: "note.txt" } },
-  { cwd: agentWorkspace, hasUI: false, ui: { notify() {} } },
-);
-assert.equal(defaultVerdict, undefined);
-
-const protectedVerdict = await toolCallHandler(
-  { toolName: "write", input: { path: join(workspace, "README.md") } },
-  { cwd: agentWorkspace, hasUI: false, ui: { notify() {} } },
-);
-assert.equal(protectedVerdict.block, true);
-
-process.env.MINIME_SCHEMA_PATH = overrideSchemaPath;
-const overrideVerdict = await toolCallHandler(
-  { toolName: "write", input: { path: join(workspace, "override-only", "file.txt") } },
-  { cwd: agentWorkspace, hasUI: false, ui: { notify() {} } },
-);
-assert.equal(overrideVerdict, undefined);
 
 const registeredTools = [];
+const registeredToolDefs = [];
 const resourceHandlers = [];
 const fakePi = {
   on(event, handler) {
@@ -349,7 +330,49 @@ const fakePi = {
   },
   registerTool(tool) {
     registeredTools.push(tool.name);
+    registeredToolDefs.push(tool);
   },
+};
+
+const fakeBinDir = join(projectDir, "fake-bin");
+const sopsArgvFile = join(projectDir, "sops-argv.txt");
+mkdirSync(fakeBinDir, { recursive: true });
+writeFileSync(
+  join(fakeBinDir, "sops"),
+  [
+    "#!/bin/bash",
+    "printf '%s\\n' \"$@\" > \"$SOPS_ARGV_FILE\"",
+    "printf 'tvly-installed-wrapper-key\\n'",
+    "",
+  ].join("\n"),
+  "utf8",
+);
+chmodSync(join(fakeBinDir, "sops"), 0o755);
+process.env.PATH = fakeBinDir + ":" + process.env.PATH;
+process.env.SOPS_ARGV_FILE = sopsArgvFile;
+
+const callerControlledCwd = join(projectDir, "caller-controlled-subagent-cwd");
+mkdirSync(callerControlledCwd, { recursive: true });
+process.chdir(callerControlledCwd);
+const subagentChildEnv = piRpc.buildPiSubagentChildSpawnEnv();
+assert.equal(process.cwd(), callerControlledCwd);
+assert.equal(subagentChildEnv.MINIME_WORKSPACE_ROOT, workspace);
+assert.equal(subagentChildEnv.TELEGRAM_BOT_TOKEN, undefined);
+assert.equal(subagentChildEnv.DISCORD_BOT_TOKEN, undefined);
+assert.equal(subagentChildEnv.TAVILY_API_KEY, undefined);
+
+process.chdir(agentWorkspace);
+
+const fetchCalls = [];
+const oldFetch = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+  fetchCalls.push({ url: String(url), init });
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ results: [] }),
+    text: async () => "{\"results\":[]}",
+  };
 };
 
 const webTools = await importFile(join(artifactDir, "web-tools.js"));
@@ -361,8 +384,30 @@ assert.deepEqual(
   ["subagent", "web_fetch", "web_search"],
 );
 
+try {
+  const searchTool = registeredToolDefs.find((tool) => tool.name === "web_search");
+  assert.ok(searchTool, "web_search should be registered");
+  const searchResult = await searchTool.execute("call-1", { query: "installed wrapper" });
+  assert.equal(searchResult.details.ok, true);
+  assert.equal(fetchCalls.length, 1);
+  assert.equal(fetchCalls[0].init.headers.Authorization, "Bearer tvly-installed-wrapper-key");
+  assert.deepEqual(readFileSync(sopsArgvFile, "utf8").trim().split("\n"), [
+    "-d",
+    "--extract",
+    "[\"tavily\"][\"api_key\"]",
+    controlTavilySopsFile,
+  ]);
+} finally {
+  globalThis.fetch = oldFetch;
+}
+
 const agentsMod = await importFile(join(artifactDir, "subagent", "agents.js"));
 const discovery = agentsMod.discoverAgents(workspace, "project");
+const bundledAgentNames = discovery.agents
+  .filter((agent) => agent.source === "bundled")
+  .map((agent) => agent.name)
+  .sort();
+assert.deepEqual(bundledAgentNames, expectedBundledAgentFiles.map((file) => file.slice(0, -".md".length)).sort());
 const bundledWorker = discovery.agents.find((agent) => agent.name === "worker" && agent.source === "bundled");
 assert.ok(bundledWorker, "expected bundled worker agent from installed artifact");
 assert.ok(bundledWorker.filePath.startsWith(join(artifactDir, "subagent", "agents")));
@@ -371,6 +416,18 @@ assert.equal(bundledWorker.filePath.startsWith(sourceBotRoot), false);
 assert.equal(resourceHandlers.length, 1);
 const resources = resourceHandlers[0]();
 assert.deepEqual(resources.promptPaths, [join(artifactDir, "subagent", "prompts")]);
-assert.ok(existsSync(join(resources.promptPaths[0], "implement.md")));
-assert.ok(existsSync(join(artifactDir, "subagent", "agents", "worker.md")));
+assert.deepEqual(
+  readdirSync(join(artifactDir, "subagent", "agents")).filter((file) => file.endsWith(".md")).sort(),
+  expectedBundledAgentFiles,
+);
+assert.deepEqual(
+  readdirSync(resources.promptPaths[0]).filter((file) => file.endsWith(".md")).sort(),
+  expectedBundledPromptFiles,
+);
+for (const file of expectedBundledAgentFiles) {
+  assert.ok(existsSync(join(artifactDir, "subagent", "agents", file)), file);
+}
+for (const file of expectedBundledPromptFiles) {
+  assert.ok(existsSync(join(resources.promptPaths[0], file)), file);
+}
 `;

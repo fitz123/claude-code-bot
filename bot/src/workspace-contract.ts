@@ -1,12 +1,10 @@
-import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const MINIME_WORKSPACE_ROOT_ENV = "MINIME_WORKSPACE_ROOT";
 export const MINIME_CONFIG_PATH_ENV = "MINIME_CONFIG_PATH";
 export const MINIME_CRONS_PATH_ENV = "MINIME_CRONS_PATH";
-export const MINIME_SCHEMA_PATH_ENV = "MINIME_SCHEMA_PATH";
 
 export type WorkspacePathSource =
   | "cli"
@@ -23,12 +21,15 @@ export interface WorkspacePathDiagnostic {
 }
 
 export interface WorkspaceContractPaths {
+  /** Installed/source package root that owns runtime code and bundled extensions. */
   packageRoot: string;
   botRoot: string;
+  /** Control/app workspace root selected by --workspace or MINIME_WORKSPACE_ROOT. */
+  controlWorkspaceRoot: string;
+  /** Backwards-compatible alias for controlWorkspaceRoot. */
   workspaceRoot: string;
   configPath: string;
   cronsPath: string;
-  schemaPath: string;
   piExtensionDir: string;
   dataDir: string;
   sessionStorePath: string;
@@ -99,7 +100,7 @@ function inferPiExtensionDir(packageRoot: string, moduleUrl: string): WorkspaceP
   };
 }
 
-function workspaceRootFromOptions(
+function controlWorkspaceRootFromOptions(
   options: Required<Pick<ResolveWorkspaceContractOptions, "cwd" | "env">> & {
     packageRoot: string;
     workspace?: string;
@@ -125,7 +126,7 @@ function workspaceRootFromOptions(
     return {
       diagnostic: { path: options.cwd, source: "cwd-fallback" },
       warnings: [
-        `No workspace root was supplied; using cwd (${options.cwd}). Pass --workspace or ` +
+        `No control workspace root was supplied; using cwd (${options.cwd}). Pass --workspace or ` +
           `${MINIME_WORKSPACE_ROOT_ENV} when running from a package install.`,
       ],
     };
@@ -143,15 +144,15 @@ function workspaceRootFromOptions(
 function pathOverrideOrWorkspaceDefault(
   env: NodeJS.ProcessEnv,
   envKey: string,
-  workspaceRoot: string,
+  controlWorkspaceRoot: string,
   defaultFileName: string,
 ): WorkspacePathDiagnostic {
   const override = optionalEnvPath(env, envKey);
   if (override) {
-    return { path: absolutePath(override, workspaceRoot), source: "env" };
+    return { path: absolutePath(override, controlWorkspaceRoot), source: "env" };
   }
   return {
-    path: normalize(resolve(workspaceRoot, defaultFileName)),
+    path: normalize(resolve(controlWorkspaceRoot, defaultFileName)),
     source: "workspace-default",
   };
 }
@@ -179,7 +180,7 @@ export function resolveWorkspaceContract(
     path: botRoot,
     source: "package-default",
   };
-  const workspaceRootResult = workspaceRootFromOptions({
+  const workspaceRootResult = controlWorkspaceRootFromOptions({
     cwd,
     env,
     packageRoot,
@@ -197,12 +198,6 @@ export function resolveWorkspaceContract(
     MINIME_CRONS_PATH_ENV,
     workspaceRootDiag.path,
     "crons.yaml",
-  );
-  const schemaPathDiag = pathOverrideOrWorkspaceDefault(
-    env,
-    MINIME_SCHEMA_PATH_ENV,
-    workspaceRootDiag.path,
-    "schema.md",
   );
   const piExtensionDirDiag = inferPiExtensionDir(packageRoot, moduleUrl);
   const dataDirDiag: WorkspacePathDiagnostic = {
@@ -240,10 +235,10 @@ export function resolveWorkspaceContract(
   const effectivePaths: WorkspaceContractEffectivePaths = {
     packageRoot: packageRootDiag,
     botRoot: botRootDiag,
+    controlWorkspaceRoot: workspaceRootDiag,
     workspaceRoot: workspaceRootDiag,
     configPath: configPathDiag,
     cronsPath: cronsPathDiag,
-    schemaPath: schemaPathDiag,
     piExtensionDir: piExtensionDirDiag,
     dataDir: dataDirDiag,
     sessionStorePath: sessionStorePathDiag,
@@ -267,19 +262,6 @@ export function workspaceContractDiagnostics(
   return contract.effectivePaths;
 }
 
-export function resolveAgentWorkspaceCwd(workspaceRoot: string, workspaceCwd: string): string {
-  return normalize(isAbsolute(workspaceCwd) ? workspaceCwd : resolve(workspaceRoot, workspaceCwd));
-}
-
-export function pathIsInsideOrEqual(parent: string, candidate: string): boolean {
-  const rel = relative(normalize(parent), normalize(candidate));
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
-}
-
-export function realPathIsInsideOrEqual(parent: string, candidate: string): boolean {
-  try {
-    return pathIsInsideOrEqual(realpathSync.native(parent), realpathSync.native(candidate));
-  } catch {
-    return false;
-  }
+export function resolveAgentWorkspaceCwd(controlWorkspaceRoot: string, workspaceCwd: string): string {
+  return normalize(isAbsolute(workspaceCwd) ? workspaceCwd : resolve(controlWorkspaceRoot, workspaceCwd));
 }

@@ -50,7 +50,7 @@ const HELP_TEXT = `Usage:
   minime-bot workspace validate --workspace <path>
 
 Options:
-  --workspace <path>  Workspace root. Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd.
+  --workspace <path>  Control/app workspace root. Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd.
   -h, --help          Show this help text.
 `;
 
@@ -103,11 +103,16 @@ function resolveForCli(parsed: ParsedArgs, options: CliRunOptions): ResolvedWork
 function formatEffectivePaths(contract: ResolvedWorkspaceContract): string[] {
   const diagnostics = workspaceContractDiagnostics(contract);
   return [
-    `  workspace root: ${diagnostics.workspaceRoot.path} (${diagnostics.workspaceRoot.source})`,
+    `  control workspace root: ${diagnostics.controlWorkspaceRoot.path} (${diagnostics.controlWorkspaceRoot.source})`,
     `  config path: ${diagnostics.configPath.path} (${diagnostics.configPath.source})`,
     `  crons path: ${diagnostics.cronsPath.path} (${diagnostics.cronsPath.source})`,
-    `  schema path: ${diagnostics.schemaPath.path} (${diagnostics.schemaPath.source})`,
+    `  package root: ${diagnostics.packageRoot.path} (${diagnostics.packageRoot.source})`,
     `  Pi extension dir: ${diagnostics.piExtensionDir.path} (${diagnostics.piExtensionDir.source})`,
+    `  data dir: ${diagnostics.dataDir.path} (${diagnostics.dataDir.source})`,
+    `  session store path: ${diagnostics.sessionStorePath.path} (${diagnostics.sessionStorePath.source})`,
+    `  log dir: ${diagnostics.logDir.path} (${diagnostics.logDir.source})`,
+    `  media base dir: ${diagnostics.mediaBaseDir.path} (${diagnostics.mediaBaseDir.source})`,
+    `  runtime dir: ${diagnostics.runtimeDir.path} (${diagnostics.runtimeDir.source})`,
   ];
 }
 
@@ -138,11 +143,12 @@ function writeWorkspaceValidationReport(
   }
   if (result.config) {
     writeLine(stdout, `Agents: ${Object.keys(result.config.agents).join(", ")}`);
+    writeLine(stdout, "Agent workspaces:");
+    for (const [agentId, agent] of Object.entries(result.config.agents)) {
+      writeLine(stdout, `  ${agentId}: ${agent.workspaceCwd}`);
+    }
   }
   writeLine(stdout, `Crons: ${result.crons === undefined ? "not present" : result.crons.length}`);
-  if (result.schema) {
-    writeLine(stdout, `Schema allow-list entries: ${result.schema.entries.length}`);
-  }
   if (errors.length > 0) {
     writeLine(stdout, "Hard failures:");
     for (const error of errors) {
@@ -160,9 +166,8 @@ function writeWorkspaceValidationReport(
 function runWorkspaceValidate(
   contract: ResolvedWorkspaceContract,
   stdout: WriteFn,
-  env: NodeJS.ProcessEnv,
 ): void {
-  const result = validateWorkspaceContract(contract, { env });
+  const result = validateWorkspaceContract(contract);
   writeWorkspaceValidationReport(result, stdout);
   if (workspaceValidationErrors(result).length > 0) {
     throw new WorkspaceValidationError();
@@ -199,7 +204,7 @@ export function runCli(argv: readonly string[] = process.argv.slice(2), options:
       return 0;
     }
     if (scope === "workspace" && action === "validate") {
-      runWorkspaceValidate(contract, stdout, options.env ?? process.env);
+      runWorkspaceValidate(contract, stdout);
       return 0;
     }
   } catch (err) {

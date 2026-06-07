@@ -24,14 +24,11 @@ import type { CronJob, AgentConfig } from "./types.js";
 import { shouldSuppressNoReply } from "./no-reply.js";
 import {
   buildPiSpawnEnv,
-  PI_CRON_WRAPPER_RELPATHS,
-  resolvePiExtensionArgs,
-  PI_EXTENSIONS_DISABLED_ENV,
-  PI_GUARD_WORKSPACE_ROOT_ENV,
+  resolveValidatedPiAgentWorkspaceCwd,
   shouldIncludePiChildEnvKey,
 } from "./pi-rpc-protocol.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
-import { MINIME_SCHEMA_PATH_ENV, resolveWorkspaceContract } from "./workspace-contract.js";
+import { resolveWorkspaceContract } from "./workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..");
@@ -591,9 +588,8 @@ type PiSpawnSync = (
 export interface PiRunDeps {
   spawnSync: PiSpawnSync;
   buildAgentConfig: (cron: CronJob, workspaceCwd: string, agentData?: CronAgentData) => AgentConfig;
-  buildEnv: (agent: AgentConfig) => Record<string, string>;
+  buildEnv: () => Record<string, string>;
   assembleContext: typeof assemblePiContext;
-  resolveExtensionArgs: typeof resolvePiExtensionArgs;
 }
 
 function buildPiCronAgentConfigForRun(cron: CronJob, workspaceCwd: string, agentData?: CronAgentData): AgentConfig {
@@ -606,29 +602,12 @@ const defaultPiDeps: PiRunDeps = {
   buildAgentConfig: buildPiCronAgentConfigForRun,
   buildEnv: buildPiSpawnEnv,
   assembleContext: assemblePiContext,
-  resolveExtensionArgs: resolvePiExtensionArgs,
 };
-
-function resolvePiCronExtensionArgs(resolveExtensionArgs: typeof resolvePiExtensionArgs): string[] {
-  if (process.env[PI_EXTENSIONS_DISABLED_ENV] === "1") {
-    throw new Error(`${PI_EXTENSIONS_DISABLED_ENV}=1 cannot disable the required Pi cron guard extension; unset it before running Pi crons`);
-  }
-
-  const extensionArgs = resolveExtensionArgs({ relpaths: PI_CRON_WRAPPER_RELPATHS });
-  if (extensionArgs.length === 0) {
-    throw new Error("Pi cron extension resolver returned no guard extension; refusing to spawn an unguarded Pi cron");
-  }
-  return extensionArgs;
-}
 
 function hardenPiCronEnv(rawEnv: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(rawEnv)) {
-    if (
-      shouldIncludePiChildEnvKey(key) ||
-      key === MINIME_SCHEMA_PATH_ENV ||
-      key === PI_GUARD_WORKSPACE_ROOT_ENV
-    ) {
+    if (shouldIncludePiChildEnvKey(key)) {
       env[key] = value;
     }
   }
@@ -651,9 +630,10 @@ function runPi(
   }
 
   const agent = deps.buildAgentConfig(cron, workspaceCwd, agentData);
+  const validatedWorkspaceCwd = resolveValidatedPiAgentWorkspaceCwd(agent);
   const thinking = isCronPiThinking(agent.thinking) ? agent.thinking : "medium";
   const systemInstruction = buildCronSystemInstruction();
-  const env = hardenPiCronEnv(deps.buildEnv(agent));
+  const env = hardenPiCronEnv(deps.buildEnv());
   // Pi authenticates via ~/.pi/agent/auth.json, not legacy OAuth credentials.
   env.HOME ||= homedir();
   const args: string[] = [
@@ -682,10 +662,8 @@ function runPi(
   }
 
   args.push("--append-system-prompt", systemInstruction);
-  args.push(...resolvePiCronExtensionArgs(deps.resolveExtensionArgs));
-
   const result = deps.spawnSync(PI_BIN, args, {
-    cwd: workspaceCwd,
+    cwd: validatedWorkspaceCwd,
     timeout: cron.timeout ?? DEFAULT_TIMEOUT_MS,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,

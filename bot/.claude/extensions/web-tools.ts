@@ -5,7 +5,7 @@
  * `tsc --noEmit` and the `npm test` glob — see `bot/src/pi-extensions/README.md`).
  * All request/parse/error logic lives in the unit-tested pure helper `tavily.ts`;
  * this file only:
- *  1. obtains the Tavily API key for this Pi process — warn-logs if absent;
+ *  1. obtains the control-workspace Tavily API key for this Pi process — warn-logs if absent;
  *  2. registers the `web_search` + `web_fetch` tools so the model can call them;
  *  3. delegates each `execute` to the pure helper and returns its `text`.
  *
@@ -32,7 +32,7 @@ import { readTavilyApiKeyFromSops } from "../../src/pi-extensions/tavily-secret.
 
 /** Read the Tavily key for this Pi process; returns undefined if absent. */
 function readTavilyApiKey(): string | undefined {
-  return readTavilyApiKeyFromSops({ cwd: process.cwd() });
+  return readTavilyApiKeyFromSops();
 }
 
 export default function (pi: ExtensionAPI): void {

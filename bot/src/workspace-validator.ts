@@ -1,16 +1,9 @@
 import { existsSync, statSync } from "node:fs";
-import { normalize, resolve } from "node:path";
+import { join } from "node:path";
 import { loadConfig } from "./config.js";
 import { loadMergedCrons } from "./cron-runner.js";
-import { PI_EXTENSIONS_DISABLED_ENV } from "./pi-rpc-protocol.js";
-import {
-  readWriteAllowlistSchema,
-  resolveWriteAllowlistSchemaPath,
-  type WriteAllowlistSchemaResult,
-} from "./pi-extensions/write-allowlist-schema.js";
 import type { BotConfig } from "./types.js";
 import {
-  realPathIsInsideOrEqual,
   resolveAgentWorkspaceCwd,
   type ResolvedWorkspaceContract,
 } from "./workspace-contract.js";
@@ -26,13 +19,7 @@ export interface WorkspaceValidationResult {
   contract: ResolvedWorkspaceContract;
   config?: BotConfig;
   crons?: Array<Record<string, unknown>>;
-  schema?: WriteAllowlistSchemaResult;
   issues: WorkspaceValidationIssue[];
-}
-
-export interface ValidateWorkspaceOptions {
-  env?: NodeJS.ProcessEnv;
-  guardEnforcementEnabled?: boolean;
 }
 
 function issue(
@@ -59,6 +46,26 @@ function existsAsFile(path: string): boolean {
   return safeStat(path)?.isFile() === true;
 }
 
+function warnIfMissingAgentContext(
+  issues: WorkspaceValidationIssue[],
+  agentId: string,
+  agentWorkspace: string,
+): void {
+  for (const fileName of ["CLAUDE.md", "MEMORY.md"] as const) {
+    const path = join(agentWorkspace, fileName);
+    if (!existsAsFile(path)) {
+      issue(issues, "warning", `agent "${agentId}" context file is not present: ${path}`);
+    }
+  }
+
+  for (const relDir of [join(".claude", "rules", "platform"), join(".claude", "rules", "custom")] as const) {
+    const path = join(agentWorkspace, relDir);
+    if (!existsAsDirectory(path)) {
+      issue(issues, "warning", `agent "${agentId}" rules dir is not present: ${path}`);
+    }
+  }
+}
+
 function describePathKind(path: string): string {
   if (!existsSync(path)) {
     return "does not exist";
@@ -76,10 +83,6 @@ function describePathKind(path: string): string {
   return "is not a regular file";
 }
 
-function schemaGuardEnabled(options: ValidateWorkspaceOptions, env: NodeJS.ProcessEnv): boolean {
-  return options.guardEnforcementEnabled ?? env[PI_EXTENSIONS_DISABLED_ENV] !== "1";
-}
-
 export function workspaceValidationErrors(
   result: WorkspaceValidationResult,
 ): WorkspaceValidationIssue[] {
@@ -94,17 +97,15 @@ export function workspaceValidationWarnings(
 
 export function validateWorkspaceContract(
   contract: ResolvedWorkspaceContract,
-  options: ValidateWorkspaceOptions = {},
 ): WorkspaceValidationResult {
-  const env = options.env ?? process.env;
   const issues: WorkspaceValidationIssue[] = [];
   let config: BotConfig | undefined;
   let crons: Array<Record<string, unknown>> | undefined;
 
   if (!existsSync(contract.paths.workspaceRoot)) {
-    issue(issues, "error", `workspace root does not exist: ${contract.paths.workspaceRoot}`);
+    issue(issues, "error", `control workspace root does not exist: ${contract.paths.workspaceRoot}`);
   } else if (!existsAsDirectory(contract.paths.workspaceRoot)) {
-    issue(issues, "error", `workspace root is not a directory: ${contract.paths.workspaceRoot}`);
+    issue(issues, "error", `control workspace root is not a directory: ${contract.paths.workspaceRoot}`);
   }
 
   if (!existsAsFile(contract.paths.configPath)) {
@@ -132,34 +133,6 @@ export function validateWorkspaceContract(
     }
   }
 
-  const defaultSchemaPath = normalize(resolve(contract.paths.workspaceRoot, "schema.md"));
-  if (contract.effectivePaths.schemaPath.source !== "env" && contract.paths.schemaPath !== defaultSchemaPath) {
-    issue(
-      issues,
-      "error",
-      `schema path must default to workspace root schema.md when no override is set: ${contract.paths.schemaPath}`,
-    );
-  }
-
-  const guardSchemaPath = resolveWriteAllowlistSchemaPath(contract.paths.workspaceRoot, env);
-  if (guardSchemaPath !== contract.paths.schemaPath) {
-    issue(
-      issues,
-      "error",
-      `live guard schema path does not match validator schema path: guard=${guardSchemaPath} validator=${contract.paths.schemaPath}`,
-    );
-  }
-
-  let schema: WriteAllowlistSchemaResult | undefined;
-  if (schemaGuardEnabled(options, env)) {
-    schema = readWriteAllowlistSchema(contract.paths.schemaPath);
-    if (schema.issue) {
-      issue(issues, "error", `schema validation failed: ${schema.issue.message}`);
-    }
-  } else {
-    issue(issues, "warning", `Pi guard enforcement is disabled by ${PI_EXTENSIONS_DISABLED_ENV}=1; schema allow-list was not enforced`);
-  }
-
   if (config) {
     for (const [agentId, agent] of Object.entries(config.agents)) {
       const agentWorkspace = resolveAgentWorkspaceCwd(contract.paths.workspaceRoot, agent.workspaceCwd);
@@ -167,13 +140,8 @@ export function validateWorkspaceContract(
         issue(issues, "error", `agent "${agentId}" workspaceCwd does not exist: ${agentWorkspace}`);
       } else if (!existsAsDirectory(agentWorkspace)) {
         issue(issues, "error", `agent "${agentId}" workspaceCwd is not a directory: ${agentWorkspace}`);
-      } else if (!realPathIsInsideOrEqual(contract.paths.workspaceRoot, agentWorkspace)) {
-        issue(
-          issues,
-          "error",
-          `agent "${agentId}" workspaceCwd must be inside the resolved workspace root for Pi guard enforcement: ` +
-            `workspaceCwd=${agentWorkspace} workspaceRoot=${contract.paths.workspaceRoot}`,
-        );
+      } else {
+        warnIfMissingAgentContext(issues, agentId, agentWorkspace);
       }
     }
   }
@@ -188,5 +156,5 @@ export function validateWorkspaceContract(
     issue(issues, "warning", warning);
   }
 
-  return { contract, config, crons, schema, issues };
+  return { contract, config, crons, issues };
 }

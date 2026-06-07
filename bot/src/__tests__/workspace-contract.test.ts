@@ -7,7 +7,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   MINIME_CONFIG_PATH_ENV,
   MINIME_CRONS_PATH_ENV,
-  MINIME_SCHEMA_PATH_ENV,
   MINIME_WORKSPACE_ROOT_ENV,
   resolveWorkspaceContract,
   workspaceContractDiagnostics,
@@ -37,10 +36,10 @@ describe("workspace contract resolver", () => {
     assertAbsolutePaths(contract.paths);
     assert.strictEqual(contract.paths.packageRoot, BOT_ROOT);
     assert.strictEqual(contract.paths.botRoot, BOT_ROOT);
+    assert.strictEqual(contract.paths.controlWorkspaceRoot, REPO_ROOT);
     assert.strictEqual(contract.paths.workspaceRoot, REPO_ROOT);
     assert.strictEqual(contract.paths.configPath, resolve(REPO_ROOT, "config.yaml"));
     assert.strictEqual(contract.paths.cronsPath, resolve(REPO_ROOT, "crons.yaml"));
-    assert.strictEqual(contract.paths.schemaPath, resolve(REPO_ROOT, "schema.md"));
     assert.strictEqual(contract.paths.piExtensionDir, resolve(BOT_ROOT, ".claude", "extensions"));
     assert.strictEqual(contract.paths.dataDir, resolve(REPO_ROOT, "data"));
     assert.strictEqual(contract.paths.sessionStorePath, resolve(BOT_ROOT, "data", "sessions.json"));
@@ -97,7 +96,9 @@ describe("workspace contract resolver", () => {
     });
 
     assert.strictEqual(contract.paths.workspaceRoot, resolve(cwd, cliWorkspace));
+    assert.strictEqual(contract.paths.controlWorkspaceRoot, resolve(cwd, cliWorkspace));
     assert.strictEqual(contract.effectivePaths.workspaceRoot.source, "cli");
+    assert.strictEqual(contract.effectivePaths.controlWorkspaceRoot.source, "cli");
     assert.strictEqual(contract.paths.configPath, resolve(cwd, cliWorkspace, "config.yaml"));
   });
 
@@ -110,16 +111,16 @@ describe("workspace contract resolver", () => {
     });
 
     assertAbsolutePaths(contract.paths);
+    assert.strictEqual(contract.paths.controlWorkspaceRoot, workspaceRoot);
     assert.strictEqual(contract.paths.workspaceRoot, workspaceRoot);
     assert.strictEqual(contract.effectivePaths.workspaceRoot.source, "env");
     assert.strictEqual(contract.paths.configPath, join(workspaceRoot, "config.yaml"));
     assert.strictEqual(contract.paths.cronsPath, join(workspaceRoot, "crons.yaml"));
-    assert.strictEqual(contract.paths.schemaPath, join(workspaceRoot, "schema.md"));
     assert.strictEqual(contract.paths.dataDir, join(workspaceRoot, "data"));
     assert.strictEqual(contract.paths.runtimeDir, join(workspaceRoot, ".tmp"));
   });
 
-  it("uses explicit config, crons, and schema path overrides", () => {
+  it("uses explicit config and crons path overrides", () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "minime-contract-overrides-"));
     const absoluteCronsPath = join(workspaceRoot, "absolute", "crons.yaml");
     const contract = resolveWorkspaceContract({
@@ -128,7 +129,6 @@ describe("workspace contract resolver", () => {
         [MINIME_WORKSPACE_ROOT_ENV]: workspaceRoot,
         [MINIME_CONFIG_PATH_ENV]: "custom/config.yaml",
         [MINIME_CRONS_PATH_ENV]: absoluteCronsPath,
-        [MINIME_SCHEMA_PATH_ENV]: "schemas/write-allowlist.md",
         LOG_DIR: "/tmp/minime-logs",
         MINIME_TEST_MEDIA_BASE: "/tmp/minime-media",
       },
@@ -138,12 +138,10 @@ describe("workspace contract resolver", () => {
 
     assert.strictEqual(contract.paths.configPath, join(workspaceRoot, "custom", "config.yaml"));
     assert.strictEqual(contract.paths.cronsPath, absoluteCronsPath);
-    assert.strictEqual(contract.paths.schemaPath, join(workspaceRoot, "schemas", "write-allowlist.md"));
     assert.strictEqual(contract.paths.logDir, "/tmp/minime-logs");
     assert.strictEqual(contract.paths.mediaBaseDir, "/tmp/minime-media/6789");
     assert.strictEqual(contract.effectivePaths.configPath.source, "env");
     assert.strictEqual(contract.effectivePaths.cronsPath.source, "env");
-    assert.strictEqual(contract.effectivePaths.schemaPath.source, "env");
   });
 
   it("does not guess a package install parent directory as the workspace", () => {
@@ -171,7 +169,6 @@ describe("workspace contract resolver", () => {
       env: {
         [MINIME_WORKSPACE_ROOT_ENV]: workspaceRoot,
         [MINIME_CONFIG_PATH_ENV]: "missing-config.yaml",
-        [MINIME_SCHEMA_PATH_ENV]: "missing-schema.md",
         TELEGRAM_TOKEN: "do-not-print-me",
         SOPS_AGE_KEY: "do-not-print-me-either",
       },
@@ -181,7 +178,6 @@ describe("workspace contract resolver", () => {
     const serialized = JSON.stringify({ diagnostics, warnings: contract.warnings });
 
     assert.strictEqual(diagnostics.configPath.path, join(workspaceRoot, "missing-config.yaml"));
-    assert.strictEqual(diagnostics.schemaPath.path, join(workspaceRoot, "missing-schema.md"));
     assert.doesNotMatch(serialized, /do-not-print-me/);
   });
 });

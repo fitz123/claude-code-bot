@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { validateSessionDefaults, validateAgent, loadConfig } from "../config.js";
 import { DEFAULT_MAX_MEDIA_BYTES } from "../media-store.js";
 import { MINIME_CONFIG_PATH_ENV, MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
@@ -327,11 +327,12 @@ bindings:
     assert.strictEqual(config.agents.main.workspaceCwd, join(workspaceRoot, "agent-workspace"));
   });
 
-  it("uses MINIME_CONFIG_PATH relative to workspace root and keeps SOPS paths relative to that config file", () => {
+  it("uses MINIME_CONFIG_PATH relative to workspace root and keeps SOPS paths relative to the control workspace", () => {
     const workspaceRoot = join(TEST_DIR, "workspace-config-override");
     const configDir = join(workspaceRoot, "settings");
-    const sopsPath = join(configDir, "secrets.sops.yaml");
+    const sopsPath = join(workspaceRoot, "config", "secrets.sops.yaml");
     mkdirSync(configDir, { recursive: true });
+    mkdirSync(dirname(sopsPath), { recursive: true });
     writeFileSync(sopsPath, "telegram:\n  bot_token: encrypted-placeholder\n");
     writeFileSync(
       join(configDir, "bot.yaml"),
@@ -341,7 +342,7 @@ agents:
     workspaceCwd: /tmp/x
     model: gpt-5.5
 secrets:
-  sopsFile: secrets.sops.yaml
+  sopsFile: config/secrets.sops.yaml
 telegramTokenSopsKey: telegram.bot_token
 bindings:
   - chatId: 111

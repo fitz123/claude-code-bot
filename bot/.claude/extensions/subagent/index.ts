@@ -38,12 +38,8 @@ import {
 	type SubagentChildErrorWarn,
 	type SubagentRunResult,
 } from "../../../src/pi-extensions/subagent-args.js";
-// The child must load the A1 write guard so a delegated task cannot bypass the
-// guard the parent session runs under (resolved here — honoring the kill-switch
-// + fail-closed missing-wrapper check — and injected into the spawn args).
 import {
 	buildPiSubagentChildSpawnEnv,
-	PI_GUARD_WORKSPACE_ROOT_ENV,
 	PI_SUBAGENT_CHILD_WRAPPER_RELPATHS,
 	resolvePiExtensionArgs,
 } from "../../../src/pi-rpc-protocol.js";
@@ -313,32 +309,20 @@ async function runSingleAgent(
 
 		// Provider wiring lives in the pure helper: --provider openai-codex +
 		// the normalized codex model (agent.model is left provider-agnostic). The
-		// child loads the guarded web-tool subset, and its env is allowlisted so
-		// web-capable child agents never inherit ambient secrets from the parent.
+		// child loads web-tools only, and its env is allowlisted so web-capable
+		// child agents never inherit ambient secrets from the parent.
 		const args = buildSubagentSpawnArgs(agent, task, {
 			systemPromptPath: tmpPromptPath ?? undefined,
 			extensionArgs: resolvePiExtensionArgs({ relpaths: PI_SUBAGENT_CHILD_WRAPPER_RELPATHS }),
 		});
 		const invocation = getPiInvocation(args);
 
-		// Pin the child guard's protected-workspace root to the PARENT workspace so a
-		// caller-supplied `cwd` cannot move the A1 guard root and let a delegated
-		// absolute write reach a protected dir (e.g. `<ws>/bot/x`). `defaultCwd` is the
-		// parent's ctx.cwd; prefer an already-pinned env value if one is present (so a
-		// hypothetical nested spawn would propagate the immutable root, not a cwd).
-		const guardWorkspaceRoot = process.env[PI_GUARD_WORKSPACE_ROOT_ENV] || defaultCwd;
-
 		const result = await runSubagentChild({
-			spawn: (command, spawnArgs, opts) =>
-				spawn(command, spawnArgs, {
-					cwd: opts.cwd,
-					env: buildPiSubagentChildSpawnEnv(guardWorkspaceRoot),
-					shell: false,
-					stdio: ["ignore", "pipe", "pipe"],
-				}),
+			spawn,
 			command: invocation.command,
 			args: invocation.args,
 			cwd: cwd ?? defaultCwd,
+			env: buildPiSubagentChildSpawnEnv(),
 			signal,
 			agentName,
 			onMessage: onUpdate

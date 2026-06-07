@@ -6,6 +6,7 @@ export type PiThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "x
 
 export interface AgentConfig {
   id: string;
+  /** Resolved agent workspace root used as the Pi session cwd and context source. */
   workspaceCwd: string;
   model: string;
   systemPrompt?: string;

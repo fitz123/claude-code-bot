@@ -52,19 +52,6 @@ crons:
     deliveryChatId: 111
 `,
   );
-  writeFileSync(
-    join(workspace, "schema.md"),
-    [
-      "# Fixture schema",
-      "",
-      "```write-allowlist",
-      "agent-workspace/",
-      "*.md",
-      "schema.md",
-      "```",
-      "",
-    ].join("\n"),
-  );
   return workspace;
 }
 
@@ -92,12 +79,17 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("minime-bot CLI", () => {
   it("prints help", () => {
     const result = runWithCapture(["--help"]);
     assert.equal(result.code, 0);
     assert.match(result.stdout, /minime-bot config validate --workspace <path>/);
     assert.match(result.stdout, /minime-bot workspace validate --workspace <path>/);
+    assert.match(result.stdout, /Control\/app workspace root/);
     assert.match(result.stdout, /Defaults to MINIME_WORKSPACE_ROOT, then source repo root or package cwd\./);
     assert.doesNotMatch(result.stdout, /current repo layout/);
     assert.equal(result.stderr, "");
@@ -124,11 +116,18 @@ describe("minime-bot CLI", () => {
       assert.equal(result.code, 0);
       assert.match(result.stdout, /Workspace valid\./);
       assert.match(result.stdout, /Effective paths:/);
-      assert.match(result.stdout, new RegExp(`workspace root: ${workspace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(cli\\)`));
-      assert.match(result.stdout, /schema path:/);
+      assert.match(result.stdout, new RegExp(`control workspace root: ${escapeRegExp(workspace)} \\(cli\\)`));
+      assert.match(result.stdout, /package root:/);
+      assert.match(result.stdout, /config path:/);
+      assert.match(result.stdout, /crons path:/);
       assert.match(result.stdout, /Pi extension dir:/);
+      assert.match(result.stdout, /data dir:/);
+      assert.match(result.stdout, /session store path:/);
+      assert.match(result.stdout, /log dir:/);
+      assert.match(result.stdout, /media base dir:/);
+      assert.match(result.stdout, /runtime dir:/);
+      assert.match(result.stdout, new RegExp(`Agent workspaces:\\n  main: ${escapeRegExp(join(workspace, "agent-workspace"))}`));
       assert.match(result.stdout, /Crons: 1/);
-      assert.match(result.stdout, /Schema allow-list entries: 3/);
       assert.equal(result.stderr, "");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -144,22 +143,21 @@ describe("minime-bot CLI", () => {
 
     assert.equal(result.code, 0);
     assert.match(result.stdout, /Workspace valid\./);
-    assert.match(result.stdout, new RegExp(`workspace root: ${MINIMAL_WORKSPACE_FIXTURE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(env\\)`));
+    assert.match(result.stdout, new RegExp(`control workspace root: ${escapeRegExp(MINIMAL_WORKSPACE_FIXTURE)} \\(env\\)`));
     assert.match(result.stdout, /config path: .*minimal-workspace\/config\.yaml \(workspace-default\)/);
-    assert.match(result.stdout, /schema path: .*minimal-workspace\/schema\.md \(workspace-default\)/);
     assert.equal(result.stderr, "");
   });
 
   it("reports workspace validation hard failures separately from warnings", () => {
     const workspace = createWorkspace();
     try {
-      rmSync(join(workspace, "schema.md"), { force: true });
+      rmSync(join(workspace, "agent-workspace"), { recursive: true, force: true });
       const result = runWithCapture(["workspace", "validate", "--workspace", workspace], workspace);
 
       assert.equal(result.code, 1);
       assert.match(result.stdout, /Workspace invalid\./);
       assert.match(result.stdout, /Hard failures:/);
-      assert.match(result.stdout, /schema validation failed/);
+      assert.match(result.stdout, /workspaceCwd does not exist/);
       assert.match(result.stderr, /Error: Workspace validation failed\./);
     } finally {
       rmSync(workspace, { recursive: true, force: true });

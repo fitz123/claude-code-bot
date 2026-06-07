@@ -20,7 +20,7 @@
 #
 # Script-mode crons execute via /bin/bash, capture stdout, and deliver like LLM crons.
 # They skip LLM setup entirely. Empty output skips delivery.
-# LLM crons always use Pi print mode with model openai-codex/gpt-5.5 and only the explicit A1 guard extension.
+# LLM crons always use Pi print mode with model openai-codex/gpt-5.5 and no explicit first-party extensions.
 
 crons:
   # Weekly workspace health check (uses /workspace-health skill)

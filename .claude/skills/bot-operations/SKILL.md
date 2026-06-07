@@ -44,7 +44,7 @@ crons.yaml → generate-plists.ts → launchd plist → run-cron.sh → cron-run
 | `bot/scripts/generate-plists.ts` | Renders crons.yaml → `~/Library/LaunchAgents/ai.minime.cron.*.plist` |
 | `bot/scripts/run-cron.sh` | launchd entry point. Sets HOME/PATH, scrubs legacy runtime env, calls cron-runner.ts |
 | `bot/src/cron-runner.ts` | Loads cron def, spawns Pi print mode for LLM crons or `/bin/bash` for script crons |
-| `bot/scripts/deliver.sh` | Sends result to Telegram (token from Keychain, splits >4096 chars) |
+| `bot/scripts/deliver.sh` | Sends result to Telegram using `TELEGRAM_BOT_TOKEN` supplied by `cron-runner.ts` after SOPS/env token resolution; splits >4096 chars |
 
 ### Adding / updating a cron
 
@@ -66,7 +66,7 @@ crons.yaml → generate-plists.ts → launchd plist → run-cron.sh → cron-run
   timeout: 300000                 # Execution timeout ms (optional)
 ```
 
-For LLM crons, `engine` must be omitted or `pi`; `engine: claude` fails validation. `CRON_PI_DISABLED=1` is unsupported. `PI_EXTENSIONS_DISABLED=1` fails LLM crons because the A1 guard extension is required.
+For LLM crons, `engine` must be omitted or `pi`; `engine: claude` fails validation. `CRON_PI_DISABLED=1` is unsupported.
 
 ### Environment handling
 

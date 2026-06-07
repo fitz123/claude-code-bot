@@ -1,6 +1,6 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -25,11 +25,13 @@ import {
 } from "../pi-extensions/tavily.js";
 import {
   readTavilyApiKeyFromSops,
+  tavilyControlWorkspaceRoot,
   tavilySopsFilePath,
   TAVILY_SOPS_FILE_RELPATH,
   TAVILY_SOPS_KEY,
 } from "../pi-extensions/tavily-secret.js";
 import type { ExecFileSyncLike } from "../secrets.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 const KEY = "tvly-test-key";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -561,14 +563,14 @@ describe("tavily: executeWebFetch", () => {
 });
 
 describe("tavily: SOPS API key lookup", () => {
-  it("resolves config/secrets.sops.yaml relative to the Pi session cwd", () => {
+  it("resolves config/secrets.sops.yaml relative to the control workspace", () => {
     assert.equal(tavilySopsFilePath("/workspace"), "/workspace/config/secrets.sops.yaml");
   });
 
-  it("reads tavily.api_key from the workspace SOPS file", () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), "tavily-secret-test-"));
-    mkdirSync(join(tmpDir, "config"));
-    writeFileSync(join(tmpDir, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+  it("reads tavily.api_key from the control-workspace SOPS file", () => {
+    const controlWorkspace = mkdtempSync(join(tmpdir(), "tavily-secret-control-test-"));
+    mkdirSync(join(controlWorkspace, "config"));
+    writeFileSync(join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
     const calls: Array<{ file: string; args: readonly string[] }> = [];
     const execFileSync: ExecFileSyncLike = (file, args) => {
       calls.push({ file, args });
@@ -577,22 +579,92 @@ describe("tavily: SOPS API key lookup", () => {
 
     try {
       const value = readTavilyApiKeyFromSops({
-        cwd: tmpDir,
+        controlWorkspaceRoot: controlWorkspace,
         execFileSync,
       });
 
       assert.equal(value, "tvly-from-sops");
       assert.deepEqual(calls, [{
         file: "sops",
-        args: ["-d", "--extract", '["tavily"]["api_key"]', join(tmpDir, TAVILY_SOPS_FILE_RELPATH)],
+        args: ["-d", "--extract", '["tavily"]["api_key"]', join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH)],
       }]);
     } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
+      rmSync(controlWorkspace, { recursive: true, force: true });
     }
   });
 
-  it("returns undefined when the SOPS file is missing without invoking sops", () => {
-    const tmpDir = mkdtempSync(join(tmpdir(), "tavily-secret-missing-test-"));
+  it("uses MINIME_WORKSPACE_ROOT as the control-workspace secret contract", () => {
+    const controlWorkspace = mkdtempSync(join(tmpdir(), "tavily-secret-env-control-"));
+    const agentWorkspace = mkdtempSync(join(tmpdir(), "tavily-secret-env-agent-"));
+    mkdirSync(join(controlWorkspace, "config"));
+    writeFileSync(join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const execFileSync: ExecFileSyncLike = (file, args) => {
+      calls.push({ file, args });
+      return "tvly-from-control-env\n";
+    };
+    const oldCwd = process.cwd();
+
+    try {
+      process.chdir(agentWorkspace);
+      const value = readTavilyApiKeyFromSops({
+        env: { [MINIME_WORKSPACE_ROOT_ENV]: controlWorkspace },
+        execFileSync,
+      });
+
+      assert.equal(value, "tvly-from-control-env");
+      assert.equal(tavilyControlWorkspaceRoot({ [MINIME_WORKSPACE_ROOT_ENV]: controlWorkspace }), controlWorkspace);
+      assert.deepEqual(calls, [{
+        file: "sops",
+        args: ["-d", "--extract", '["tavily"]["api_key"]', join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH)],
+      }]);
+    } finally {
+      process.chdir(oldCwd);
+      rmSync(controlWorkspace, { recursive: true, force: true });
+      rmSync(agentWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the same control-workspace Tavily secret reference from different agent workspaces", () => {
+    const controlWorkspace = mkdtempSync(join(tmpdir(), "tavily-secret-shared-control-"));
+    const agentOne = mkdtempSync(join(tmpdir(), "tavily-secret-agent-one-"));
+    const agentTwo = mkdtempSync(join(tmpdir(), "tavily-secret-agent-two-"));
+    mkdirSync(join(controlWorkspace, "config"));
+    writeFileSync(join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const execFileSync: ExecFileSyncLike = (file, args) => {
+      calls.push({ file, args });
+      return "tvly-shared-control\n";
+    };
+    const oldCwd = process.cwd();
+
+    try {
+      process.chdir(agentOne);
+      assert.equal(
+        readTavilyApiKeyFromSops({ env: { [MINIME_WORKSPACE_ROOT_ENV]: controlWorkspace }, execFileSync }),
+        "tvly-shared-control",
+      );
+
+      process.chdir(agentTwo);
+      assert.equal(
+        readTavilyApiKeyFromSops({ env: { [MINIME_WORKSPACE_ROOT_ENV]: controlWorkspace }, execFileSync }),
+        "tvly-shared-control",
+      );
+
+      assert.deepEqual(
+        calls.map((call) => call.args[3]),
+        [join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH), join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH)],
+      );
+    } finally {
+      process.chdir(oldCwd);
+      rmSync(controlWorkspace, { recursive: true, force: true });
+      rmSync(agentOne, { recursive: true, force: true });
+      rmSync(agentTwo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined when the control SOPS file is missing without invoking sops", () => {
+    const controlWorkspace = mkdtempSync(join(tmpdir(), "tavily-secret-missing-test-"));
     const calls: Array<{ file: string; args: readonly string[] }> = [];
     const execFileSync: ExecFileSyncLike = (file, args) => {
       calls.push({ file, args });
@@ -600,10 +672,38 @@ describe("tavily: SOPS API key lookup", () => {
     };
 
     try {
-      assert.equal(readTavilyApiKeyFromSops({ cwd: tmpDir, execFileSync }), undefined);
+      assert.equal(readTavilyApiKeyFromSops({ controlWorkspaceRoot: controlWorkspace, execFileSync }), undefined);
       assert.equal(calls.length, 0);
     } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
+      rmSync(controlWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined without invoking sops when MINIME_WORKSPACE_ROOT is absent", () => {
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const execFileSync: ExecFileSyncLike = (file, args) => {
+      calls.push({ file, args });
+      return "should-not-run\n";
+    };
+
+    assert.equal(readTavilyApiKeyFromSops({ env: {}, execFileSync }), undefined);
+    assert.equal(tavilyControlWorkspaceRoot({}), undefined);
+    assert.equal(calls.length, 0);
+  });
+
+  it("does not expose SOPS secret values through lookup failures", () => {
+    const controlWorkspace = mkdtempSync(join(tmpdir(), "tavily-secret-private-value-"));
+    mkdirSync(join(controlWorkspace, "config"));
+    writeFileSync(join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+    const secretValue = "tvly-private-value";
+    const execFileSync: ExecFileSyncLike = () => {
+      throw new Error(secretValue);
+    };
+
+    try {
+      assert.equal(readTavilyApiKeyFromSops({ controlWorkspaceRoot: controlWorkspace, execFileSync }), undefined);
+    } finally {
+      rmSync(controlWorkspace, { recursive: true, force: true });
     }
   });
 
@@ -698,11 +798,13 @@ describe("web-tools Pi wrapper", () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "web-tools-wrapper-missing-"));
     const oldCwd = process.cwd();
     const oldWarn = console.warn;
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
     const warnings: string[] = [];
     const registered: RegisteredTool[] = [];
 
     try {
       process.chdir(tmpDir);
+      delete process.env[MINIME_WORKSPACE_ROOT_ENV];
       console.warn = (message?: unknown) => {
         warnings.push(String(message));
       };
@@ -718,28 +820,45 @@ describe("web-tools Pi wrapper", () => {
       assert.match(result.content[0].text, /SOPS key tavily\.api_key in config\/secrets\.sops\.yaml/);
     } finally {
       console.warn = oldWarn;
+      if (oldWorkspace === undefined) delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      else process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
       process.chdir(oldCwd);
       rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("reads the wrapper API key through SOPS and passes it to Tavily requests", async () => {
+  it("reads the wrapper API key from the control workspace while cwd is an arbitrary child workspace", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "web-tools-wrapper-sops-"));
+    const controlWorkspace = join(tmpDir, "control-workspace");
+    const childWorkspace = join(tmpDir, "subagent-child-workspace");
     const binDir = join(tmpDir, "bin");
+    const sopsLog = join(tmpDir, "sops-argv.txt");
     const oldCwd = process.cwd();
     const oldPath = process.env.PATH;
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
     const oldFetch = globalThis.fetch;
     const registered: RegisteredTool[] = [];
     const fetchCalls: FetchCall[] = [];
 
     try {
-      mkdirSync(join(tmpDir, "config"), { recursive: true });
+      mkdirSync(join(controlWorkspace, "config"), { recursive: true });
+      mkdirSync(childWorkspace, { recursive: true });
       mkdirSync(binDir, { recursive: true });
-      writeFileSync(join(tmpDir, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
-      writeFileSync(join(binDir, "sops"), "#!/bin/bash\nprintf 'tvly-wrapper-key\\n'\n", "utf8");
+      writeFileSync(join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH), "placeholder: true\n", "utf8");
+      writeFileSync(
+        join(binDir, "sops"),
+        [
+          "#!/bin/bash",
+          `printf '%s\\n' "$@" > ${JSON.stringify(sopsLog)}`,
+          "printf 'tvly-wrapper-key\\n'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
       chmodSync(join(binDir, "sops"), 0o755);
       process.env.PATH = `${binDir}:${oldPath ?? ""}`;
-      process.chdir(tmpDir);
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = controlWorkspace;
+      process.chdir(childWorkspace);
       globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
         fetchCalls.push({ url: String(url), init });
         return jsonResponse({ results: [] });
@@ -752,10 +871,18 @@ describe("web-tools Pi wrapper", () => {
       assert.equal(result.details.ok, true);
       assert.equal(fetchCalls.length, 1);
       assert.equal(fetchCalls[0].init?.headers && (fetchCalls[0].init.headers as Record<string, string>)["Authorization"], "Bearer tvly-wrapper-key");
+      assert.deepEqual(readFileSync(sopsLog, "utf8").trim().split("\n"), [
+        "-d",
+        "--extract",
+        '["tavily"]["api_key"]',
+        join(controlWorkspace, TAVILY_SOPS_FILE_RELPATH),
+      ]);
     } finally {
       globalThis.fetch = oldFetch;
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
+      if (oldWorkspace === undefined) delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      else process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
       process.chdir(oldCwd);
       rmSync(tmpDir, { recursive: true, force: true });
     }

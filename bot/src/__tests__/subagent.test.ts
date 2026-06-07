@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { buildPiSubagentChildSpawnEnv } from "../pi-rpc-protocol.js";
 import {
   accumulateAssistantUsage,
   buildSubagentSpawnArgs,
@@ -23,7 +24,9 @@ import {
   type SubagentMessage,
   type SubagentReadableLike,
   type SubagentSpawn,
+  type SubagentSpawnOptions,
 } from "../pi-extensions/subagent-args.js";
+import { MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_DIR = resolve(__dirname, "..", "..");
@@ -107,7 +110,6 @@ describe("subagent: buildSubagentSpawnArgs", () => {
 
   it("injects the child's --extension args before the task", () => {
     const extensionArgs = [
-      "--extension", "/abs/guardian-protect-files.ts",
       "--extension", "/abs/web-tools.ts",
     ];
     const args = buildSubagentSpawnArgs({}, "delegate", { extensionArgs });
@@ -145,8 +147,91 @@ describe("subagent: wrapper spawn environment", () => {
   it("uses the scrubbed subagent-child env helper instead of copying process.env", () => {
     const wrapper = readFileSync(resolve(BOT_DIR, ".claude", "extensions", "subagent", "index.ts"), "utf8");
 
-    assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(guardWorkspaceRoot\)/);
+    assert.match(wrapper, /buildPiSubagentChildSpawnEnv\(\)/);
     assert.doesNotMatch(wrapper, /env:\s*\{\s*\.{3}process\.env/);
+  });
+
+  it("keeps caller-selected child cwd separate from the control workspace env", async () => {
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    const controlWorkspace = "/control/workspace";
+    const callerCwd = "/caller/selected/subagent-cwd";
+
+    try {
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = controlWorkspace;
+      const env = buildPiSubagentChildSpawnEnv();
+      const { child, calls, spawn } = setupRunner();
+      const promise = runSubagentChild({
+        spawn,
+        command: "pi",
+        args: ["-p", "delegate"],
+        cwd: callerCwd,
+        env,
+        agentName: "worker",
+      });
+      child.emitClose(0);
+      await promise;
+
+      assert.equal(env[MINIME_WORKSPACE_ROOT_ENV], controlWorkspace);
+      assert.deepEqual(calls, [
+        {
+          command: "pi",
+          args: ["-p", "delegate"],
+          options: {
+            cwd: callerCwd,
+            env,
+            shell: false,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        },
+      ]);
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+    }
+  });
+
+  it("does not inject ambient bot or Tavily secrets into subagent child argv", () => {
+    const telegramTokenEnv = ["TELEGRAM", "BOT", "TOKEN"].join("_");
+    const discordTokenEnv = ["DISCORD", "BOT", "TOKEN"].join("_");
+    const tavilyKeyEnv = ["TAVILY", "API", "KEY"].join("_");
+    const oldTelegram = process.env[telegramTokenEnv];
+    const oldDiscord = process.env[discordTokenEnv];
+    const oldTavily = process.env[tavilyKeyEnv];
+    const fixtureValues = ["subagent-telegram-fixture", "subagent-discord-fixture", "subagent-tavily-fixture"];
+
+    try {
+      process.env[telegramTokenEnv] = fixtureValues[0];
+      process.env[discordTokenEnv] = fixtureValues[1];
+      process.env[tavilyKeyEnv] = fixtureValues[2];
+
+      const args = buildSubagentSpawnArgs({}, "delegate safely", {
+        extensionArgs: ["--extension", "/abs/web-tools.ts"],
+      });
+      const serializedArgs = JSON.stringify(args);
+
+      for (const value of fixtureValues) {
+        assert.doesNotMatch(serializedArgs, new RegExp(value));
+      }
+    } finally {
+      if (oldTelegram === undefined) {
+        delete process.env[telegramTokenEnv];
+      } else {
+        process.env[telegramTokenEnv] = oldTelegram;
+      }
+      if (oldDiscord === undefined) {
+        delete process.env[discordTokenEnv];
+      } else {
+        process.env[discordTokenEnv] = oldDiscord;
+      }
+      if (oldTavily === undefined) {
+        delete process.env[tavilyKeyEnv];
+      } else {
+        process.env[tavilyKeyEnv] = oldTavily;
+      }
+    }
   });
 });
 
@@ -274,7 +359,7 @@ class FakeChild implements SubagentChildLike {
 interface SpawnRecord {
   command: string;
   args: string[];
-  cwd?: string;
+  options: SubagentSpawnOptions;
 }
 
 function setupRunner() {
@@ -282,7 +367,7 @@ function setupRunner() {
   const calls: SpawnRecord[] = [];
   const warns: SubagentChildErrorWarn[] = [];
   const spawn: SubagentSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd });
+    calls.push({ command, args, options });
     return child;
   };
   return { child, calls, warns, spawn };
@@ -310,7 +395,18 @@ describe("subagent: runSubagentChild (mock spawn)", () => {
     child.emitClose(0);
     const result = await promise;
 
-    assert.deepEqual(calls, [{ command: "pi", args: ["--mode", "json", "-p"], cwd: "/work" }]);
+    assert.deepEqual(calls, [
+      {
+        command: "pi",
+        args: ["--mode", "json", "-p"],
+        options: {
+          cwd: "/work",
+          env: undefined,
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      },
+    ]);
     assert.equal(result.exitCode, 0);
     assert.equal(result.aborted, false);
     assert.equal(getFinalOutput(result.messages), "done");

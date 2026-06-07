@@ -1,19 +1,15 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { classifyToolCall } from "../pi-extensions/guard.js";
 import {
-  readWriteAllowlistEntriesForGuard,
-  resolveWriteAllowlistSchemaPath,
-} from "../pi-extensions/write-allowlist-schema.js";
-import { validateWorkspaceContract, workspaceValidationErrors } from "../workspace-validator.js";
-import {
-  MINIME_SCHEMA_PATH_ENV,
-  resolveWorkspaceContract,
-} from "../workspace-contract.js";
+  validateWorkspaceContract,
+  workspaceValidationErrors,
+  workspaceValidationWarnings,
+} from "../workspace-validator.js";
+import { resolveWorkspaceContract } from "../workspace-contract.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BOT_ROOT = resolve(__dirname, "..", "..");
@@ -28,7 +24,6 @@ after(() => {
 });
 
 function createWorkspace(options: {
-  schema?: string | null;
   extraFiles?: Record<string, string>;
   workspaceCwd?: string;
 } = {}): string {
@@ -63,10 +58,6 @@ function createWorkspace(options: {
     ].join("\n"),
   );
 
-  if (options.schema !== null) {
-    writeFileSync(join(workspace, "schema.md"), options.schema ?? validSchema(["agent-workspace/", "*.md", "schema.md"]));
-  }
-
   for (const [rel, content] of Object.entries(options.extraFiles ?? {})) {
     const path = join(workspace, rel);
     mkdirSync(dirname(path), { recursive: true });
@@ -76,31 +67,80 @@ function createWorkspace(options: {
   return workspace;
 }
 
-function validSchema(entries: readonly string[]): string {
-  return [
-    "# Workspace schema",
-    "",
-    "```write-allowlist",
-    ...entries,
-    "```",
-    "",
-  ].join("\n");
-}
-
 function validate(workspace: string, env: NodeJS.ProcessEnv = {}) {
   const contract = resolveWorkspaceContract({ workspace, cwd: workspace, env });
-  return validateWorkspaceContract(contract, { env });
+  return validateWorkspaceContract(contract);
 }
 
-function guardBlocks(workspaceRoot: string, schemaPath: string, relPath: string): boolean {
-  const entries = readWriteAllowlistEntriesForGuard(schemaPath);
-  return classifyToolCall(
-    { toolName: "write", input: { path: relPath } },
-    { workspaceRoot, writeAllowlist: entries },
-  ).block;
+function errorMessages(result: ReturnType<typeof validate>): string {
+  return workspaceValidationErrors(result).map((item) => item.message).join("\n");
 }
 
-describe("workspace validator schema parity with the live guard parser", () => {
+function warningMessages(result: ReturnType<typeof validate>): string {
+  return workspaceValidationWarnings(result).map((item) => item.message).join("\n");
+}
+
+function createSiblingWorkspaceFixture(): {
+  root: string;
+  controlWorkspace: string;
+  agentMain: string;
+  agentReviewer: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), "minime-validator-sibling-layout-"));
+  fixtures.push(root);
+  const controlWorkspace = join(root, "control-workspace");
+  const agentMain = join(root, "agent-workspace-main");
+  const agentReviewer = join(root, "agent-workspace-reviewer");
+  mkdirSync(controlWorkspace, { recursive: true });
+  mkdirSync(agentMain, { recursive: true });
+  mkdirSync(agentReviewer, { recursive: true });
+  writeFileSync(
+    join(controlWorkspace, "config.yaml"),
+    [
+      "agents:",
+      "  main:",
+      `    workspaceCwd: ${agentMain}`,
+      "    model: gpt-5.5",
+      "  reviewer:",
+      `    workspaceCwd: ${agentReviewer}`,
+      "    model: gpt-5.5",
+      "telegramTokenEnv: MINIME_FIXTURE_TELEGRAM_TOKEN",
+      "bindings:",
+      "  - chatId: 111",
+      "    agentId: main",
+      "    kind: dm",
+      "  - chatId: 222",
+      "    agentId: reviewer",
+      "    kind: dm",
+      "discord:",
+      "  tokenEnv: MINIME_FIXTURE_DISCORD_TOKEN",
+      "  bindings:",
+      "    - guildId: \"guild-1\"",
+      "      agentId: main",
+      "      kind: channel",
+      "      channels:",
+      "        - channelId: \"review-channel\"",
+      "          agentId: reviewer",
+      "          label: Review",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(
+    join(controlWorkspace, "crons.yaml"),
+    [
+      "crons:",
+      "  - name: smoke",
+      "    schedule: \"0 9 * * *\"",
+      "    prompt: smoke",
+      "    agentId: main",
+      "    deliveryChatId: 111",
+      "",
+    ].join("\n"),
+  );
+  return { root, controlWorkspace, agentMain, agentReviewer };
+}
+
+describe("workspace validator", () => {
   it("validates the tracked fixture from a package-installed-like layout", () => {
     const projectDir = mkdtempSync(join(tmpdir(), "minime-validator-installed-"));
     fixtures.push(projectDir);
@@ -115,39 +155,114 @@ describe("workspace validator schema parity with the live guard parser", () => {
       env: {},
     });
 
-    const result = validateWorkspaceContract(contract, { env: {} });
+    const result = validateWorkspaceContract(contract);
 
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
     assert.strictEqual(result.contract.effectivePaths.workspaceRoot.source, "cli");
     assert.strictEqual(result.contract.paths.piExtensionDir, artifactExtensionDir);
-    assert.deepStrictEqual(result.schema?.entries, ["agent-workspace/", "*.md", "schema.md"]);
     assert.strictEqual(result.crons?.length, 1);
   });
 
-  it("valid schema: validator entries match guard entries and guard verdicts", () => {
+  it("does not require schema.md in the control or agent workspace", () => {
     const workspace = createWorkspace();
     const result = validate(workspace);
-    const guardEntries = readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath);
 
-    assert.deepStrictEqual(result.schema?.entries, guardEntries);
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), false);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "unregistered/file.txt"), true);
+    assert.equal(existsSync(join(workspace, "schema.md")), false);
+    assert.equal(existsSync(join(workspace, "agent-workspace", "schema.md")), false);
   });
 
-  it("rejects agent workspaceCwd outside the resolved workspace root", () => {
+  it("hard-fails invalid control workspace config", () => {
+    const workspace = createWorkspace();
+    writeFileSync(
+      join(workspace, "config.yaml"),
+      [
+        "agents: []",
+        "telegramTokenEnv: MINIME_FIXTURE_TELEGRAM_TOKEN",
+        "bindings: []",
+        "",
+      ].join("\n"),
+    );
+
+    const result = validate(workspace);
+
+    assert.match(errorMessages(result), /config does not parse with secret resolution disabled/);
+  });
+
+  it("hard-fails invalid control workspace crons", () => {
+    const workspace = createWorkspace();
+    writeFileSync(join(workspace, "crons.yaml"), "crons: not-an-array\n");
+
+    const result = validate(workspace);
+
+    assert.match(errorMessages(result), /crons file does not parse: crons\.yaml missing 'crons' array/);
+  });
+
+  it("warns instead of hard-failing when agent context files are missing", () => {
+    const workspace = createWorkspace();
+    const result = validate(workspace);
+    const warnings = warningMessages(result);
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.match(warnings, /agent "main" context file is not present: .*CLAUDE\.md/);
+    assert.match(warnings, /agent "main" context file is not present: .*MEMORY\.md/);
+    assert.match(warnings, /agent "main" rules dir is not present: .*\.claude\/rules\/platform/);
+    assert.match(warnings, /agent "main" rules dir is not present: .*\.claude\/rules\/custom/);
+  });
+
+  it("validates configured SOPS references without invoking sops", () => {
+    const workspace = createWorkspace();
+    const fakeBin = mkdtempSync(join(tmpdir(), "minime-validator-fake-sops-"));
+    fixtures.push(fakeBin);
+    const marker = join(fakeBin, "sops-was-called");
+    mkdirSync(join(workspace, "config"), { recursive: true });
+    writeFileSync(join(workspace, "config", "secrets.sops.yaml"), "placeholder: true\n", "utf8");
+    writeFileSync(
+      join(workspace, "config.yaml"),
+      [
+        "agents:",
+        "  main:",
+        "    workspaceCwd: ./agent-workspace",
+        "    model: gpt-5.5",
+        "secrets:",
+        "  sopsFile: config/secrets.sops.yaml",
+        "telegramTokenSopsKey: telegram.bot_token",
+        "bindings:",
+        "  - chatId: 111",
+        "    agentId: main",
+        "    kind: dm",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(fakeBin, "sops"),
+      [
+        "#!/bin/bash",
+        `touch ${JSON.stringify(marker)}`,
+        "printf 'should-not-resolve\\n'",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    chmodSync(join(fakeBin, "sops"), 0o755);
+
+    const result = validate(workspace, { PATH: `${fakeBin}:${process.env.PATH ?? ""}` });
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(existsSync(marker), false);
+  });
+
+  it("accepts an absolute agent workspaceCwd outside the control workspace root", () => {
     const externalWorkspace = mkdtempSync(join(tmpdir(), "minime-validator-external-agent-"));
     fixtures.push(externalWorkspace);
     const workspace = createWorkspace({ workspaceCwd: externalWorkspace });
     const result = validate(workspace);
 
-    assert.match(
-      workspaceValidationErrors(result).map((item) => item.message).join("\n"),
-      /workspaceCwd must be inside the resolved workspace root/,
-    );
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(result.config?.agents.main.workspaceCwd, externalWorkspace);
   });
 
-  it("rejects symlinked agent workspaceCwd that resolves outside the workspace root", () => {
+  it("accepts a symlinked agent workspaceCwd that resolves outside the control workspace root", () => {
     const externalWorkspace = mkdtempSync(join(tmpdir(), "minime-validator-external-agent-"));
     fixtures.push(externalWorkspace);
     const workspace = createWorkspace();
@@ -157,68 +272,56 @@ describe("workspace validator schema parity with the live guard parser", () => {
 
     const result = validate(workspace);
 
-    assert.match(
-      workspaceValidationErrors(result).map((item) => item.message).join("\n"),
-      /workspaceCwd must be inside the resolved workspace root/,
-    );
-  });
-
-  it("missing schema: validator fails hard and the guard parser fails closed", () => {
-    const workspace = createWorkspace({ schema: null });
-    const result = validate(workspace);
-
-    assert.match(workspaceValidationErrors(result).map((item) => item.message).join("\n"), /schema file does not exist/);
-    assert.deepStrictEqual(result.schema?.entries, []);
-    assert.deepStrictEqual(readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), true);
-  });
-
-  it("empty schema block: validator fails hard and guard parser fails closed", () => {
-    const workspace = createWorkspace({ schema: validSchema(["# only a comment"]) });
-    const result = validate(workspace);
-
-    assert.match(workspaceValidationErrors(result).map((item) => item.message).join("\n"), /empty/);
-    assert.deepStrictEqual(result.schema?.entries, []);
-    assert.deepStrictEqual(readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), true);
-  });
-
-  it("malformed schema block: validator fails hard and guard parser fails closed", () => {
-    const workspace = createWorkspace({
-      schema: [
-        "# Workspace schema",
-        "",
-        "```write-allowlist",
-        "agent-workspace/",
-        "",
-      ].join("\n"),
-    });
-    const result = validate(workspace);
-
-    assert.match(workspaceValidationErrors(result).map((item) => item.message).join("\n"), /closing fence/);
-    assert.deepStrictEqual(result.schema?.entries, []);
-    assert.deepStrictEqual(readWriteAllowlistEntriesForGuard(result.contract.paths.schemaPath), []);
-    assert.equal(guardBlocks(workspace, result.contract.paths.schemaPath, "agent-workspace/note.md"), true);
-  });
-
-  it("schema override: validator and guard use the same MINIME_SCHEMA_PATH", () => {
-    const workspace = createWorkspace({
-      schema: validSchema(["default-only/"]),
-      extraFiles: {
-        "schemas/override.md": validSchema(["agent-workspace/", "schema.md"]),
-      },
-    });
-    const env = { [MINIME_SCHEMA_PATH_ENV]: "schemas/override.md" };
-    const result = validate(workspace, env);
-    const guardSchemaPath = resolveWriteAllowlistSchemaPath(workspace, env);
-
-    assert.equal(result.contract.paths.schemaPath, guardSchemaPath);
     assert.deepStrictEqual(workspaceValidationErrors(result), []);
-    assert.deepStrictEqual(
-      result.schema?.entries,
-      readWriteAllowlistEntriesForGuard(guardSchemaPath),
-    );
-    assert.equal(guardBlocks(workspace, guardSchemaPath, "agent-workspace/note.md"), false);
-    assert.equal(guardBlocks(workspace, guardSchemaPath, "default-only/file.txt"), true);
   });
+
+  it("accepts sibling control and agent workspace roots with multiple agents", () => {
+    const { controlWorkspace, agentMain, agentReviewer } = createSiblingWorkspaceFixture();
+    const result = validate(controlWorkspace);
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(result.contract.paths.controlWorkspaceRoot, controlWorkspace);
+    assert.equal(result.config?.agents.main.workspaceCwd, agentMain);
+    assert.equal(result.config?.agents.reviewer.workspaceCwd, agentReviewer);
+  });
+
+  it("keeps one bot binding model routed to multiple sibling agent workspaces", () => {
+    const { controlWorkspace, agentMain, agentReviewer } = createSiblingWorkspaceFixture();
+    const result = validate(controlWorkspace);
+
+    assert.deepStrictEqual(workspaceValidationErrors(result), []);
+    assert.equal(result.config?.bindings[0]?.agentId, "main");
+    assert.equal(result.config?.agents[result.config.bindings[0].agentId]?.workspaceCwd, agentMain);
+    assert.equal(result.config?.bindings[1]?.agentId, "reviewer");
+    assert.equal(result.config?.agents[result.config.bindings[1].agentId]?.workspaceCwd, agentReviewer);
+    const discordBinding = result.config?.discord?.bindings[0];
+    assert.equal(discordBinding?.agentId, "main");
+    assert.equal(result.config?.agents[discordBinding?.agentId ?? ""]?.workspaceCwd, agentMain);
+    assert.equal(discordBinding?.channels?.[0]?.agentId, "reviewer");
+    assert.equal(result.config?.agents[discordBinding?.channels?.[0]?.agentId ?? ""]?.workspaceCwd, agentReviewer);
+  });
+
+  it("rejects a missing configured agent workspaceCwd", () => {
+    const workspace = createWorkspace({ workspaceCwd: "./missing-agent-workspace" });
+    const result = validate(workspace);
+
+    assert.match(
+      errorMessages(result),
+      /agent "main" workspaceCwd does not exist/,
+    );
+  });
+
+  it("rejects a configured agent workspaceCwd that is not a directory", () => {
+    const workspace = createWorkspace({
+      workspaceCwd: "./not-a-directory",
+      extraFiles: { "not-a-directory": "not a directory" },
+    });
+    const result = validate(workspace);
+
+    assert.match(
+      errorMessages(result),
+      /agent "main" workspaceCwd is not a directory/,
+    );
+  });
+
 });

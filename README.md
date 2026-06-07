@@ -95,7 +95,7 @@ cd ~/.minime/bot && npm install
 cp config.local.yaml.example config.local.yaml
 ```
 
-Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of your repo and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it).
+Edit `config.local.yaml` — set `workspaceCwd` to the absolute path of the repo or project directory the agent should work in, and `chatId` to your Telegram user ID (send `/start` to [@userinfobot](https://t.me/userinfobot) to find it).
 
 `crons.yaml` ships with example crons (all disabled). Create `crons.local.yaml` for your own crons:
 
@@ -134,7 +134,7 @@ creation_rules:
     age: age1replace_with_your_public_recipient
 ```
 
-`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. This bot runtime file is resolved relative to the bot config file, not relative to agent workspaces. Create it with SOPS/age so the decrypted document contains only bot platform token paths:
+`config.yaml` already points Telegram at `config/secrets.sops.yaml` key `telegram.bot_token`. This bot runtime file is resolved relative to the control workspace, not relative to agent workspaces. Create it with SOPS/age so the decrypted document contains only control-workspace runtime secrets:
 
 ```bash
 mkdir -p config
@@ -148,9 +148,11 @@ telegram:
   bot_token: ENC[...]
 discord:
   bot_token: ENC[...]
+tavily:
+  api_key: ENC[...]
 ```
 
-Tavily web-tool secrets use a separate SOPS file in each agent workspace, described in [A2 setup](#pi-extensions-a1-a3). Do not copy Telegram or Discord bot tokens into agent workspaces.
+Tavily web-tool secrets use the same control-workspace path by default: `config/secrets.sops.yaml` key `tavily.api_key`, described in [web-tools setup](#web-tools-setup-optional). Do not copy Telegram, Discord, or Tavily secret values into agent workspaces.
 
 **4. Initialize Pi auth**
 
@@ -263,7 +265,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
    Pi cron behavior:
 
-   - LLM crons always run Pi print mode with `pi -p --no-session --no-extensions`, fixed model `openai-codex/gpt-5.5`, the agent `systemPrompt`/workspace context, and only the explicit A1 guard extension.
+   - LLM crons always run Pi print mode with `pi -p --no-session --no-extensions`, fixed model `openai-codex/gpt-5.5`, and the agent `systemPrompt`/workspace context.
    - Agent `thinking` maps to `--thinking`; absent values default to `medium`, and invalid configured values fail validation.
    - The `pi` binary must be on the launchd cron `PATH`, and Pi auth must exist at `~/.pi/agent/auth.json` for the launchd user. Run `pi /login` as that user before enabling LLM crons.
    - Set `enabled: false`, convert the cron to `type: script`, or unload the cron plist to stop a problematic cron. Engine values other than `pi` are rejected.
@@ -272,7 +274,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.minime.telegram-bot.p
 
    - Empty stdout with empty stderr is a successful no-delivery run.
    - `NO_REPLY` is a successful no-delivery LLM run.
-   - Pi stderr-only success, non-zero exit, signal exit, spawn timeout, missing A1 guard, or disabled A1 guard are failures and trigger the existing `⚠️ Cron FAIL` notification plus the failure metric.
+   - Pi stderr-only success, non-zero exit, signal exit, or spawn timeout are failures and trigger the existing `⚠️ Cron FAIL` notification plus the failure metric.
 
 2. Generate launchd plists:
    ```bash
@@ -341,7 +343,7 @@ Token resolution checks SOPS first, then a configured environment variable:
 
 | Field | Source | When to use |
 |---|---|---|
-| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical private-workspace deployment backend for bot platform tokens |
+| `secrets.sopsFile` + `telegramTokenSopsKey` / `discord.tokenSopsKey` | SOPS/age file read with `sops -d --extract` | Canonical control-workspace deployment backend for bot platform tokens |
 | `telegramTokenEnv` / `discord.tokenEnv` | Environment variable name read from `process.env` | Explicit environment override for launchd, Linux, containers, or systemd |
 
 Example:
@@ -355,19 +357,19 @@ discord:
   tokenEnv: DISCORD_BOT_TOKEN
 ```
 
-SOPS key paths are dot paths whose segments must match `[A-Za-z0-9_-]+`, such as `telegram.bot_token`. A configured `*SopsKey` requires `secrets.sopsFile`; invalid key syntax or a missing `secrets.sopsFile` is a config error. Runtime lookup failures such as a missing file, decrypt failure, or blank decrypted value fall back to the configured env var, then fail with sanitized source/key/env/failure-kind details if no source resolves.
+SOPS key paths are dot paths whose segments must match `[A-Za-z0-9_-]+`, such as `telegram.bot_token`. A configured `*SopsKey` requires `secrets.sopsFile`; relative SOPS file paths resolve against the control workspace, not the config file directory or any agent workspace. Invalid key syntax or a missing `secrets.sopsFile` is a config error. Runtime lookup failures such as a missing file, decrypt failure, or blank decrypted value fall back to the configured env var, then fail with sanitized source/key/env/failure-kind details if no source resolves.
 
 Legacy `telegramTokenService` and `discord.tokenService` Keychain settings are rejected with migration errors. Telegram token resolution is required only when Telegram bindings are configured; Discord-only deployments can set `bindings: []` and provide a Discord token source.
 
 ## Memory architecture
 
-The bot maintains persistent context across sessions through a memory system rooted at the workspace.
+The bot maintains persistent context across sessions through a memory system rooted at each agent workspace.
 
-- `MEMORY.md` at the workspace root is a curated index of memory files. Keep it concise — the Pi context assembler loads it into the agent's initial context on every session.
+- `MEMORY.md` at the agent workspace root is a curated index of memory files. Keep it concise — the Pi context assembler loads it into the agent's initial context on every session.
 - `memory/auto/` holds typed memory files (`user`, `feedback`, `project`, `reference`) with frontmatter, written by the agent or the `memory-consolidation` nightly cron.
 - `memory/diary/` holds narrative digests from consolidation runs.
 
-`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. `CLAUDE.md` remains the workspace context entry point even though Pi/Codex is now the runtime; the Pi context assembler follows that import and includes the workspace memory index.
+`MEMORY.md` is auto-loaded via the `@MEMORY.md` line in `CLAUDE.md`. `CLAUDE.md` remains the agent workspace context entry point even though Pi/Codex is now the runtime; the Pi context assembler follows that import and includes the workspace memory index.
 
 **Do not remove the `@MEMORY.md` line from `CLAUDE.md`.** Without it, your workspace `MEMORY.md` will not be auto-loaded and the agent will start every session with no memory index. See [.claude/rules/platform/memory-protocol.md](.claude/rules/platform/memory-protocol.md) for the full protocol.
 
@@ -389,13 +391,15 @@ Installed-package commands use the same surface:
 
 ```bash
 minime-bot --help
-minime-bot config validate --workspace /path/to/workspace
-minime-bot workspace validate --workspace /path/to/workspace
+minime-bot config validate --workspace /path/to/control-workspace
+minime-bot workspace validate --workspace /path/to/control-workspace
 ```
 
-`--workspace` takes precedence over `MINIME_WORKSPACE_ROOT`; if neither is set in the current source checkout, the workspace defaults to the repository root. To validate the repository root itself, make sure it has the expected workspace files, including `schema.md` and configured agent `workspaceCwd` directories. `MINIME_CONFIG_PATH`, `MINIME_CRONS_PATH`, and `MINIME_SCHEMA_PATH` override the corresponding workspace files and resolve relative to the workspace root when not absolute.
+`--workspace` takes precedence over `MINIME_WORKSPACE_ROOT`; under ADR-081 it names the control/app workspace that owns config, crons, bindings, runtime state, and global secret references. If neither is set in the current source checkout, the workspace defaults to the repository root. Relative agent `workspaceCwd` values resolve against the control workspace. Absolute agent workspaces are allowed to live outside the control workspace after existence/directory validation.
 
-Validation is structural by default. These commands load config with secret resolution disabled, parse crons and the workspace `schema.md` write allow-list, and print effective paths without decrypting SOPS files or printing secret values. Hard failures include an absent or invalid workspace root, missing or invalid config, malformed crons, missing/empty/malformed schema while guards are enabled, missing configured agent workspaces, agent workspaces outside the resolved workspace root, a missing Pi extension directory, or validator/live-guard schema path disagreement. A missing crons file is a warning. Setting `PI_EXTENSIONS_DISABLED=1` skips schema enforcement as a warning for workspace validation, but Pi LLM crons still require the A1 guard.
+`MINIME_CONFIG_PATH` and `MINIME_CRONS_PATH` override the control workspace config and crons files. Relative override values resolve against the control workspace. They are non-secret path references and are propagated to Pi children only when explicitly configured.
+
+Validation is structural by default. These commands load config with secret resolution disabled, parse crons, and print effective paths without decrypting SOPS files or printing secret values. The validator hard-fails missing or non-directory control workspaces, invalid or missing config paths, invalid crons paths, missing or non-directory configured agent workspaces, and missing package Pi extension directories. It warns for missing crons files and missing optional agent context files or rules directories.
 
 ### Provider backends
 
@@ -424,30 +428,29 @@ The typed Pi RPC module ([bot/src/pi-rpc-protocol.ts](bot/src/pi-rpc-protocol.ts
 
 The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; the bot prepends `/opt/homebrew/bin` to the spawned process's `PATH`, so ensure `pi` is reachable there or on the inherited `PATH`. Auth is managed by Pi itself, which reads `~/.pi/agent/auth.json` (the bot does not create or manage that file).
 
-#### Pi extensions (A1-A3)
+#### Pi extensions
 
-Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--no-extensions`, then loads three first-party extensions so Pi sessions reach parity with the workspace guard, web-tools, and subagent capabilities expected by deployed agents. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs. Source checkout runs load the TypeScript wrappers under `bot/.claude/extensions/`; built and installed package runs load generated wrappers under `bot/dist/extensions/pi/` or `node_modules/minime/dist/extensions/pi/`, including copied subagent `agents/*.md` and `prompts/*.md` resources.
+Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--no-extensions`, then loads first-party extensions as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)). Loading is deliberately per-spawn rather than via Pi's auto-discovery dirs. Source checkout runs load the TypeScript wrappers under `bot/.claude/extensions/`; built and installed package runs load generated wrappers under `bot/dist/extensions/pi/` or `node_modules/minime/dist/extensions/pi/`, including copied subagent `agents/*.md` and `prompts/*.md` resources.
 
 | Extension | Wrapper | What it does |
 |---|---|---|
-| **A1 guard** | `bot/.claude/extensions/guardian-protect-files.ts` | A `tool_call` handler that blocks edit/write and bash redirects (`>`, `>>`, `tee`, `mv`, `cp`) into the 10-path immutable core of upstream-owned paths (`bot/`, `.claude/hooks/`, `.claude/rules/platform/`, `.claude/skills/workspace-health/scripts/`, `.github/workflows/`, `.githooks/`, `.gitleaks.toml`, `.gitleaksignore`, `README.md`, `config.local.yaml.example`) and `..` traversal escapes. It also drives the **schema-enforced deny-by-default** write-guard: it parses the workspace `schema.md` ```` ```write-allowlist ```` block and blocks any write/edit/bash target whose workspace-relative path is not in it (deny-overlay > allow > default-deny). Directory entries (trailing slash) match as prefixes; the four file entries match root-only-exact (`README.md` blocks the root file but not `docs/README.md`). A missing/empty block fails **closed** (immutable core still blocks; everything else is denied with an actionable "add it to `schema.md`" message). Path matching canonicalizes `.`/`..`/`//` and is case-insensitive (APFS). Disable first-party wrappers with `PI_EXTENSIONS_DISABLED=1`; ambient discovery remains disabled. |
-| **A2 web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The API key is read from SOPS key `tavily.api_key` in `config/secrets.sops.yaml` relative to the Pi session cwd, which is the agent's `workspaceCwd`. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
-| **A3 subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Each child spawn passes `--no-extensions`, then explicitly loads A1 guard + A2 web-tools so delegated research can use `web_search` / `web_fetch` without bypassing the write guard; children never load A3 `subagent/index.ts`, so recursive spawning stays disabled. Child wrapper resolution fails closed if a required wrapper is missing. Child errors warn-log. |
+| **web-tools** | `bot/.claude/extensions/web-tools.ts` | Registers `web_search` + `web_fetch`, Tavily-backed. The wrapper reads `tavily.api_key` from `config/secrets.sops.yaml` under the control workspace passed through `MINIME_WORKSPACE_ROOT`, independent of the Pi session cwd. A missing key warn-logs a sanitized message but leaves the tools registered; failures return a graceful "unavailable" result instead of throwing. |
+| **subagent** | `bot/.claude/extensions/subagent/` | The vendored official `subagent` extension (directory), adapted only to spawn an isolated `pi -p` child on the `openai-codex` provider. Exposes the `subagent` tool (`single` / `parallel` / `chain`) that the Agent/Task delegation skills invoke. Children load web-tools only; they never load `subagent/index.ts`, so recursive spawning stays disabled. Child wrapper resolution fails closed if a required wrapper is missing. Child errors warn-log. |
 
-**A2 setup (optional):** add a [Tavily](https://tavily.com) API key to a Tavily-only private SOPS file at `<agent.workspaceCwd>/config/secrets.sops.yaml` to enable `web_search` / `web_fetch` for that agent. The decrypted shape should contain only the web-tool secret:
+**web-tools setup (optional):** add a [Tavily](https://tavily.com) API key to the control-workspace SOPS file at `<control-workspace>/config/secrets.sops.yaml` using key `tavily.api_key`. The decrypted shape can share the same file as Telegram and Discord tokens, or contain only the web-tool secret if those tokens use explicit environment overrides:
 
 ```yaml
 tavily:
   api_key: ENC[...]
 ```
 
-Keep this file separate from the bot runtime SOPS file used for Telegram and Discord tokens. Omit it to leave the tools registered-but-unavailable.
+Omit `tavily.api_key` to leave the tools registered-but-unavailable. The web-tools wrapper never reads secrets from agent workspaces and never receives the plaintext Tavily key through env or argv.
 
-**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with no explicit first-party wrappers; the spawn still passes `--no-extensions`, so ambient discovery does not load other extensions. With extensions enabled, a configured wrapper missing on disk makes the spawn **fail loudly** rather than silently dropping the guard (A1 is the write guard — a silent skip would spawn an unguarded session). Pi crons are stricter: LLM crons require A1 and fail closed if `PI_EXTENSIONS_DISABLED=1`.
+**Kill-switch:** set `PI_EXTENSIONS_DISABLED=1` in the bot's environment to spawn Pi RPC chat sessions with no explicit first-party wrappers; the spawn still passes `--no-extensions`, so ambient discovery does not load other extensions. A configured wrapper missing on disk fails loudly instead of silently dropping part of the first-party extension contract.
 
 **Rollback:**
 
-- **Disable Pi extensions (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi RPC chat spawns drop all three first-party wrappers immediately while still blocking ambient extension discovery.
+- **Disable Pi extensions (no deploy):** set `PI_EXTENSIONS_DISABLED=1` in the bot's launchd environment, then `bot/scripts/restart-bot.sh --plist` (env-var changes are plist-level — see [Start / Stop](#start--stop)). Pi RPC chat spawns drop explicit first-party wrappers immediately while still blocking ambient extension discovery.
 - **Cron rollback:** set `enabled: false`, unload the cron plist, or change the job to `type: script` and reload its plist. LLM crons only run through Pi.
 - **Code:** `git revert <merge-commit>` in this repo → `git fetch upstream && git merge upstream/main` in the workspace → `bot/scripts/restart-bot.sh`.
 
@@ -752,9 +755,9 @@ No cron system, no multi-agent, no workspace management, no Discord. Single-user
 | Multi-agent with isolated workspaces | Yes | Yes |
 | Cron system | launchd plists (per-cron process isolation) | In-process scheduler |
 | Crash safety | Atomic JSON writes, launchd auto-restart | Atomic writes, in-flight turn tracking, process registry |
-| Workspace health | Filesystem guardian hooks + structural audits | Agent health with exponential backoff |
+| Workspace health | Structural audits | Agent health with exponential backoff |
 | Memory consolidation | Nightly summarization cron | File sync |
 | Platforms | Telegram + Discord | Telegram + Matrix |
 | Runtime support | Pi/Codex | Claude Code, Codex, Gemini |
 
-Neither project is strictly better than the other — feature sets are comparable. Ductor covers more CLIs and has deeper crash recovery (in-flight turn tracking, process registry, stream coalescing). Minime is narrower: a TypeScript wrapper around Pi/Codex sessions that delegates process isolation to launchd and workspace protection to filesystem hooks and Pi extensions.
+Neither project is strictly better than the other — feature sets are comparable. Ductor covers more CLIs and has deeper crash recovery (in-flight turn tracking, process registry, stream coalescing). Minime is narrower: a TypeScript wrapper around Pi/Codex sessions that delegates process isolation to launchd and workspace checks to explicit validation.

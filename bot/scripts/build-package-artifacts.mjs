@@ -10,7 +10,6 @@ const sourceExtensionDir = join(packageRoot, ".claude", "extensions");
 const artifactExtensionDir = join(packageRoot, "dist", "extensions", "pi");
 
 const wrappers = [
-  ["guardian-protect-files.ts", "guardian-protect-files.js"],
   ["web-tools.ts", "web-tools.js"],
   [join("subagent", "agents.ts"), join("subagent", "agents.js")],
   [join("subagent", "index.ts"), join("subagent", "index.js")],

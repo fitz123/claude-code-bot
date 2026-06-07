@@ -13,6 +13,7 @@
   "scripts": {
     "test": "MINIME_TEST_MEDIA_BASE=/tmp/bot-media-test node --experimental-test-module-mocks --import tsx --test src/__tests__/*.test.ts",
     "build": "node scripts/clean-package-dist.mjs && tsc && node scripts/build-package-artifacts.mjs",
+    "check:schema-guard-contract": "node scripts/check-no-active-schema-guard-contract.mjs",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "prepare": "npm run build",
