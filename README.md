@@ -72,7 +72,7 @@ Both platforms share one Session Manager and use the same stream-relay logic via
 ### Prerequisites
 
 - macOS (launchd required for bot service management)
-- Node.js 20+ and npm
+- Node.js 22.19+ and npm (Pi package dependencies require Node >=22.19.0)
 - `jq` — required by hook scripts (`brew install jq`)
 - `sops` and `age`, with an age identity available to the launchd user unless you configure only explicit token environment variables
 - The `pi` binary on launchd `PATH` and Pi auth initialized for the launchd user with `pi /login`
@@ -373,6 +373,30 @@ The bot maintains persistent context across sessions through a memory system roo
 
 ## Configuration
 
+### CLI validation
+
+The package exposes a built CLI as `minime-bot` after `npm run build`, `npm pack`, or package installation. Package-installed Pi dependencies require Node >=22.19.0, matching `bot/package.json` `engines.node`. From a source checkout, the same workspace validator is available through npm scripts:
+
+```bash
+cd bot
+npm run build
+npm run workspace:validate -- --workspace ./test-fixtures/minimal-workspace
+npm run validate-config
+node dist/cli.js --help
+```
+
+Installed-package commands use the same surface:
+
+```bash
+minime-bot --help
+minime-bot config validate --workspace /path/to/workspace
+minime-bot workspace validate --workspace /path/to/workspace
+```
+
+`--workspace` takes precedence over `MINIME_WORKSPACE_ROOT`; if neither is set in the current source checkout, the workspace defaults to the repository root. To validate the repository root itself, make sure it has the expected workspace files, including `schema.md` and configured agent `workspaceCwd` directories. `MINIME_CONFIG_PATH`, `MINIME_CRONS_PATH`, and `MINIME_SCHEMA_PATH` override the corresponding workspace files and resolve relative to the workspace root when not absolute.
+
+Validation is structural by default. These commands load config with secret resolution disabled, parse crons and the workspace `schema.md` write allow-list, and print effective paths without decrypting SOPS files or printing secret values. Hard failures include an absent or invalid workspace root, missing or invalid config, malformed crons, missing/empty/malformed schema while guards are enabled, missing configured agent workspaces, agent workspaces outside the resolved workspace root, a missing Pi extension directory, or validator/live-guard schema path disagreement. A missing crons file is a warning. Setting `PI_EXTENSIONS_DISABLED=1` skips schema enforcement as a warning for workspace validation, but Pi LLM crons still require the A1 guard.
+
 ### Provider backends
 
 Interactive agents run through Pi RPC + OpenAI Codex. The optional per-agent `provider` field remains only as a compatibility field:
@@ -402,7 +426,7 @@ The Pi binary (`@earendil-works/pi-coding-agent`) is resolved from `PATH`; the b
 
 #### Pi extensions (A1-A3)
 
-Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--no-extensions`, then loads three first-party extensions so Pi sessions reach parity with the workspace guard, web-tools, and subagent capabilities expected by deployed agents. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs.
+Every `pi --mode rpc` spawn suppresses Pi's ambient extension discovery with `--no-extensions`, then loads three first-party extensions so Pi sessions reach parity with the workspace guard, web-tools, and subagent capabilities expected by deployed agents. They are loaded as repeatable `--extension <abs-path>` args appended by `buildPiSpawnArgs` (see [resolvePiExtensionArgs](bot/src/pi-rpc-protocol.ts)) — loading is deliberately per-spawn rather than via Pi's auto-discovery dirs. Source checkout runs load the TypeScript wrappers under `bot/.claude/extensions/`; built and installed package runs load generated wrappers under `bot/dist/extensions/pi/` or `node_modules/minime/dist/extensions/pi/`, including copied subagent `agents/*.md` and `prompts/*.md` resources.
 
 | Extension | Wrapper | What it does |
 |---|---|---|

@@ -37,7 +37,10 @@ Five hooks are wired in `.claude/settings.json`:
 - Bundled scout/planner/reviewer agents allow `web_search` and `web_fetch`; worker has no explicit tools allowlist.
 - Use `thinking` for Pi agents; `effort` is obsolete and rejected by config validation.
 - Runtime bot tokens use `bot/src/secrets.ts`: SOPS first, then configured env; legacy `*tokenService` Keychain fields are rejected. Telegram/Discord SOPS files resolve relative to the bot config file, while Tavily uses `config/secrets.sops.yaml` relative to each Pi session `workspaceCwd` and should contain only `tavily.api_key`.
+- Workspace contract defaults live in `bot/src/workspace-contract.ts`: CLI `--workspace`, then `MINIME_WORKSPACE_ROOT`, then source-checkout fallback. `MINIME_CONFIG_PATH`, `MINIME_CRONS_PATH`, and `MINIME_SCHEMA_PATH` resolve relative to the workspace root; relative agent `workspaceCwd` values are resolved against that root and agent workspaces must stay inside it before runtime spawns.
+- Package extension artifacts are generated under `bot/dist/extensions/pi` by `npm run build` / `npm pack`; source development still uses `bot/.claude/extensions`.
 - Bot validation commands: `cd bot && npm test`, `npm run typecheck`, and `npm run validate-config`.
+- Package validation commands: `cd bot && npm run build`, `npm run workspace:validate -- --workspace ./test-fixtures/minimal-workspace`, and `npm pack --dry-run`.
 - Sampler dry-run check: `cd bot && CODEX_QUOTA_TEXTFILE_DIR=/tmp/codex-quota-test CODEX_QUOTA_STATE_FILE=/tmp/codex-quota-test/state.json npx tsx scripts/codex-quota-sampler.ts --dry-run`.
 
 ## Skills

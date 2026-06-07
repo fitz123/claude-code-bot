@@ -1,8 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, normalize, resolve } from "node:path";
 import type {
   AgentConfig,
   StreamLine,
@@ -13,20 +12,17 @@ import type {
 } from "./types.js";
 import { log } from "./logger.js";
 import { assemblePiContext } from "./pi-context-assembler.js";
+import {
+  MINIME_SCHEMA_PATH_ENV,
+  realPathIsInsideOrEqual,
+  resolveAgentWorkspaceCwd,
+  resolveWorkspaceContract,
+  type ResolvedWorkspaceContract,
+} from "./workspace-contract.js";
 
 const PI_BIN = "pi";
 const PI_PROVIDER = "openai-codex";
 const DEFAULT_PI_MODEL = "openai-codex/gpt-5.5";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-/**
- * Absolute dir holding the jiti-loaded Pi extension wrappers. They live OUTSIDE
- * `bot/src` (outside the tsc graph + the `npm test` glob — see
- * `pi-extensions/README.md`) at `bot/.claude/extensions`, so resolve relative to
- * this module: `bot/src` → `bot` → `.claude/extensions`.
- */
-const DEFAULT_PI_EXTENSIONS_DIR = resolve(__dirname, "..", ".claude", "extensions");
 
 /**
  * Wrapper entrypoints loaded into EVERY Pi spawn, in load order:
@@ -40,6 +36,12 @@ export const PI_EXTENSION_WRAPPER_RELPATHS = [
   "guardian-protect-files.ts",
   "web-tools.ts",
   "subagent/index.ts",
+] as const;
+
+export const PI_EXTENSION_ARTIFACT_WRAPPER_RELPATHS = [
+  "guardian-protect-files.js",
+  "web-tools.js",
+  "subagent/index.js",
 ] as const;
 
 /**
@@ -60,6 +62,8 @@ export const PI_SUBAGENT_CHILD_WRAPPER_RELPATHS = ["guardian-protect-files.ts", 
  */
 export const PI_CRON_WRAPPER_RELPATHS = ["guardian-protect-files.ts"] as const;
 
+export const PI_SUBAGENT_CHILD_ARTIFACT_WRAPPER_RELPATHS = ["guardian-protect-files.js", "web-tools.js"] as const;
+
 /**
  * Kill-switch env var: set to exactly `"1"` to spawn Pi with no explicit
  * first-party extensions. Spawns still pass `--no-extensions` so Pi's ambient
@@ -75,14 +79,14 @@ export const PI_EXTENSIONS_DISABLED_ENV = "PI_EXTENSIONS_DISABLED";
  * protected dir (`<ws>/bot/x`), which resolves OUTSIDE `/tmp` and would be allowed
  * — bypassing A1 entirely. The subagent spawn sets this to the parent workspace
  * root; the guard wrapper prefers it over `ctx.cwd` for protection while still
- * resolving RELATIVE paths against the child's real cwd. NEVER set for a top-level
- * parent spawn (there `ctx.cwd` IS the workspace root) — `buildPiSpawnEnv` scrubs
- * any stray inherited value so the parent always anchors on its own `ctx.cwd`.
+ * resolving RELATIVE paths against the child's real cwd. Top-level parent spawns
+ * also set this from the workspace contract because an agent's cwd may be a child
+ * directory inside the workspace.
  */
 export const PI_GUARD_WORKSPACE_ROOT_ENV = "PI_GUARD_WORKSPACE_ROOT";
 
 export interface PiExtensionResolveOptions {
-  /** Override the wrapper base dir (default: `bot/.claude/extensions`). */
+  /** Override the wrapper base dir (default: resolved workspace/package contract). */
   extensionsDir?: string;
   /** Override env lookup for the kill-switch (default: `process.env`). */
   env?: NodeJS.ProcessEnv;
@@ -160,13 +164,13 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
     return [];
   }
 
-  const baseDir = options?.extensionsDir ?? DEFAULT_PI_EXTENSIONS_DIR;
+  const baseDir = options?.extensionsDir ?? resolveWorkspaceContract().paths.piExtensionDir;
   const fileExists = options?.exists ?? existsSync;
   const relpaths = options?.relpaths ?? PI_EXTENSION_WRAPPER_RELPATHS;
 
   const args: string[] = [];
   for (const rel of relpaths) {
-    const abs = resolve(baseDir, rel);
+    const abs = resolve(baseDir, piExtensionRelpathForDir(baseDir, rel));
     if (!fileExists(abs)) {
       throw new Error(
         `Pi extension wrapper not found: ${abs}. Refusing to spawn an unguarded ` +
@@ -177,6 +181,17 @@ export function resolvePiExtensionArgs(options?: PiExtensionResolveOptions): str
     args.push("--extension", abs);
   }
   return args;
+}
+
+export function piExtensionRelpathForDir(baseDir: string, relpath: string): string {
+  const normalizedBase = normalize(baseDir).replace(/[\\/]+$/, "");
+  if (!normalizedBase.endsWith(`${normalize("dist/extensions/pi")}`)) {
+    return relpath;
+  }
+  if (relpath.endsWith(".ts")) {
+    return `${relpath.slice(0, -".ts".length)}.js`;
+  }
+  return relpath;
 }
 
 export interface PiPromptCommand {
@@ -282,6 +297,37 @@ export function normalizePiModel(model: string | undefined): string {
   return trimmed.includes("/") ? trimmed : `${PI_PROVIDER}/${trimmed}`;
 }
 
+function validateAgentWorkspaceCwd(
+  agent: AgentConfig,
+  contract: ResolvedWorkspaceContract,
+): string {
+  const agentWorkspace = resolveAgentWorkspaceCwd(contract.paths.workspaceRoot, agent.workspaceCwd);
+  if (!existsSync(agentWorkspace)) {
+    throw new Error(
+      `Agent "${agent.id}" workspaceCwd does not exist: ${agentWorkspace}. ` +
+        `Set MINIME_WORKSPACE_ROOT/--workspace to the owning workspace or create the agent workspace under it.`,
+    );
+  }
+  if (!statSync(agentWorkspace).isDirectory()) {
+    throw new Error(
+      `Agent "${agent.id}" workspaceCwd is not a directory: ${agentWorkspace}. ` +
+        `Set MINIME_WORKSPACE_ROOT/--workspace to the owning workspace or move the agent workspace under it.`,
+    );
+  }
+  if (!realPathIsInsideOrEqual(contract.paths.workspaceRoot, agentWorkspace)) {
+    throw new Error(
+      `Agent "${agent.id}" workspaceCwd must be inside the resolved workspace root for Pi guard enforcement: ` +
+        `workspaceCwd=${agentWorkspace} workspaceRoot=${contract.paths.workspaceRoot}. ` +
+        `Set MINIME_WORKSPACE_ROOT/--workspace to the owning workspace or move the agent workspace under it.`,
+    );
+  }
+  return agentWorkspace;
+}
+
+export function resolveValidatedPiAgentWorkspaceCwd(agent: AgentConfig): string {
+  return validateAgentWorkspaceCwd(agent, resolveWorkspaceContract());
+}
+
 export function buildPiSpawnArgs(
   agent: AgentConfig,
   resumeSessionId?: string,
@@ -346,23 +392,40 @@ export function buildPiSpawnArgs(
 }
 
 export function buildPiSpawnEnv(agent: AgentConfig): Record<string, string> {
-  void agent;
+  const contract = resolveWorkspaceContract();
+  validateAgentWorkspaceCwd(agent, contract);
 
   const env = buildAllowedPiChildEnv();
-
-  // A top-level parent must anchor its A1 guard on its OWN ctx.cwd. Scrub any
-  // stray PI_GUARD_WORKSPACE_ROOT so an inherited value can never mis-anchor the
-  // parent guard — only the subagent child spawn sets it (see the constant doc).
-  delete env[PI_GUARD_WORKSPACE_ROOT_ENV];
-
+  env[PI_GUARD_WORKSPACE_ROOT_ENV] = realpathSync(contract.paths.workspaceRoot);
+  env[MINIME_SCHEMA_PATH_ENV] = contract.paths.schemaPath;
   return env;
 }
 
-export function buildPiSubagentChildSpawnEnv(guardWorkspaceRoot: string): Record<string, string> {
-  return {
-    ...buildAllowedPiChildEnv(),
-    [PI_GUARD_WORKSPACE_ROOT_ENV]: guardWorkspaceRoot,
-  };
+function resolveOptionalChildSchemaPath(
+  guardWorkspaceRoot: string,
+  schemaPath: string | undefined,
+): string | undefined {
+  const trimmed = schemaPath?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return normalize(isAbsolute(trimmed) ? trimmed : resolve(guardWorkspaceRoot, trimmed));
+}
+
+export function buildPiSubagentChildSpawnEnv(
+  guardWorkspaceRoot: string,
+  schemaPath = process.env[MINIME_SCHEMA_PATH_ENV],
+): Record<string, string> {
+  const realGuardWorkspaceRoot = realpathSync(guardWorkspaceRoot);
+  const env = buildAllowedPiChildEnv();
+  env[PI_GUARD_WORKSPACE_ROOT_ENV] = realGuardWorkspaceRoot;
+
+  const resolvedSchemaPath = resolveOptionalChildSchemaPath(realGuardWorkspaceRoot, schemaPath);
+  if (resolvedSchemaPath) {
+    env[MINIME_SCHEMA_PATH_ENV] = resolvedSchemaPath;
+  }
+
+  return env;
 }
 
 function buildAllowedPiChildEnv(): Record<string, string> {
@@ -405,9 +468,12 @@ export interface PiStartupDiagnostics {
 const PI_STARTUP_STDERR_CAP = 64 * 1024;
 
 export function spawnPiRpcSession(agent: AgentConfig, resumeSessionId?: string): ChildProcess {
-  const child = spawn(PI_BIN, buildPiSpawnArgs(agent, resumeSessionId), {
-    env: buildPiSpawnEnv(agent),
-    cwd: agent.workspaceCwd,
+  const workspaceCwd = resolveValidatedPiAgentWorkspaceCwd(agent);
+  const spawnAgent = { ...agent, workspaceCwd };
+  const env = buildPiSpawnEnv(spawnAgent);
+  const child = spawn(PI_BIN, buildPiSpawnArgs(spawnAgent, resumeSessionId), {
+    env,
+    cwd: workspaceCwd,
     stdio: ["pipe", "pipe", "pipe"],
   });
 

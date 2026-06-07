@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -18,8 +19,10 @@ import {
   buildPiSpawnEnv,
   PI_CRON_WRAPPER_RELPATHS,
   PI_EXTENSIONS_DISABLED_ENV,
+  PI_GUARD_WORKSPACE_ROOT_ENV,
 } from "../pi-rpc-protocol.js";
 import type { AgentConfig, CronJob } from "../types.js";
+import { MINIME_SCHEMA_PATH_ENV, MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 interface SpawnCapture {
   command: string;
@@ -94,7 +97,7 @@ function makeDeps(
   return {
     spawnSync: capturingSpawn(captures),
     buildAgentConfig: (_cron, cwd) => makeAgent(cwd),
-    buildEnv: buildPiSpawnEnv,
+    buildEnv: () => ({}),
     assembleContext: () => null,
     resolveExtensionArgs: () => [...GUARD_EXTENSION_ARGS],
     ...overrides,
@@ -305,6 +308,38 @@ describe("cron-runner runPi", () => {
     assert.ok(args.includes("--no-context-files"));
   });
 
+  it("builds the guarded env before assembling cron context", () => {
+    const workspaceRoot = makeWorkspace();
+    const externalWorkspace = makeWorkspace();
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    let assembled = false;
+
+    try {
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspaceRoot;
+      const captures: SpawnCapture[] = [];
+      const deps = makeDeps(captures, {
+        buildEnv: buildPiSpawnEnv,
+        assembleContext: () => {
+          assembled = true;
+          return null;
+        },
+      });
+
+      assert.throws(
+        () => runPi(makeCron(), externalWorkspace, deps),
+        /workspaceCwd must be inside the resolved workspace root/,
+      );
+      assert.strictEqual(assembled, false);
+      assert.strictEqual(captures.length, 0);
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+    }
+  });
+
   it("uses a scrubbed Pi env and sets HOME when the parent environment lacks it", () => {
     const oldHome = process.env.HOME;
     const oldClaudeToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -324,6 +359,7 @@ describe("cron-runner runPi", () => {
     const oldSessionSecret = process.env[sessionSecretEnv];
     const oldGithubToken = process.env[githubTokenEnv];
     const oldAwsSecret = process.env[awsSecretEnv];
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
 
     try {
       delete process.env.HOME;
@@ -339,8 +375,9 @@ describe("cron-runner runPi", () => {
       process.env[awsSecretEnv] = "fixture";
 
       const ws = makeWorkspace();
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = ws;
       const captures: SpawnCapture[] = [];
-      const deps = makeDeps(captures);
+      const deps = makeDeps(captures, { buildEnv: buildPiSpawnEnv });
 
       runPi(makeCron(), ws, deps);
 
@@ -413,6 +450,47 @@ describe("cron-runner runPi", () => {
         delete process.env[awsSecretEnv];
       } else {
         process.env[awsSecretEnv] = oldAwsSecret;
+      }
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+    }
+  });
+
+  it("keeps the resolved guard workspace root and schema path in the hardened cron env", () => {
+    const oldWorkspace = process.env[MINIME_WORKSPACE_ROOT_ENV];
+    const oldSchema = process.env[MINIME_SCHEMA_PATH_ENV];
+    const workspace = makeWorkspace();
+    const agentWorkspace = join(workspace, "agent-workspace");
+    mkdirSync(agentWorkspace, { recursive: true });
+
+    try {
+      process.env[MINIME_WORKSPACE_ROOT_ENV] = workspace;
+      process.env[MINIME_SCHEMA_PATH_ENV] = "schemas/override.md";
+      const captures: SpawnCapture[] = [];
+      const deps = makeDeps(captures, {
+        buildEnv: buildPiSpawnEnv,
+        buildAgentConfig: (_cron, cwd) => makeAgent(cwd),
+      });
+
+      runPi(makeCron(), agentWorkspace, deps);
+
+      const env = captures[0].options.env ?? {};
+      assert.strictEqual(env[PI_GUARD_WORKSPACE_ROOT_ENV], realpathSync(workspace));
+      assert.strictEqual(env[MINIME_SCHEMA_PATH_ENV], join(workspace, "schemas", "override.md"));
+      assert.strictEqual(captures[0].options.cwd, agentWorkspace);
+    } finally {
+      if (oldWorkspace === undefined) {
+        delete process.env[MINIME_WORKSPACE_ROOT_ENV];
+      } else {
+        process.env[MINIME_WORKSPACE_ROOT_ENV] = oldWorkspace;
+      }
+      if (oldSchema === undefined) {
+        delete process.env[MINIME_SCHEMA_PATH_ENV];
+      } else {
+        process.env[MINIME_SCHEMA_PATH_ENV] = oldSchema;
       }
     }
   });

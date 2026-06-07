@@ -20,7 +20,7 @@
 
 agents:
   main:
-    workspaceCwd: /absolute/path/to/agent/workspace   # absolute path to your agent workspace (~ not expanded)
+    workspaceCwd: /absolute/path/to/agent/workspace   # must be inside the resolved workspace root (~ not expanded)
     model: gpt-5.5
     # provider: pi      # optional compatibility field; omit or set to "pi"
     # thinking: xhigh   # optional Pi/Codex thinking level: off, minimal, low, medium, high, xhigh

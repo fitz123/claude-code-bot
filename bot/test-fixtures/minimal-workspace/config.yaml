@@ -1,0 +1,9 @@
+agents:
+  main:
+    workspaceCwd: ./agent-workspace
+    model: gpt-5.5
+telegramTokenEnv: MINIME_FIXTURE_TELEGRAM_TOKEN
+bindings:
+  - chatId: 111
+    agentId: main
+    kind: dm

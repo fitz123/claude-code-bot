@@ -20,10 +20,12 @@
  * `docs/plans/2026-06-02-pi-claude-write-guard-enforcers.md`.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { classifyToolCall } from "../../src/pi-extensions/guard.js";
+import {
+  readWriteAllowlistEntriesForGuard,
+  resolveWriteAllowlistSchemaPath,
+} from "../../src/pi-extensions/write-allowlist-schema.js";
 import { PI_GUARD_WORKSPACE_ROOT_ENV } from "../../src/pi-rpc-protocol.js";
 
 /**
@@ -34,27 +36,17 @@ import { PI_GUARD_WORKSPACE_ROOT_ENV } from "../../src/pi-rpc-protocol.js";
  */
 const WRITE_TARGET_TOOLS = new Set(["write", "edit", "bash"]);
 
-/** The fence tag that opens the single write-allowlist block in `schema.md`. */
-const WRITE_ALLOWLIST_FENCE = "```write-allowlist";
-
 /**
- * Per-process cache of the parsed write-allowlist, keyed by workspace root. The
+ * Per-process cache of the parsed write-allowlist, keyed by schema path. The
  * `schema.md` block is read once per spawn (Pi sessions are short-lived); an
  * edit to `schema.md` is picked up on the next spawn, not mid-session.
  */
 const writeAllowlistCache = new Map<string, string[]>();
 
 /**
- * Read the workspace write allow-list — the lines of the single
- * ```` ```write-allowlist ```` fenced block in `<workspaceRoot>/schema.md`.
- * Mirrors the awk extraction `guardian.sh` uses
- * (`/^```write-allowlist$/{f=1;next} f&&/^```/{exit} f`): the lines strictly
- * between an opening fence that is EXACTLY ```` ```write-allowlist ```` and the
- * next line starting with ```` ``` ````. Both stop after the FIRST block (the awk
- * `exit`s, this loop `break`s) so they stay identical even if schema.md carries a
- * second block against its contract. Each extracted line then has `#` comments
- * stripped, is trimmed, and blanks dropped — the same stripping the guardian
- * orphan-allowlist uses.
+ * Read the workspace write allow-list from the resolved schema path. When
+ * MINIME_SCHEMA_PATH is set, it is resolved exactly like the workspace contract:
+ * absolute paths are used as-is and relative paths are based on the guard root.
  *
  * Returns the parsed lines, or an EMPTY array when `schema.md` is missing /
  * unreadable or has no `write-allowlist` block. The empty array is DELIBERATE
@@ -67,47 +59,22 @@ const writeAllowlistCache = new Map<string, string[]>();
  * filesystem; this wrapper does the I/O and injects the result.
  */
 function readWriteAllowlist(workspaceRoot: string): string[] {
-  const cached = writeAllowlistCache.get(workspaceRoot);
+  const schemaPath = resolveWriteAllowlistSchemaPath(workspaceRoot, process.env);
+  const cached = writeAllowlistCache.get(schemaPath);
   if (cached !== undefined) {
     return cached;
   }
-  const lines: string[] = [];
-  let content: string;
-  try {
-    content = readFileSync(join(workspaceRoot, "schema.md"), "utf8");
-  } catch {
-    // Missing/unreadable schema.md → empty list → fail-closed in the classifier.
-    writeAllowlistCache.set(workspaceRoot, lines);
-    return lines;
-  }
-  let inBlock = false;
-  for (const rawLine of content.split("\n")) {
-    if (!inBlock) {
-      if (rawLine === WRITE_ALLOWLIST_FENCE) {
-        inBlock = true;
-      }
-      continue;
-    }
-    if (rawLine.startsWith("```")) {
-      break; // closing fence of the write-allowlist block
-    }
-    const line = rawLine.replace(/#.*$/, "").trim();
-    if (line) {
-      lines.push(line);
-    }
-  }
-  writeAllowlistCache.set(workspaceRoot, lines);
+  const lines = readWriteAllowlistEntriesForGuard(schemaPath);
+  writeAllowlistCache.set(schemaPath, lines);
   return lines;
 }
 
 export default function (pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
-    // Protection is anchored at the IMMUTABLE workspace root. For a subagent
-    // CHILD that is the parent workspace (carried in PI_GUARD_WORKSPACE_ROOT), so
-    // a caller-supplied `cwd` cannot move the guard root and let a delegated
-    // absolute write reach a protected dir. For a top-level parent the env is
-    // unset (scrubbed by buildPiSpawnEnv) → the guard root IS `ctx.cwd`. Relative
-    // targets still resolve against the real `ctx.cwd` (where the OS writes them).
+    // Protection is anchored at the IMMUTABLE workspace root carried in
+    // PI_GUARD_WORKSPACE_ROOT. Top-level agents and subagent children can both run
+    // from a child cwd, so relative targets still resolve against the real
+    // `ctx.cwd` (where the OS writes them).
     const guardRoot = process.env[PI_GUARD_WORKSPACE_ROOT_ENV]?.trim() || ctx.cwd;
 
     // Schema-enforced DENY-BY-DEFAULT (the new model). Read the `schema.md`

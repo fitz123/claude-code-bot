@@ -155,12 +155,10 @@ describe("SessionStore", () => {
     assert.ok(existsSync(deepPath));
   });
 
-  it("default path resolves relative to project dir (not hardcoded)", () => {
-    // Verify the default path is derived from module location, ending with data/sessions.json
+  it("default path resolves through the workspace contract", () => {
     const store = new SessionStore();
-    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-    const expectedPath = resolve(repoRoot, "data", "sessions.json");
-    // Access internal path to verify it matches the dynamically-resolved project path
+    const botRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const expectedPath = resolve(botRoot, "data", "sessions.json");
     assert.strictEqual((store as any).path, expectedPath);
     assert.ok(expectedPath.endsWith("/data/sessions.json"), "Default path must end with data/sessions.json");
   });

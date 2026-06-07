@@ -3,8 +3,34 @@ import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { loadMergedCrons, loadCronTask } from "../cron-runner.js";
+import { MINIME_CRONS_PATH_ENV, MINIME_WORKSPACE_ROOT_ENV } from "../workspace-contract.js";
 
 const TEST_DIR = join("/tmp", "cron-merge-test-" + Date.now());
+
+function withEnv<T>(overrides: Record<string, string | undefined>, fn: () => T): T {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of Object.keys(overrides)) {
+    previous[key] = process.env[key];
+    const value = overrides[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 describe("loadMergedCrons", () => {
   beforeEach(() => {
@@ -27,6 +53,53 @@ describe("loadMergedCrons", () => {
     const crons = loadMergedCrons(cronsPath);
     assert.strictEqual(crons.length, 1);
     assert.strictEqual(crons[0].name, "base-task");
+  });
+
+  it("uses MINIME_WORKSPACE_ROOT crons.yaml when no crons path is passed", () => {
+    const workspaceRoot = join(TEST_DIR, "workspace-default");
+    mkdirSync(workspaceRoot, { recursive: true });
+    writeFileSync(join(workspaceRoot, "crons.yaml"), `crons:
+  - name: workspace-task
+    schedule: "0 9 * * *"
+    prompt: "workspace"
+    agentId: main
+    deliveryChatId: 111111111
+`);
+
+    const crons = withEnv(
+      {
+        [MINIME_WORKSPACE_ROOT_ENV]: workspaceRoot,
+        [MINIME_CRONS_PATH_ENV]: undefined,
+      },
+      () => loadMergedCrons(),
+    );
+
+    assert.strictEqual(crons.length, 1);
+    assert.strictEqual(crons[0].name, "workspace-task");
+  });
+
+  it("uses MINIME_CRONS_PATH relative to workspace root", () => {
+    const workspaceRoot = join(TEST_DIR, "workspace-crons-override");
+    const cronsDir = join(workspaceRoot, "settings");
+    mkdirSync(cronsDir, { recursive: true });
+    writeFileSync(join(cronsDir, "scheduled.yaml"), `crons:
+  - name: override-task
+    schedule: "0 9 * * *"
+    prompt: "override"
+    agentId: main
+    deliveryChatId: 222222222
+`);
+
+    const cron = withEnv(
+      {
+        [MINIME_WORKSPACE_ROOT_ENV]: workspaceRoot,
+        [MINIME_CRONS_PATH_ENV]: "settings/scheduled.yaml",
+      },
+      () => loadCronTask("override-task"),
+    );
+
+    assert.strictEqual(cron.name, "override-task");
+    assert.strictEqual(cron.deliveryChatId, 222222222);
   });
 
   it("appends local crons to base when names differ", () => {

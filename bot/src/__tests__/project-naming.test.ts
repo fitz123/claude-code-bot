@@ -145,12 +145,13 @@ describe("project naming", () => {
     );
   });
 
-  it("config.ts resolves config.yaml from workspace root", () => {
+  it("config.ts resolves config.yaml through workspace contract defaults", () => {
     const configTs = readRepoFile("bot/src/config.ts");
-    // Should resolve 2 levels up from __dirname (bot/src/ -> bot/ -> workspace root)
+    // Default path ownership lives in workspace-contract.ts so package-installed
+    // and source-checkout modes share one resolver.
     assert.ok(
-      configTs.includes('resolve(__dirname, "..", "..", "config.yaml")'),
-      "config.ts should resolve config.yaml from workspace root (2 levels up)"
+      configTs.includes("resolveWorkspaceContract().paths.configPath"),
+      "config.ts should use the workspace contract for its default config path"
     );
     // Should check for and load config.local.yaml when present
     assert.ok(

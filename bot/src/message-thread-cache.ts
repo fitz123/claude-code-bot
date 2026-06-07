@@ -13,16 +13,22 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { log } from "./logger.js";
+import { resolveWorkspaceContract } from "./workspace-contract.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const BOT_DIR = resolve(__dirname, "..");
 const MAX_CACHE_SIZE = 10_000;
-const DEFAULT_CACHE_PATH = join(BOT_DIR, "data", "thread-cache.json");
 
 const cache = new Map<string, number>();
+
+export function defaultThreadCachePath(): string {
+  const contract = resolveWorkspaceContract();
+  const dataDir =
+    contract.effectivePaths.workspaceRoot.source === "current-repo-fallback"
+      ? join(contract.paths.botRoot, "data")
+      : contract.paths.dataDir;
+  return join(dataDir, "thread-cache.json");
+}
 
 function cacheKey(chatId: number, messageId: number): string {
   return `${chatId}:${messageId}`;
@@ -61,7 +67,7 @@ export function threadCacheSize(): number {
  * Save the cache to disk as JSON. Called on graceful shutdown.
  * Format: array of [key, value] pairs (Map serialization).
  */
-export function saveThreadCache(path: string = DEFAULT_CACHE_PATH): void {
+export function saveThreadCache(path: string = defaultThreadCachePath()): void {
   const tmpPath = path + ".tmp";
   try {
     const dir = dirname(path);
@@ -81,7 +87,7 @@ export function saveThreadCache(path: string = DEFAULT_CACHE_PATH): void {
  * Missing or corrupt files result in an empty cache (no crash).
  * Respects MAX_CACHE_SIZE — only loads up to 10K entries.
  */
-export function restoreThreadCache(path: string = DEFAULT_CACHE_PATH): void {
+export function restoreThreadCache(path: string = defaultThreadCachePath()): void {
   try {
     const data = readFileSync(path, "utf8");
     cache.clear();

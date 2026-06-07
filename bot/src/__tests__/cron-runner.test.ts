@@ -927,7 +927,7 @@ bindings: []
       }
     });
 
-    it("getAgentWorkspace uses the same raw config resolution", () => {
+    it("getAgentWorkspace uses the same agent config resolution", () => {
       writeFileSync(CONFIG_FILE, `agents:
   worker:
     workspaceCwd: /tmp/worker-workspace
@@ -939,6 +939,25 @@ bindings: []
       assert.deepStrictEqual(resolveCronAgentData("worker", CONFIG_FILE), {
         id: "worker",
         workspaceCwd: "/tmp/worker-workspace",
+      });
+    });
+
+    it("resolves relative workspaceCwd against the config workspace root", () => {
+      const workspace = join(CONFIG_DIR, "workspace");
+      const agentWorkspace = join(workspace, "agent-workspace");
+      const configFile = join(workspace, "config.yaml");
+      mkdirSync(agentWorkspace, { recursive: true });
+      writeFileSync(configFile, `agents:
+  main:
+    workspaceCwd: ./agent-workspace
+    model: openai-codex/gpt-5.5
+bindings: []
+`);
+
+      assert.strictEqual(getAgentWorkspace("main", configFile), agentWorkspace);
+      assert.deepStrictEqual(resolveCronAgentData("main", configFile), {
+        id: "main",
+        workspaceCwd: agentWorkspace,
       });
     });
 
